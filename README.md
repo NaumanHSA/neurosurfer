@@ -21,8 +21,8 @@
 
 ## 🗞️ News
 
-- **CLI `serve` improvements** — run backend-only or UI-only, inject `VITE_BACKEND_URL` automatically. See [:link: CLI guide](cli.md).  
-- **Model registry & RAG hooks** — easier wiring for multi-model setups. See [:link: Example App](server/example-app.md).  
+- **CLI `serve` improvements** — run backend-only or UI-only, inject `VITE_BACKEND_URL` automatically. See [:link: CLI guide](https://naumanhsa.github.io/neurosurfer/cli/).  
+- **Model registry & RAG hooks** — easier wiring for multi-model setups. See [:link: Example App](https://naumanhsa.github.io/neurosurfer/server/example-app/).  
 - **Optional LLM stack** — install heavy deps only when you need them:  
   ```bash
   pip install "neurosurfer[torch]"
