@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg"
+    xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1"
+    width="880px" height="880px" viewBox="0 0 850 655"
+    style="background: transparent; background-color: transparent; color-scheme: light dark;">
+
+  <!-- One color to rule them all -->
+  <style>
+    :root { --accent: #0077ff; } /* ← change this to recolor everything */
+
+    /* Force-fill and stroke for all basic shapes */
+    ellipse, circle, rect, polygon, polyline, path {
+      fill: var(--accent) !important;
+      stroke: var(--accent) !important;
+    }
+
+    /* If you want lines to remain unfilled (typically open paths), comment this out:
+       (Open paths don't actually render fill, but this keeps intent clear.) */
+    /* path[fill="none"] { fill: none !important; } */
+  </style>
+
+  <g>
+    <g data-cell-id="0">
+      <g data-cell-id="1">
+        <g data-cell-id="N0api73an9NaJeRLOshX-24" transform="translate(65, 0.0)">
+          <g data-cell-id="N0api73an9NaJeRLOshX-5">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="363.19" cy="259.76" rx="58.05533596837944" ry="56.9802371541502" fill="#ffffff"
+                  stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-6">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="507.79" cy="112.13" rx="43.00395256916996" ry="43.00395256916996"
+                  fill="#ffffff" stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-7">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="363.66" cy="43" rx="43.00395256916996" ry="43.00395256916996" fill="#ffffff"
+                  stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-8">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="197.35" cy="411.7" rx="43.00395256916996" ry="43.00395256916996" fill="#ffffff"
+                  stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-9">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="363.66" cy="480.83" rx="43.00395256916996" ry="43.00395256916996"
+                  fill="#ffffff" stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-10">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="507.79" cy="411.7" rx="43.00395256916996" ry="43.00395256916996" fill="#ffffff"
+                  stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-12">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="197.35" cy="112.13" rx="43.00395256916996" ry="43.00395256916996"
+                  fill="#ffffff" stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-14">
+            <g>
+              <path d="M 404.57 219.8 L 477.38 142.54" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-15">
+            <g>
+              <path d="M 404.57 299.72 L 477.38 381.29" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-16">
+            <g>
+              <path d="M 363.19 202.78 L 363.66 86.01" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-17">
+            <g>
+              <path d="M 363.19 316.74 L 363.66 437.83" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-18">
+            <g>
+              <path d="M 227.76 381.29 L 321.8 299.72" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-19">
+            <g>
+              <path d="M 321.8 219.8 L 227.76 142.54" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-20">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="574.31" cy="260.76" rx="43.00395256916996" ry="43.00395256916996"
+                  fill="#ffffff" stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-21">
+            <g transform="translate(0.5,0.5)">
+              <ellipse cx="153" cy="260.76" rx="43.00395256916996" ry="43.00395256916996" fill="#ffffff"
+                  stroke="none" pointer-events="all"
+                  style="fill: light-dark(rgb(255, 255, 255), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-22">
+            <g>
+              <path d="M 421.24 259.76 L 531.3 260.76" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+          <g data-cell-id="N0api73an9NaJeRLOshX-23">
+            <g>
+              <path d="M 196.01 260.76 L 305.13 259.76" fill="none" stroke="#000000" stroke-width="4"
+                  stroke-miterlimit="10" pointer-events="stroke"
+                  style="stroke: light-dark(rgb(0, 0, 0), rgb(0, 204, 204));" />
+            </g>
+          </g>
+        </g>
+
+        <g transform="translate(-335, -140) scale(3.0)">
+          <path
+            d="M 116.552 244.51 C 160.865 278.016 155.702 209.7 200.016 243.205 C 226.603 259.958 237.569 265.892 255.294 265.892 C 273.02 265.892 279.671 259.889 306.259 243.139 C 350.574 209.631 341.632 274.913 385.945 241.407 L 392.711 236.311 C 348.397 266.466 349.685 191.772 305.373 221.929 C 278.783 238.684 273.574 241.957 255.408 242.787 C 237.697 243.596 227.046 240.021 200.458 223.266 C 156.143 193.109 156.499 271.822 112.185 241.667 L 116.552 244.51 Z"
+            fill="#0077ff" stroke="none" style="stroke-width: 1;" id="object-0"
+            transform="matrix(1, 0, 0, 1, 0, 7.105427357601002e-15)" />
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+:root  > * {
+  --md-primary-fg-color:        #02797a;
+  --md-primary-fg-color--light: #89ffef;
+  --md-primary-fg-color--dark:  #014e4a;
+}
+
+.no-title h1.md-content__title {
+  display: none;
+}
