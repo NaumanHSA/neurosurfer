@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(220 9% 30%) hsl(220 9% 14%);
+}
+
+/* Chrome, Edge, Safari */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: hsl(220 9% 14%); /* dark background */
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(220 9% 30%); /* thumb color */
+  border-radius: 10px;
+  border: 2px solid hsl(220 9% 14%); /* padding around thumb */
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(220 9% 40%);
+}
+
+*::-webkit-scrollbar-corner {
+  background: hsl(220 9% 14%);
+}
+
+:root {
+  --radius: 8px;
+  
+  /* Dark theme colors with orange accents */
+  --background: 220 9% 13%;
+  --foreground: 0 0% 100%;
+  
+  --card: 220 9% 15%;
+  --card-foreground: 0 0% 100%;
+  
+  --popover: 220 9% 15%;
+  --popover-foreground: 0 0% 100%;
+  
+  --primary: 24 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  
+  --secondary: 24 100% 40%;
+  --secondary-foreground: 0 0% 100%;
+  
+  --muted: 220 9% 20%;
+  --muted-foreground: 0 0% 90%;
+  
+  --accent: 24 100% 50%;
+  --accent-foreground: 0 0% 100%;
+  
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 100%;
+  
+  --border: 220 9% 26%;
+  --input: 220 9% 26%;
+  --ring: 24 100% 50%;
+}
+
+/* Remove dark mode class since we're always dark */
+body {
+  @apply bg-background text-foreground;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(24 100% 40% / 0.5);
+  border-radius: 10px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: hsl(220 9% 15%);
+}
+
+/* Style buttons with orange accents */
+button[type='submit'],
+button[type='button']:not([class*='bg-']):not([class*='text-']) {
+  @apply bg-primary text-primary-foreground hover:bg-primary/90 transition-colors;
+}
+
+/* Style input fields */
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='search'],
+input[type='url'],
+textarea {
+  @apply bg-card border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+}
+
+/* Typography gives paragraphs/lists spacing; keep it enabled */
+.prose :where(p):not(:where([class~="not-prose"] *)) { margin: 0 0 .75rem; }
+.prose :where(ol, ul) { margin: .75rem 0; padding-left: 1.25rem; }
+.prose :where(li) { margin: .25rem 0; }
+
+/* ---- Code block tuning ---- */
+pre { padding: 0 !important; background: transparent !important; margin: 0 !important; }
+
+.code-block {
+  border: 1px solid hsl(0 0% 18%);
+  border-radius: 12px;
+  background: hsl(0 0% 10% / 0.6);
+  /* background-color: red; */
+  margin: 0rem;
+  overflow: hidden;
+  padding: 0;
+}
+
+code.hljs { padding: 0 !important; }  /* strip hljs inner padding */
+code { background: transparent; }     /* avoid nested backgrounds */
+.hljs { background: transparent; }                    /* most themes set a bg; keep card bg only */
+
+/* Optional: tighter inline code look */
+.prose code:not(pre code) {
+  white-space: pre-wrap;
+  font-family: monospace !important;
+  font-size: .85em !important;
+  padding: .2em .4em !important;
+  color: hsl(0 0% 80%) !important;
+}
+
+.prose hr {
+  margin-top: 1rem !important;
+  margin-bottom: 1rem !important;
+}
+
+.code-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .45rem .75rem;
+  font-size: .75rem;
+  border-bottom: 0;
+  background: hsl(0 0% 15% / 0.7);
+}
+
+.code-block__body {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 0;
+}
+
+.code-block__lang {
+  opacity: .8;
+  text-transform: lowercase;
+}
+
+.code-block__copy {
+  border: 1px solid hsl(0 0% 22%);
+  background: hsl(0 0% 16%);
+  color: white;
+  font-size: .7rem;
+  padding: .15rem .5rem;
+  border-radius: 8px;
+}

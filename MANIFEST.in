@@ -1,0 +1,2 @@
+graft neurosurfer/ui_build
+global-exclude *.map __pycache__ *.py[cod]

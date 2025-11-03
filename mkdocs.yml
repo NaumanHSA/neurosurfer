@@ -1,0 +1,245 @@
+site_name: neurosurfer
+site_description: Modern AI Agent Framework with RAG, Tools, and Multi-LLM Support
+site_author: Nauman Ahsan
+site_url: https://NaumanHSA.github.io/neurosurfer
+
+repo_name: NaumanHSA/neurosurfer
+repo_url: https://github.com/NaumanHSA/neurosurfer
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2024 Neurosurfer
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: --md-primary-fg-color
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: --md-primary-fg-color
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.select
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+    - toc.integrate
+
+  logo: assets/neurosurfer_logo_white.svg
+
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+  
+extra:
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/NaumanHSA/neurosurfer
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/neurosurfer/
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX
+  consent:
+    title: Cookie consent
+    description: >-
+      We use cookies to recognize your repeated visits and preferences, as well
+      as to measure the effectiveness of our documentation and whether users
+      find what they're searching for. With your consent, you're helping us to
+      make our documentation better.
+
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  
+  # Python Markdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      auto_append:
+        - includes/abbreviations.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+      lang: en
+  - minify:
+      minify_html: true
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            docstring_section_style: table
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_object_full_path: false
+            show_category_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            group_by_category: true
+            show_if_no_docstring: false
+            inherited_members: false
+            merge_init_into_class: true
+            signature_crossrefs: true
+            separate_signature: true
+            show_signature_annotations: true
+            annotations_path: brief
+
+nav:
+  - Home: index.md  
+  - Getting Started: getting-started.md
+  - API Reference:
+    - api-reference/index.md
+    - Configuration: api-reference/configuration.md
+    - Agents:
+      - api-reference/agents/index.md
+      - ReActAgent: api-reference/agents/react-agent.md
+      - SQLAgent: api-reference/agents/sql-agent.md
+      - RAGRetrieverAgent: api-reference/agents/rag-agent.md
+    - Models:
+      - api-reference/models/index.md
+      - Chat Models:
+        - api-reference/models/chat-models/index.md
+        - BaseModel: api-reference/models/chat-models/base-model.md
+        - OpenAIModel: api-reference/models/chat-models/openai-model.md
+        - LlamaCppModel: api-reference/models/chat-models/llamacpp-model.md
+        - TransformersModel: api-reference/models/chat-models/transformers-model.md
+        - UnslothModel: api-reference/models/chat-models/unsloth-model.md
+      - Embedders:
+        - api-reference/models/embedders/index.md
+        - BaseEmbedder: api-reference/models/embedders/base-embedder.md
+        - SentenceTransformer: api-reference/models/embedders/sentence-transformer.md
+        - LlamaCppEmbedder: api-reference/models/embedders/llamacpp-embedder.md
+    - RAG:
+      - api-reference/rag/index.md
+      - Chunker: api-reference/rag/chunker.md
+      - FileReader: api-reference/rag/filereader.md
+      - RAGIngestor: api-reference/rag/ingestor.md
+    - Tools:
+      - api-reference/tools/index.md
+      - BaseTool: api-reference/tools/base-tool.md
+      - Toolkit: api-reference/tools/toolkit.md
+      - ToolSpec: api-reference/tools/tool-spec.md
+      - Built-in Tools:
+        - api-reference/tools/builtin-tools/index.md        
+        - SQL Tools:
+          - api-reference/tools/builtin-tools/sql/index.md
+          - Relevant Table Schema Finder (LLM): api-reference/tools/builtin-tools/sql/relevant_table_schema_retriever.md
+          - SQL Executor: api-reference/tools/builtin-tools/sql/sql_executor.md
+          - SQL Query Generator: api-reference/tools/builtin-tools/sql/sql_query_generator.md
+          - Final Answer Formatter: api-reference/tools/builtin-tools/sql/final_answer_formatter.md
+          - DB Insights Tool: api-reference/tools/builtin-tools/sql/db_insights_tool.md
+    - Vector Stores:
+      - api-reference/vectorstores/index.md
+      - BaseVectorDB: api-reference/vectorstores/base-vectordb.md
+      - ChromaVectorStore: api-reference/vectorstores/chroma.md
+      - InMemoryVectorStore: api-reference/vectorstores/in_memory.md
+    - Database:
+      - api-reference/database/index.md
+      - SQLDatabase: api-reference/database/sql_database.md
+      - SQLSchemaStore: api-reference/database/sql_schema_store.md
+
+   # NEW TOP-LEVEL TAB
+  - Server:
+      - server/index.md
+      - Neurosurfer API (Backend):
+          - server/backend/index.md
+          - Lifecycle Hooks: server/backend/lifecycle-hooks.md
+          - Chat Handlers: server/backend/chat-handlers.md
+          - Custom Endpoints: server/backend/custom-endpoints.md
+          - Auth & Users: server/backend/auth.md
+      - NeurosurferUI (Frontend): server/neurosurferui.md
+      - Example Application: server/example-app.md
+  - CLI: cli.md
+  - Examples:
+    - examples/index.md
+    - Models Examples: examples/models-examples.md
+    - Agents Examples: examples/agents-examples.md
+    - RAG Examples: examples/rag-examples.md
+    - Custom Tools Examples: examples/custom-tools-examples.md
+    - Server App Example: examples/server-app-example.md
+  - Contributing: contributing.md
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+

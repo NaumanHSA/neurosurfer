@@ -1,0 +1,124 @@
+# Python - Backend (all directories)
+**/tmp/
+.chainlit/
+**/__pycache__/
+**/.ipynb_checkpoints/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+**/.Python
+**/build/
+**/dist/
+**/*.egg-info/
+**/.installed.cfg
+**/*.egg
+**/MANIFEST
+**/.pytest_cache/
+**/.coverage
+**/htmlcov/
+**/.mypy_cache/
+**/.python-version
+**/.coverage.*
+**/coverage.xml
+**/*.cover
+**/*.py,cover
+**/.hypothesis/
+
+# Virtual Environment (all directories)
+.env
+.venv
+**/env/
+**/venv/
+**/ENV/
+**/env.bak/
+**/venv.bak/
+
+# Node - Frontend (all directories)
+**/node_modules/
+**/.pnp
+**/.pnp.js
+**/coverage
+**/build
+**/dist
+**/.next/
+**/out/
+**/.nuxt
+**/.nuxt/
+**/.cache
+**/.svelte-kit
+**/.vercel
+**/.netlify
+**/.env*.local
+
+# Frontend build outputs
+neurowebui/.next/
+neurowebui/out/
+neurowebui/build/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# Editor directories and files
+.idea
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project specific
+*.db
+*.sqlite
+*.sqlite3
+*.pkl
+*.h5
+*.pth
+*.pt
+*.bin
+*.onnx
+*.safetensors
+.chainlit/
+.cache/
+.ragatouille/
+.ragatouille.json
+data/
+
+# Build outputs
+/neurowebui/.next
+/neurowebui/out
+/neurowebui/build
+
+# Environment variables
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local development
+.cache/
+.temp/
+.tmp/
+tmp/
+temp/
+mkdocs.log
+unsloth_compiled_cache/
+site/
+extras/
+commands.txt
+test.py

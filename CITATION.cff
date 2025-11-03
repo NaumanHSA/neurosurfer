@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Neurosurfer: A Production-Ready AI Agent Framework"
+authors:
+  - family-names: Ahsan
+    given-names: Nouman
+  - name: "Neurosurfer contributors"
+repository-code: "https://github.com/NaumanHSA/neurosurfer"
+license: Apache-2.0
+version: "0.1.0"
+date-released: "2025-11-02"
+type: software

@@ -1,0 +1,46 @@
+name: Deploy Docs
+on:
+  push:
+    branches: [ main ]   # build docs whenever main updates
+  workflow_dispatch:     # allow manual runs
+
+permissions:
+  contents: write        # needed to push to gh-pages
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            docs/requirements.txt
+
+      - name: Install docs requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_docs.txt
+
+      # (optional) Verify versions / plugins if you want debug info
+      - name: Show mkdocs environment
+        run: |
+          mkdocs --version
+          python -c "import mkdocs, mkdocstrings; print('mkdocs:', mkdocs.__version__)"
+
+      - name: Build site
+        run: mkdocs build
+        # mkdocs reads mkdocs.yml at repo root by default; outputs ./site
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
