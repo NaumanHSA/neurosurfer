@@ -30,7 +30,7 @@ For deeper topics, jump directly to the dedicated pages linked below.
 
     Centralized settings via Pydantic (models, CORS, DB paths, RAG, server flags). Start here to wire your environment.
 
-    [:octicons-arrow-right-24: Documentation](../api-reference/configuration.md)
+    [:octicons-arrow-right-24: Documentation](../../api-reference/configuration.md)
 
 -   **Lifecycle Hooks**
 
@@ -124,4 +124,4 @@ def handle_chat(request, ctx):
 - **Typed routes:** build utility/admin APIs → [Custom Endpoints](./custom-endpoints.md)  
 - **Auth:** headers, cookies, dependencies → [Auth & Users](./auth.md)  
 - **Boot sequence:** models, RAG, warmups → [Lifecycle Hooks](./lifecycle-hooks.md)  
-- **Configure it all:** env vars, CORS, ports → [Configuration](../api-reference/configuration.md)
+- **Configure it all:** env vars, CORS, ports → [Configuration](../../api-reference/configuration.md)

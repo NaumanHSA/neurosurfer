@@ -24,7 +24,7 @@ Optionally, you can call `run(...)` to perform a **full generation** (retrieve �
 
 ```
 neurosurfer/agents/rag/
-├─ __init__.py                 # exports RAGAgent, RAGRetrieveConfig, RetrieveResult
+├─ __init__.py                 # exports RAGAgent, RAGAgentConfig, RetrieveResult
 ├─ config.py                   # dataclasses for config and results
 ├─ token_utils.py              # tokenizer/tokens fallback + trimming utilities
 ├─ context_builder.py          # format & join retrieved chunks
@@ -42,7 +42,7 @@ RAGAgent(
     vectorstore: BaseVectorDB,
     embedder: BaseEmbedder,
     *,
-    config: RAGRetrieveConfig | None = None,
+    config: RAGAgentConfig | None = None,
     logger: logging.Logger | None = None,
     make_source: Callable[[Doc], str] | None = None,
 )
@@ -53,17 +53,17 @@ RAGAgent(
 | `llm` | [`BaseModel`](../models/chat-models/base-model.md) | Any supported chat model. Must expose `ask(...)` and (ideally) `max_seq_length`. A tokenizer is optional. |
 | `vectorstore` | [`BaseVectorDB`](../vectorstores/base-vectordb.md) | Must expose `similarity_search(query_embedding, top_k, metadata_filter, similarity_threshold)`. |
 | `embedder` | [`BaseEmbedder`](../models/embedders/base-embedder.md) | Must expose `embed(sequence[str], normalize_embeddings=bool) -> list[list[float]]`. |
-| `config` | [`RAGRetrieveConfig`](#ragretrieveconfig) \| `None` | Retrieval, context‑formatting, and budgeting knobs (defaults used when `None`). |
+| `config` | [`RAGAgentConfig`](#ragagentconfig) \| `None` | Retrieval, context‑formatting, and budgeting knobs (defaults used when `None`). |
 | `logger` | `logging.Logger \| None` | Optional logger. |
 | `make_source` | `Callable[[Doc], str] \| None` | Override how each doc’s “source” label is rendered in context (filename, URI, etc.). |
 
 ---
 
-## `RAGRetrieveConfig`
+## `RAGAgentConfig`
 
 ```python
 @dataclass
-class RAGRetrieveConfig:
+class RAGAgentConfig:
     # Retrieval
     top_k: int = 5
     similarity_threshold: float | None = None

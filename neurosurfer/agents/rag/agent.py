@@ -8,7 +8,7 @@ from neurosurfer.vectorstores.base import Doc, BaseVectorDB
 from neurosurfer.models.chat_models.base import BaseModel
 from neurosurfer.models.embedders.base import BaseEmbedder
 
-from .config import RAGRetrieveConfig, RetrieveResult
+from .config import RAGAgentConfig, RetrieveResult
 from .token_utils import TokenCounter
 from .context_builder import ContextBuilder
 
@@ -36,14 +36,14 @@ class RAGAgent:
         vectorstore: BaseVectorDB = None,
         embedder: BaseEmbedder = None,
         *,
-        config: Optional[RAGRetrieveConfig] = None,
+        config: Optional[RAGAgentConfig] = None,
         logger: Optional[logging.Logger] = None,
         make_source=None,
     ):
         self.llm = llm
         self.vector_db = vectorstore
         self.embedder = embedder
-        self.cfg = config or RAGRetrieveConfig()
+        self.cfg = config or RAGAgentConfig()
         self.logger = logger or logging.getLogger(__name__)
         self.tokens = TokenCounter(llm, chars_per_token=self.cfg.approx_chars_per_token)
         self.ctx = ContextBuilder(

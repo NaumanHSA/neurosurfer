@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/neurosurfer_logo_text_black.png" alt="Neurosurfer — AI Agent Framework" width="50%"/>
-  <img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/neurosurfer_banner.svg" alt="Neurosurfer — AI Agent Framework" width="100%"/>
+  <img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer_logo_text_black.png" alt="Neurosurfer — AI Agent Framework" width="50%"/>
+  <img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer_banner.svg" alt="Neurosurfer — AI Agent Framework" width="100%"/>
   
-  <a href="https://naumanhsa.github.io/neurosurfer/#quick-start"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/quick_start_button.png" height="40" alt="Quick Start"></a>
-  <a href="https://naumanhsa.github.io/neurosurfer/examples/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/examples_button.png" height="40" alt="Examples"></a>
-  <a href="https://naumanhsa.github.io/neurosurfer/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/documentation_button.png" height="40" alt="Documentation"></a>
-  <a href="https://pypi.org/project/neurosurfer/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/pypi_button.png" height="40" alt="PyPI"></a>
-  <a href=""><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/Discord_button.png" height="40" alt="Discord"></a>
+  <a href="https://naumanhsa.github.io/neurosurfer/#quick-start"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/quick_start_button.png" height="40" alt="Quick Start"></a>
+  <a href="https://naumanhsa.github.io/neurosurfer/examples/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/examples_button.png" height="40" alt="Examples"></a>
+  <a href="https://naumanhsa.github.io/neurosurfer/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/documentation_button.png" height="40" alt="Documentation"></a>
+  <a href="https://pypi.org/project/neurosurfer/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pypi_button.png" height="40" alt="PyPI"></a>
+  <a href=""><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/discord_button.png" height="40" alt="Discord"></a>
 
 
 </div>
@@ -66,7 +66,7 @@ print(res.choices[0].message.content)
 
 ## 🏗️ High-Level Architecture
 <div align="center">
-  <img alt="Neurosurfer Architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/neurosurfer_architecture_light.png" width="100%"/>
+  <img alt="Neurosurfer Architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/architecture/neurosurfer_architecture_light.png" width="100%"/>
   <p><strong>Neurosurfer Architecture</strong></p>
 </div>
 

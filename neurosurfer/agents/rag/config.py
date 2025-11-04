@@ -20,7 +20,7 @@ class RetrieveResult:
 
 
 @dataclass
-class RAGRetrieveConfig:
+class RAGAgentConfig:
     # Retrieval
     top_k: int = 5
     similarity_threshold: Optional[float] = None

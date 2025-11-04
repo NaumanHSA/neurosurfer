@@ -55,7 +55,7 @@ theme:
     - toc.follow
     - toc.integrate
 
-  logo: assets/neurosurfer_logo_white.svg
+  logo: assets/logo/neurosurfer_logo_white_hollow.png
 
   icon:
     repo: fontawesome/brands/github
@@ -93,7 +93,7 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      toc_depth: 3
+      toc_depth: 2
   
   # Python Markdown Extensions
   - pymdownx.arithmatex:
@@ -170,7 +170,7 @@ nav:
       - api-reference/agents/index.md
       - ReActAgent: api-reference/agents/react-agent.md
       - SQLAgent: api-reference/agents/sql-agent.md
-      - RAGRetrieverAgent: api-reference/agents/rag-agent.md
+      - RAGAgent: api-reference/agents/rag-agent.md
     - Models:
       - api-reference/models/index.md
       - Chat Models:
