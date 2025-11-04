@@ -4,11 +4,11 @@
 
   <img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/neurosurfer_water_wave.svg" alt="Neurosurfer — AI Agent Framework" width="100%"/>
   
-  <a href="https://naumanhsa.github.io/neurosurfer/#quick-start"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/quick_start_button.png" height="40" alt="Quick Start"></a>
-  <a href="https://naumanhsa.github.io/neurosurfer/examples/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/examples_button.png" height="40" alt="Examples"></a>
-  <a href="https://github.com/NaumanHSA/neurosurfer"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/github_button.png" height="40" alt="GitHub"></a>
-  <a href="https://pypi.org/project/neurosurfer/"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pypi_button.png" height="40" alt="PyPI"></a>
-  <a href=""><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/discord_button.png" height="40" alt="Discord"></a>
+  <a href="https://naumanhsa.github.io/neurosurfer/#quick-start" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/quick_start_button.png" height="40" alt="Quick Start"></a>
+  <a href="https://naumanhsa.github.io/neurosurfer/examples/" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/examples_button.png" height="40" alt="Examples"></a>
+  <a href="https://github.com/NaumanHSA/neurosurfer" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/github_button.png" height="40" alt="GitHub"></a>
+  <a href="https://pypi.org/project/neurosurfer/" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pypi_button.png" height="40" alt="PyPI"></a>
+  <a href="https://discord.gg/naumanhsa" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/discord_button.png" height="40" alt="Discord"></a>
 
   <!-- <a href="getting-started/index.md"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/documentation_button.png" height="40" alt="Documentation"></a> -->
 
@@ -26,8 +26,8 @@
 
 ## 🗞️ News
 
-- **CLI `serve` improvements** — run backend-only or UI-only, inject `VITE_BACKEND_URL` automatically. See [:link: CLI guide](https://naumanhsa.github.io/neurosurfer/cli/).  
-- **Model registry & RAG hooks** — easier wiring for multi-model setups. See [:link: Example App](https://naumanhsa.github.io/neurosurfer/server/example-app/).  
+- **CLI `serve` improvements** — run backend-only or UI-only, inject `VITE_BACKEND_URL` automatically. See [CLI guide](https://naumanhsa.github.io/neurosurfer/cli/).  
+- **Model registry & RAG hooks** — easier wiring for multi-model setups. See [Example App](https://naumanhsa.github.io/neurosurfer/server/example-app/).  
 - **Optional LLM stack** — install heavy deps only when you need them:  
   ```bash
   pip install "neurosurfer[torch]"
