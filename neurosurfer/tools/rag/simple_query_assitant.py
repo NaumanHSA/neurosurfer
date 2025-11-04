@@ -4,10 +4,10 @@ RagSimpleAnswerTool: single-prompt RAG answer (retrieval + synthesis)
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from ...models.chat_models.base import BaseModel
-from ...agents.rag_retriever_agent import RAGRetrieverAgent
+from ...agents.rag import RAGAgent
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
 
@@ -40,14 +40,14 @@ class RagSimpleAnswerTool(BaseTool):
     def __init__(
         self,
         llm: BaseModel,
-        rag_retriever_agent: RAGRetrieverAgent,
+        rag_agent: RAGAgent,
         stream: bool = True,
         logger: Optional[logging.Logger] = None,
     ):
         self.llm = llm
         self.stream = stream
         self.logger = logger
-        self.rag_retriever_agent = rag_retriever_agent
+        self.rag_agent = rag_agent
         self.prompt = SIMPLE_QUERY_ASSISTANT_PROMPT
         self.top_k: int = 10
         self.max_new_tokens: int = 3000
@@ -62,7 +62,7 @@ class RagSimpleAnswerTool(BaseTool):
         top_k = kwargs.get("top_k", self.top_k)
         chat_history = kwargs.get("chat_history", [])
         
-        retrieval_results = self.rag_retriever_agent.retrieve(
+        retrieval_results = self.rag_agent.retrieve(
             user_query=query, 
             base_system_prompt=self.prompt["system_prompt"], 
             base_user_prompt=self.prompt["user_prompt"], 

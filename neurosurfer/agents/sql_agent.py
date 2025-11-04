@@ -2,160 +2,101 @@
 SQL Agent Module
 ================
 
-This module provides a specialized ReAct agent for SQL database interactions.
-The SQLAgent extends ReActAgent with SQL-specific tools for schema discovery,
-query generation, execution, and result formatting.
+Specialized ReAct agent for SQL databases built on top of the new ReActAgent core.
 
-The SQLAgent workflow:
-    1. Understand user's question
-    2. Find relevant tables using schema summaries
-    3. Retrieve detailed schema for those tables
-    4. Generate SQL query
-    5. Execute query
-    6. Format results into natural language
+Workflow:
+ 1) Understand user's question
+ 2) Select relevant tables from cached schema summaries
+ 3) Retrieve detailed schema (if needed)
+ 4) Generate SQL
+ 5) Execute SQL safely
+ 6) Format results to natural language
 
 Key Features:
-    - Automatic schema discovery and caching
-    - Intelligent table selection
-    - SQL query generation with error recovery
-    - Safe query execution
-    - Natural language result formatting
-    - Database insights and statistics
-
-Example:
-    >>> from neurosurfer.agents import SQLAgent
-    >>> from neurosurfer.models.chat_models import TransformersModel
-    >>> 
-    >>> llm = TransformersModel(model_name="meta-llama/Llama-3.2-3B-Instruct")
-    >>> agent = SQLAgent(
-    ...     llm=llm,
-    ...     db_uri="postgresql://user:pass@localhost/mydb",
-    ...     sample_rows_in_table_info=3
-    ... )
-    >>> 
-    >>> # Ask questions about the database
-    >>> for chunk in agent.run("How many users registered last month?"):
-    ...     print(chunk, end="")
+ - Automatic schema discovery & caching (SQLSchemaStore)
+ - Intelligent table selection
+ - SQL generation with error recovery
+ - Safe execution (via tool), no direct DB ops in LLM
+ - Human-friendly final answer formatting
 """
+
+from __future__ import annotations
+
 from typing import Optional, Generator, Any
 import logging
 import sqlalchemy
 from sqlalchemy import create_engine
-from ..models.chat_models.base import BaseModel
-from ..tools.base_tool import BaseTool
-from .react_agent import ReActAgent
-from ..tools import Toolkit
-from ..tools.sql import (
+
+from neurosurfer.agents.react import ReActAgent, ReActConfig
+from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.tools import Toolkit
+from neurosurfer.tools.base_tool import BaseTool
+from neurosurfer.tools.sql import (
     RelevantTableSchemaFinderLLM,
     SQLExecutor,
     SQLQueryGenerator,
     FinalAnswerFormatter,
-    DBInsightsTool
+    DBInsightsTool,
 )
-from ..db import SQLDatabase, SQLSchemaStore
+from neurosurfer.db import SQLSchemaStore
 
-AGENT_SPECIFIC_INSTRUCTIONS = None
-# AGENT_SPECIFIC_INSTRUCTIONS = """
-# ## Typical Agent Workflow
-# Use this as a general plan when answering questions using tools:
+# Extra nudges specific to SQL so the general ReAct loop stays on-rails
+AGENT_SPECIFIC_INSTRUCTIONS = """
+## SQL Agent Policy
 
-# 1. **Retrieve relevant tables schema**
-#    - Use `relevant_table_schema_finder_llm` to get schema information for the identified tables.
+- Never claim results without executing the SQL via the `sql_executor` tool.
+- Prefer the following step plan unless strong evidence suggests otherwise:
+  1) Use `relevant_table_schema_finder_llm` to pick tables and get concise schema context.
+  2) Use `sql_query_generator` to craft a complete, dialect-correct query.
+  3) Use `sql_executor` to run the query.
+  4) Use `final_answer_formatter` to present the result in natural language.
+- If a query fails:
+  - For syntax errors: fix the SQL and retry.
+  - For missing columns/tables: revisit `relevant_table_schema_finder_llm` with what you learned and regenerate.
+- Do not set `"final_answer": true` for schema discovery or query generation tools.
+- Only finalize after a successful `sql_executor` run (and optional formatting).
+"""
 
-# 2. **Generate SQL query**
-#    - Use `sql_query_generator` with the user's question and the schema to create a SQL query.
-
-# 3. **Execute the SQL query**
-#    - Use `sql_executor` to run the query.
-
-#    - **Handle errors**
-#      - If the query fails:
-#        - For **syntax errors**, revise the query and try again.
-#        - For **missing information**, re-check relevant tables or schema.
-
-# 4. **Present the result**
-#    - Use `final_answer_formatter` to convert raw SQL results into a human-readable answer.
-
-
-# NOTES:
-# - Always execute the SQL query using tool `sql_executor` before generating the final answer. Do not ask the user for confirmation.
-
-# """
 
 class SQLAgent(ReActAgent):
     """
-    Specialized ReAct agent for SQL database interactions.
-    
-    This agent extends ReActAgent with SQL-specific capabilities, including
-    schema discovery, query generation, and result formatting. It automatically
-    sets up the necessary tools and manages database connections.
-    
-    The agent uses a multi-step reasoning process:
-    1. Analyzes the user's question
-    2. Identifies relevant tables
-    3. Retrieves schema information
-    4. Generates SQL queries
-    5. Executes queries safely
-    6. Formats results naturally
-    
-    Attributes:
-        llm (BaseModel): Language model for reasoning and generation
-        db_uri (str): Database connection URI
-        db_engine (sqlalchemy.Engine): SQLAlchemy engine
-        sql_schema_store (SQLSchemaStore): Schema cache and manager
-        toolkit (Toolkit): SQL-specific tools
-    
+    SQL-aware ReActAgent with DB connection, schema cache, and SQL tools pre-wired.
+
     Example:
-        >>> agent = SQLAgent(
-        ...     llm=llm,
-        ...     db_uri="sqlite:///mydb.db",
-        ...     sample_rows_in_table_info=3,
-        ...     verbose=True
-        ... )
-        >>> 
-        >>> # Natural language queries
-        >>> for chunk in agent.run("Show me top 10 customers by revenue"):
-        ...     print(chunk, end="")
-        >>> 
-        >>> # Complex analytics
-        >>> for chunk in agent.run("What's the average order value by month?"):
+        >>> llm = TransformersModel(model_name="meta-llama/Llama-3.2-3B-Instruct")
+        >>> agent = SQLAgent(llm=llm, db_uri="sqlite:///my.db", sample_rows_in_table_info=3)
+        >>> for chunk in agent.run("How many users registered last month?"):
         ...     print(chunk, end="")
     """
+
     def __init__(
         self,
         llm: BaseModel,
         db_uri: str,
         storage_path: Optional[str] = None,
         sample_rows_in_table_info: int = 3,
-        logger: logging.Logger = logging.getLogger(),
-        verbose: bool = True
-    ):
+        logger: logging.Logger = logging.getLogger(__name__),
+        verbose: bool = True,
+        config: Optional[ReActConfig] = None,
+        specific_instructions: Optional[str] = None,
+    ) -> None:
         """
-        Initialize the SQL agent.
-        
         Args:
-            llm (BaseModel): Language model for reasoning
-            db_uri (str): Database connection URI (e.g., "postgresql://user:pass@host/db")
-            storage_path (Optional[str]): Path to store schema cache. Default: None (auto)
-            sample_rows_in_table_info (int): Number of sample rows to include in schema.
-                Default: 3
-            logger (logging.Logger): Logger instance. Default: root logger
-            verbose (bool): Enable verbose output. Default: True
-        
-        Raises:
-            Exception: If database connection fails
-        
-        Example:
-            >>> agent = SQLAgent(
-            ...     llm=my_llm,
-            ...     db_uri="postgresql://localhost/mydb",
-            ...     sample_rows_in_table_info=5
-            ... )
+            llm: Language model used by the agent.
+            db_uri: SQLAlchemy-style URI (e.g., postgresql://user:pass@host/db).
+            storage_path: Optional path to persist schema summaries.
+            sample_rows_in_table_info: How many example rows to include in schema summaries.
+            logger: Logger instance.
+            verbose: Pass-through to ReActAgent (controls rich debug prints).
+            config: ReAct configuration (retries, pruning, etc.). If None, defaults are used.
+            specific_instructions: Extra system addendum. If None, SQL defaults are used.
         """
         self.llm = llm
         self.logger = logger
         self.verbose = verbose
         self.db_uri = db_uri
+
+        # Connect DB and load schema store
         try:
             self.db_engine: sqlalchemy.Engine = create_engine(self.db_uri)
             self.sql_schema_store = SQLSchemaStore(
@@ -163,41 +104,57 @@ class SQLAgent(ReActAgent):
                 llm=self.llm,
                 sample_rows_in_table_info=sample_rows_in_table_info,
                 storage_path=storage_path,
-                logger=self.logger
+                logger=self.logger,
             )
-            self.logger.info(f"[SQLDatabase] Connected to database successfully.")
-            self.logger.info(f"[SQLSchemaStore] Loaded {len(self.sql_schema_store.store)} schema summaries.")
+            self.logger.info("[SQLAgent] Connected to database successfully.")
+            self.logger.info(f"[SQLAgent] Loaded {len(self.sql_schema_store.store)} schema summaries.")
         except Exception as e:
-            raise Exception(f"[SQLAgent] Failed to connect to database: {e}")
+            raise Exception(f"[SQLAgent] Failed to initialize DB or schema store: {e}")
 
-        self.toolkit = self.get_toolkit()
+        # Build the SQL toolkit
+        self.toolkit = self._build_toolkit()
+
+        # Initialize the parent ReActAgent with SQL-specific prompt addendum
         super().__init__(
             toolkit=self.toolkit,
             llm=self.llm,
             logger=self.logger,
-            verbose=self.verbose,
-            specific_instructions=AGENT_SPECIFIC_INSTRUCTIONS
+            specific_instructions=specific_instructions or AGENT_SPECIFIC_INSTRUCTIONS,
+            config=config,
         )
 
-    def get_toolkit(self) -> Toolkit:
-        # register tools here
-        toolkit = Toolkit()
-        toolkit.register_tool(RelevantTableSchemaFinderLLM(llm=self.llm, sql_schema_store=self.sql_schema_store))
-        toolkit.register_tool(SQLExecutor(db_engine=self.db_engine))
-        toolkit.register_tool(SQLQueryGenerator(llm=self.llm))
-        toolkit.register_tool(FinalAnswerFormatter(llm=self.llm))
-        toolkit.register_tool(DBInsightsTool(llm=self.llm, sql_schema_store=self.sql_schema_store))
-        return toolkit
-
-    def register_tool(self, tool: BaseTool):
-        self.toolkit.register_tool(tool)
-        self.update_toolkit(self.toolkit)
-
-    def train(self, summarize: bool = False, force: bool = False) -> Generator:
+    # ---------- Public helpers ----------
+    def train(self, summarize: bool = False, force: bool = False) -> Generator[str, None, None]:
+        """
+        Warm up schema cache (optionally summarize). This yields progress strings.
+        """
         return self.sql_schema_store.train(summarize=summarize, force=force)
 
-    def run(self, user_query: str, **kwargs: Any) -> Generator:
-        return self.run_agent__(user_query, **kwargs)
-
     def is_trained(self) -> bool:
+        """True if we have at least one cached schema summary."""
         return len(self.sql_schema_store.store) > 0
+
+    def register_tool(self, tool: BaseTool) -> None:
+        """Register an extra tool and refresh the parent toolkit reference."""
+        self.toolkit.register_tool(tool)
+
+    # ---------- Internals ----------
+    def _build_toolkit(self) -> Toolkit:
+        tk = Toolkit()
+        tk.register_tool(
+            RelevantTableSchemaFinderLLM(
+                llm=self.llm,
+                sql_schema_store=self.sql_schema_store,
+            )
+        )
+        tk.register_tool(SQLQueryGenerator(llm=self.llm))
+        tk.register_tool(SQLExecutor(db_engine=self.db_engine))
+        tk.register_tool(FinalAnswerFormatter(llm=self.llm))
+        tk.register_tool(DBInsightsTool(llm=self.llm, sql_schema_store=self.sql_schema_store))
+        return tk
+
+    # Note: We do NOT override run(). We use ReActAgent.run() directly, which:
+    # - streams LLM thoughts and final answers
+    # - parses & repairs Actions
+    # - executes tools with retries and input pruning
+    # If needed, you can still call: for chunk in agent.run("..."): print(chunk, end="")

@@ -1,10 +1,11 @@
 import logging
 from typing import Optional, List, Any
 
-from ...models.embedders.base import BaseEmbedder  
-from ...models.chat_models.base import BaseModel
-from ...db.sql_schema_store import SQLSchemaStore
-from ...agents.rag_retriever_agent import RAGRetrieverAgent
+from neurosurfer.models.embedders.base import BaseEmbedder  
+from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.db.sql_schema_store import SQLSchemaStore
+from neurosurfer.agents.rag import RAGAgent
+
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
 
@@ -52,6 +53,7 @@ class RelevantTableSchemaFinderLLM(BaseTool):
     ):
         self.llm = llm
         self.sql_schema_store = sql_schema_store
+        self.rag_agent = RAGAgent(llm=llm)
         self.logger = logger
         self.prompt = RELEVENT_TABLES_PROMPT
         self.top_k: int = 6
@@ -68,12 +70,10 @@ class RelevantTableSchemaFinderLLM(BaseTool):
         system_prompt = self.prompt["system_prompt"].format(top_k=self.top_k)
         base_user_prompt = self.prompt["user_prompt"].format(user_query=query, tables_and_summaries="", top_k=self.top_k)
         # Now trim context tokens if needed
-        trim_reSsults = RAGRetrieverAgent._trim_context_by_token_limit(
-            llm=self.llm,
+        trim_results = self.rag_agent._trim_context_by_token_limit(
             system_prompt=system_prompt,
             user_prompt=base_user_prompt,
             db_context=tables_and_summaries,
-            fixed_max_new_tokens=self.max_new_tokens
         )
         user_prompt = self.prompt["user_prompt"].format(
             user_query=query,

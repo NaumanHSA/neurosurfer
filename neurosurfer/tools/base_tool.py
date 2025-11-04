@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Generator, Union
 from dataclasses import dataclass, field
 from .tool_spec import ToolSpec
+from ..server.schemas import ChatCompletionChunk, ChatCompletionResponse
 
 
 @dataclass
@@ -32,7 +33,7 @@ class ToolResponse:
         final_answer (bool): If True, the observation should be treated as the
             final answer to the user's query (no further tool calls needed)
         observation (Union[str, Generator]): The tool's output. Can be a string
-            or a generator for streaming responses
+            or a generator for streaming responses (ChatCompletionChunk style)
         extras (dict): Additional data to store in agent memory for subsequent
             tool calls. Default: {}
     
@@ -51,7 +52,7 @@ class ToolResponse:
         ... )
     """
     final_answer: bool
-    observation: Union[str, Generator[Any, None, None]]
+    observation: Union[str, ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]
     extras: dict = field(default_factory=dict)
 
 

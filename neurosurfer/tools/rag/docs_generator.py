@@ -8,8 +8,10 @@ import json, re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from collections import defaultdict
 
-from ...models.chat_models.base import BaseModel
-from ...agents.rag_retriever_agent import RAGRetrieverAgent, Doc
+from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.agents.rag import RAGAgent, pick_files_by_grouped_chunk_hits
+from neurosurfer.vectorstores.base import Doc
+
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
 
@@ -175,7 +177,7 @@ class DocsGenerator(BaseTool):
     def __init__(
         self,
         llm: BaseModel,
-        rag_retriever_agent: RAGRetrieverAgent,
+        rag_agent: RAGAgent,
         folder_structure: str = None,
         n_files_per_section: int = 10,
         candidate_pool_size: int = 300,
@@ -187,7 +189,7 @@ class DocsGenerator(BaseTool):
         logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):
         self.llm = llm
-        self.rag_retriever_agent = rag_retriever_agent
+        self.rag_agent = rag_agent
         self.prompt = DOC_GENERATOR_PROMPT
         self.planner_prompt = DOC_PLANNER_PROMPT
         self.folder_structure: str = folder_structure or ""
@@ -241,14 +243,16 @@ class DocsGenerator(BaseTool):
                 )
 
                 # Step 0: Pick files for this section
-                files_of_interest = self.rag_retriever_agent.pick_files_by_grouped_chunk_hits(
+                files_of_interest = pick_files_by_grouped_chunk_hits(
+                    embedder=self.rag_agent.embedder,
+                    vector_db=self.rag_agent.vector_db,
                     section_query=retrieval_query,
                     candidate_pool_size=self.candidate_pool_size,
                     n_files=self.n_files_per_section,
                     file_key=self.file_key,
                 )
              
-                retrieval_results = self.rag_retriever_agent.retrieve(
+                retrieval_results = self.rag_agent.retrieve(
                     user_query=retrieval_query,
                     base_system_prompt=self.prompt["system_prompt"].format(specific_instructions=specific_instructions),
                     base_user_prompt=self.prompt["section_user_prompt"],

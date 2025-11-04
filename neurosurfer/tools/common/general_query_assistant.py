@@ -4,7 +4,6 @@ import logging
 from typing import Any, Optional
 
 from ...models.chat_models.base import BaseModel
-from ...agents.rag_retriever_agent import RAGRetrieverAgent
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
 
@@ -61,17 +60,11 @@ class GeneralQueryAssistantTool(BaseTool):
         Returns:
             ToolResponse: {'final_answer': False, 'observation': str|Iterable}
         """
-        max_new_tokens = RAGRetrieverAgent._calculate_max_new_tokens_prompts(
-            llm=self.llm,
-            system_prompt=self.prompt["system_prompt"],
-            user_prompt=self.prompt["user_prompt"],
-            chat_history=[],
-        )
         response = self.llm.ask(
             system_prompt=self.prompt["system_prompt"],
             user_prompt=self.prompt["user_prompt"].format(user_query=query),
             temperature=kwargs.get("temperature", self.temperature),
-            max_new_tokens=max_new_tokens,
+            max_new_tokens=kwargs.get("max_new_tokens", self.max_new_tokens),
             stream=kwargs.get("stream", self.stream),
         )
         return ToolResponse(final_answer=False, observation=response)
