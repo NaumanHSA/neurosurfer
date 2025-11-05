@@ -28,9 +28,9 @@
 
 ## API
 
-### `__init__(logger: logging.Logger | None = logging.getLogger(__name__))`
+### `__init__( tools: List[BaseTool] = [], logger: logging.Logger | None = logging.getLogger(__name__))`
 
-Creates an empty toolkit. If `logger` is omitted, the module logger is used.
+Creates a toolkit with the provided tools. `tools` is optional and must be a list of [`BaseTool`](./base-tool.md) instances. If `logger` is omitted, the module logger is used.
 
 ### `register_tool(tool: BaseTool) -> None`
 

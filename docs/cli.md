@@ -1,6 +1,21 @@
-# CLI & Dev Server Guide
+# CLI & Dev Server Guide (Enhanced)
 
-The **Neurosurfer CLI** is your single entry point for launching the backend API and (optionally) the NeurowebUI dev server. This page explains how the CLI resolves your backend app, how the UI is discovered and started, and how to tune behavior with flags and environment variables.
+The **Neurosurfer CLI** is a single command that boots your developer stack: it starts the FastAPI backend, optionally brings up the NeurowebUI. Use it for day-to-day development, local demos, and quick sanity checks of your app and UI.
+
+The CLI command is `neurosurfer`. Its primary subcommand is `serve`, which starts the backend API and, if desired, the NeurowebUI dev server. The **backend** binds to host/port from your configuration or flags. The **UI** is auto‑discovered (or provided via `--ui-root`) and runs either as a **Vite dev server** or a **static build server** (if you point at a build dir).
+
+Use `--help` to see available flags:
+```bash
+neurosurfer --help
+neurosurfer serve --help
+```
+
+### What happens if nothing is specified?
+
+If you run `neurosurfer serve` with no flags, the CLI boots **the built-in example backend** (a ready-to-use NeurosurferApp) on your configured host/port and then looks for a **bundled UI build**; if it finds one, it serves it automatically, otherwise it runs **backend-only**. For details, see: [Built-in Example App](./examples/server-app-example.md) and [Bundled UI Build](./server/neurosurferui.md).
+
+
+---
 
 ## 🚀 Quick Navigation
 
@@ -26,7 +41,7 @@ The **Neurosurfer CLI** is your single entry point for launching the backend API
 
     ---
 
-    How `--ui-root` is detected, when `npm install` runs, Vite dev server args.
+    How `--ui-root` is detected, when installs run, Vite dev server args.
 
     [:octicons-arrow-right-24: UI Details](#neurosurferui)
 
@@ -36,7 +51,7 @@ The **Neurosurfer CLI** is your single entry point for launching the backend API
 
     Common scenarios—backend only, custom modules, public host URLs, and more.
 
-    [:octicons-arrow-right-24: Try Recipes](#recipes-examples)
+    [:octicons-arrow-right-24: Try Recipes](#recipes--examples)
 
 -   :material-shield-lock:{ .lg .middle } **Security & Ops**
 
@@ -50,129 +65,107 @@ The **Neurosurfer CLI** is your single entry point for launching the backend API
 
 ---
 
-## Overview
-
-The CLI command is `neurosurfer`. Its most important subcommand is `serve`, which starts the backend API and optionally the NeurowebUI Vite dev server. By default, the backend will bind to host/port values from your configuration; the UI will be auto‑detected and started if present (you can opt out via flags).
-
-Use `--help` to see available flags:
-```bash
-neurosurfer --help
-neurosurfer serve --help
-```
-
-!!! tip "Lightweight by default"
-    The CLI itself does not require the full LLM stack. You can run API scaffolding and the UI even without GPU/model packages installed. When you actually load models, the runtime will guide you if extras are missing.
-
----
-
 ## Key Options
 
-Most users start with `neurosurfer serve` and refine behavior by setting host/port, turning on reload, or pointing at a specific app file/module. The following options are the essentials you’ll use day‑to‑day.
+Below is a quick reference of the most useful flags. Full reference tables are in **[Environment & Flags](#environment--flags-reference)**.
 
-### Backend flags
+### Backend flags (essentials)
 
-- **`--backend-app`**: where to find your backend application. This accepts:
-  - *(default)* `neurosurfer.examples.quickstart_app:ns`
-  - A **module path** with an attribute or factory: `pkg.module:ns` or `pkg.module:create_app()`
-  - A **file path** to a Python script that defines a `NeurosurferApp` instance
-- **`--backend-host`**, **`--backend-port`**: where to bind the API service (defaults come from your config).
-- **`--backend-log-level`**: logging level (e.g., `info`, `debug`).
-- **`--backend-reload`**: enable auto‑reload for development.
-- **`--backend-workers`**: number of workers for serving requests.
-- **`--backend-worker-timeout`**: worker timeout seconds.
+- **`--backend-app`**: points to the backend app (see *App Resolution* below)
+- **`--backend-host`**, **`--backend-port`**
+- **`--backend-log-level`**
+- **`--backend-reload`**
+- **`--backend-workers`**
+- **`--backend-worker-timeout`**
 
-### UI flags
+### UI flags (essentials)
 
-- **`--ui-root`**: path to the NeurowebUI project (folder with `package.json`). If omitted, the CLI tries common locations or reads `NEUROSURF_UI_ROOT`.
-- **`--ui-host`**, **`--ui-port`**: where to bind the Vite dev server.
-- **`--ui-strict-port`**: fail fast if the port is already in use.
-- **`--ui-open`**: open the browser when the UI starts.
-- **`--npm-install {auto|always|never}`**: control first‑run dependency install.
-- **`--only-backend`** / **`--only-ui`**: run a single side.
+- **`--ui-root`**: path to NeurowebUI (folder with `package.json`) or a prebuilt static dir with `index.html`
+- **`--ui-host`**, **`--ui-port`**
+- **`--ui-strict-port`**
+- **`--ui-open`** *(default: **true**; pass `--ui-open=0` or `--ui-open=false` to disable)*
+- **`--npm-install {auto|always|never}`** *(default: `auto`)*
+- **`--only-backend`** / **`--only-ui`**
 
-!!! info "UI dependency management"
-    With `--npm-install auto` (default), the CLI runs `npm install` only when it detects a missing `node_modules` directory. Use `always` to force installation, or `never` if you manage dependencies yourself.
+> **What’s new?** The CLI now **opens the browser only after the UI is reachable**, so your “open UI” message isn’t buried under backend logs.
 
 ---
 
 ## Backend App Resolution
 
-When you provide `--backend-app`, the CLI can interpret three forms and resolve them into a runnable `NeurosurferApp` instance. The goal is developer convenience while keeping behavior explicit.
+When you provide `--backend-app`, the CLI can interpret three forms and resolve them into a runnable [NeurosurferApp](./server/example-app.md) instance.
 
 ### 1) Default (no `--backend-app`)
 
-If you omit the flag, the CLI runs the built‑in example shipped with the package:
+If omitted, the CLI runs the built‑in example shipped with the package:
 ```
 neurosurfer.examples.quickstart_app:ns
 ```
-The instance `ns` is a preconfigured `NeurosurferApp` designed for quick testing.
 
 ### 2) Module path (`pkg.module[:attr_or_factory]`)
 
-You can point to a module and the attribute/factory that yields your app instance. For example:
+Point to a module and an attribute/factory yielding a `NeurosurferApp`:
+
 ```bash
-neurosurfer serve --backend-app mypkg.myapi:ns
-neurosurfer serve --backend-app mypkg.myapi:create_app()
+neurosurfer serve --backend-app mypkg.api:ns
+neurosurfer serve --backend-app mypkg.api:create_app()
 ```
-The CLI imports your module, resolves the attribute or calls the factory, and runs the resulting `NeurosurferApp`.
 
 ### 3) File path (`/path/to/app.py`)
 
-You can also pass a Python file that defines a `NeurosurferApp` instance. The CLI executes the file in an isolated namespace and scans for an instance of `NeurosurferApp`. If it finds one, it runs it.
+Pass a Python file that defines a `NeurosurferApp` instance; the CLI executes the file in an isolated namespace and scans for the instance:
 
 ```bash
 neurosurfer serve --backend-app ./app.py --backend-reload
 ```
 
 !!! warning "File mode expectations"
-    Ensure your file **creates** a `NeurosurferApp` instance but does **not** call `app.run()` at import time. The CLI will handle running. Prefer `if __name__ == '__main__': ns.run()` in files intended for direct execution.
+    Ensure your file **creates** a `NeurosurferApp` instance but does **not** call `app.run()` at import time. The CLI will run it. Keep direct runs behind `if __name__ == '__main__':`.
 
 ---
 
 ## NeurosurferUI
 
-The NeurosurferUI is a Vite‑powered dev server used during development. The CLI can launch it in parallel with the backend.
+The NeurosurferUI is a Vite‑powered dev server for development. The CLI can also serve a **built** UI directory statically.
 
 ### Root discovery
 
-If `--ui-root` is not specified, the CLI tries common relative paths (e.g., `neurosurferui` next to your package) or reads `NEUROSURF_UI_ROOT`. If the folder is not found, the CLI will exit with a helpful message.
+If `--ui-root` is omitted, we try common relative paths (e.g., `neurosurferui`), or read `NEUROSURF_UI_ROOT`. If not found, the CLI runs **backend only** with a helpful log.
 
 ```bash
 neurosurfer serve --ui-root /path/to/neurowebui
 ```
 
-### First‑run install
+### First‑run dependency install
 
-The first time you run the UI, dependencies may be missing. With `--npm-install auto`, the CLI runs `npm install --force` if it detects a missing `node_modules` directory. You can override this with `--npm-install always` or `--npm-install never`.
+With `--npm-install auto` (default), the CLI runs `npm install --force` **only if** `node_modules` is missing. Use `always` to force install, or `never` to skip.
 
 ### Backend URL for the UI
 
-The UI needs to talk to the backend. If the backend binds to `0.0.0.0` or `::`, browsers can’t use that literal host; so the CLI injects **`VITE_BACKEND_URL`** using `NEUROSURF_PUBLIC_HOST` (or `127.0.0.1` by default). Set it explicitly if you’re exposing the backend on a LAN or public IP:
+If the backend binds to `0.0.0.0` or `::`, browsers can’t use that literal host. The CLI injects **`VITE_BACKEND_URL`** using `NEUROSURF_PUBLIC_HOST` (or `127.0.0.1` by default). Set it explicitly if you’re exposing the backend on a LAN or public IP:
 
 ```bash
-export NEUROSURF_PUBLIC_HOST=your.ip.addr
+export NEUROSURF_PUBLIC_HOST=192.168.1.25
 neurosurfer serve
 ```
 
 !!! tip "Cross‑origin requests"
-    The backend exposes CORS settings via config. When developing locally, keep origins permissive; for production, restrict to your actual UI domain(s). See **[Configuration](./api-reference/configuration.md)** for details.
+    Use permissive CORS in local dev; in production, restrict to your domains. See **Configuration** for knobs.
 
 ---
 
 ## Recipes & Examples
 
-Use these scenarios as a starting point and adapt to your environment (ports, hosts, etc.).
-
 ### Backend only
 
 ```bash
-neurosurfer serve --only-backend --backend-host 0.0.0.0 --backend-port 8000
+neurosurfer serve --only-backend --backend-host 0.0.0.0 --backend-port 8081
 ```
 
-### UI only
+### UI only (Vite dev)
 
 ```bash
-neurosurfer serve --only-ui --ui-root /path/to/neurosurferui
+neurosurfer serve --only-ui --ui-root /path/to/neurowebui
 ```
 
 ### Serve a module attribute
@@ -216,68 +209,85 @@ neurosurfer serve --ui-strict-port --ui-port 5173
 
 ## Security & Operations
 
-Good defaults help in development, but production requires a bit more care—especially around ports, proxies, and graceful shutdown.
+### CORS & Auth
 
-### CORS & Authentication
-
-The backend supports CORS via configuration, allowing you to control which origins can access your API. For private deployments, pair CORS with a reverse proxy (e.g., Nginx, Traefik) and standard authentication. See **[Configuration](./api-reference/configuration.md)** for the complete set of knobs.
+Control CORS via config. For private deployments, pair CORS with a reverse proxy (Nginx, Traefik) and your preferred auth. See **Configuration** for the complete set.
 
 ### Reverse Proxy & TLS
 
-In production, terminate TLS at a reverse proxy and forward to the backend. Keep ports non‑public where possible. If you must expose the backend directly, prefer strong auth and limited IP ranges.
+Terminate TLS at a reverse proxy and forward to the backend. Keep ports non‑public where possible. If you must expose the backend directly, enforce strong auth and restrict IP ranges.
 
 ### Logs & Levels
 
-Use `--backend-log-level` to switch verbosity. During local debugging, `debug` can be handy; otherwise `info` is usually sufficient. UI logs stream to the console with `[ui]` and backend logs as `[api]` prefixes in the CLI runner.
+Use `--backend-log-level`. During local debugging, `debug` can be handy; `info` is the sane default. UI and backend child logs are piped with `[ui]` and `[api]` prefixes. A **single banner** summarizes URLs after readiness checks.
 
 ### Graceful Shutdown
 
-The CLI registers handlers for `SIGINT` and `SIGTERM`. On shutdown, both UI and backend child processes are asked to terminate, with a short grace period before a hard kill. This avoids lingering watchers or socket binds in dev.
+We register `SIGINT`/`SIGTERM` handlers. On shutdown, both UI and backend are terminated with a short grace period before a hard kill to avoid lingering watchers/sockets.
 
 !!! tip "Non‑interactive runs (CI)"
-    In CI or background jobs, set `NEUROSURF_SILENCE=1` to suppress banners/warnings, and pin ports carefully to avoid conflicts with runners.
+    Set `NEUROSURF_SILENCE=1` to suppress banners in CI, and pin ports carefully to avoid collisions.
 
 ---
 
-## Environment Reference
+## Environment & Flags Reference
 
-You can run everything via flags, or set environment variables to define defaults (useful for containers/CI).
+### Backend (flags & env)
 
-- `NEUROSURF_UI_ROOT` — path to the NeurowebUI root (folder with `package.json`)
-- `NEUROSURF_PUBLIC_HOST` — concrete host/IP used to craft `VITE_BACKEND_URL` for the UI when backend binds `0.0.0.0`/`::`
-- `NEUROSURF_SILENCE=1` — suppress banner and optional‑deps warnings on import
-- `NEUROSURF_EAGER_RUNTIME_ASSERT=1` — fail fast at import if LLM deps are missing
+| Setting | Flag | Env Var | Default | Description |
+|---|---|---|---|---|
+| Backend app | `--backend-app` | – | `neurosurfer.examples.quickstart_app:ns` | Module attr/factory or file path that yields a `NeurosurferApp`. |
+| Host | `--backend-host` | `NEUROSURF_BACKEND_HOST` | from config | Bind address for API. |
+| Port | `--backend-port` | `NEUROSURF_BACKEND_PORT` | from config | Bind port for API. |
+| Log level | `--backend-log-level` | `NEUROSURF_BACKEND_LOG` | from config | Logging verbosity (`debug`, `info`, etc.). |
+| Reload | `--backend-reload` | – | `false` | Auto‑reload for dev. |
+| Workers | `--backend-workers` | `NEUROSURF_BACKEND_WORKERS` | from config | Number of worker processes. |
+| Worker timeout (s) | `--backend-worker-timeout` | `NEUROSURF_BACKEND_WORKER_TIMEOUT` | from config | Worker timeout in seconds. |
 
-Backend defaults (often mirrored by flags within your config layer):
-- `NEUROSURF_BACKEND_HOST`, `NEUROSURF_BACKEND_PORT`
-- `NEUROSURF_BACKEND_LOG`, `NEUROSURF_BACKEND_WORKERS`, `NEUROSURF_BACKEND_WORKER_TIMEOUT`
-- `NEUROSURF_UI_HOST`, `NEUROSURF_UI_PORT`
+### UI (flags & env)
+
+| Setting | Flag | Env Var | Default | Description |
+|---|---|---|---|---|
+| UI root | `--ui-root` | `NEUROSURF_UI_ROOT` | auto‑detect | Path to Vite project (with `package.json`) or a build dir (`index.html`). |
+| UI host | `--ui-host` | `NEUROSURF_UI_HOST` | from config | Bind host for Vite/static server. |
+| UI port | `--ui-port` | `NEUROSURF_UI_PORT` | from config | Bind port for Vite/static server. |
+| Strict port | `--ui-strict-port` | – | `false` | Fail if port is in use (Vite). |
+| Open UI in browser | `--ui-open` | `NEUROSURF_UI_OPEN` | **`true`** | Auto‑open browser when UI becomes reachable. Accepts `1/0`, `true/false`. |
+| NPM install policy | `--npm-install` | `NEUROSURF_NPM_INSTALL` | `auto` | `auto`: only if missing `node_modules`; `always`: force; `never`: skip. |
+| Only backend | `--only-backend` | – | `false` | Run API only. |
+| Only UI | `--only-ui` | – | `false` | Run UI only. |
+
+### Cross‑cutting
+
+| Setting | Env Var | Default | Description |
+|---|---|---|---|
+| Public host for URL composition | `NEUROSURF_PUBLIC_HOST` | `127.0.0.1` | Used to craft `VITE_BACKEND_URL` when API binds `0.0.0.0`/`::`. |
+| Silence banners & optional‑deps warnings | `NEUROSURF_SILENCE` | `0` | Set `1` to reduce noise (e.g., CI). |
+| Eager runtime assert (deps) | `NEUROSURF_EAGER_RUNTIME_ASSERT` | `0` | Set `1` to fail fast on missing optional LLM deps. |
+
+> **Note on `--ui-open` default:** The modular implementation treats UI auto‑open as **enabled by default**. You can disable it with `--ui-open=false`, `--ui-open=0`, or by setting `NEUROSURF_UI_OPEN=0`.
 
 ---
 
 ## Troubleshooting
 
-If something doesn’t start, read the error message—the CLI prints a single consolidated message when it can’t find a UI root or backend app. For environment mismatches, these quick checks help:
-
-- **Port in use**: use `--ui-strict-port` to fail fast, or pick another `--ui-port`. For backend, change `--backend-port`.
-- **UI cannot reach backend**: ensure `VITE_BACKEND_URL` points to a reachable host/IP (set `NEUROSURF_PUBLIC_HOST` if backend bound `0.0.0.0`).
-- **LLM packages missing**: install the extra—`pip install -U 'neurosurfer[torch]'`—or see the Installation page for CUDA/MPS guidance.
-- **`npm` not found**: install Node.js/npm or run with `--only-backend`.
-
-!!! warning "Don’t call `app.run()` in your code when using the CLI"
-    The CLI orchestrates child processes itself. If your file calls `ns.run()` at import time, you’ll see unexpected behavior. Keep run logic behind `if __name__ == '__main__':` or expose a factory like `create_app()`.
+- **Port in use**: Use `--ui-strict-port` or pick a free `--ui-port`. For the API, change `--backend-port`.
+- **UI can’t reach API**: Ensure `VITE_BACKEND_URL` resolves. Set `NEUROSURF_PUBLIC_HOST` when binding `0.0.0.0`.
+- **`npm` not found**: Install Node.js/npm or run `--only-backend`.
+- **Long password error on register (bcrypt 72‑byte limit)**: Use a shorter password or configure truncation in your auth layer.
+- **Static UI**: If you point `--ui-root` at a build folder (must contain `index.html`), the CLI will serve it via a lightweight static server.
 
 ---
 
-## Related Documentation
+## Ready to launch?
 
-- **Getting Started** — installation and basic usage [:octicons-arrow-up-right-24:](./getting-started.md)
-- **Configuration** — API keys, models, server settings & env vars [:octicons-arrow-up-right-24:](./api-reference/configuration.md)
-- **API Reference** — classes, methods, schemas [:octicons-arrow-up-right-24:](./api-reference/index.md)
-
----
-
-**Ready to launch?** Try:
 ```bash
-neurosurfer serve --host 0.0.0.0 --port 8081
+# Backend + UI (auto-open, default)
+neurosurfer serve --backend-host 0.0.0.0 --backend-port 8081 --ui-root ./neurosurferui
+
+# Disable auto-open
+neurosurfer serve --ui-open=0
+
+# Backend only
+neurosurfer serve --only-backend --backend-port 8081
 ```

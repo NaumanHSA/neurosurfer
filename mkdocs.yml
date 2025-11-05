@@ -171,6 +171,7 @@ nav:
       - ReActAgent: api-reference/agents/react-agent.md
       - SQLAgent: api-reference/agents/sql-agent.md
       - RAGAgent: api-reference/agents/rag-agent.md
+      - ToolsRouterAgent: api-reference/agents/tools-router-agent.md
     - Models:
       - api-reference/models/index.md
       - Chat Models:

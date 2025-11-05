@@ -26,8 +26,7 @@ Example:
     >>> tool = toolkit.registry["sql_query"]
 """
 import logging
-from typing import Optional
-from typing import Dict
+from typing import Optional, Dict, List
 
 from .base_tool import BaseTool
 from .tool_spec import ToolSpec
@@ -62,17 +61,21 @@ class Toolkit:
     """
     def __init__(
         self,
+        tools: List[BaseTool] = [],
         logger: Optional[logging.Logger] = logging.getLogger(__name__)
     ):
         """
         Initialize the toolkit.
         
         Args:
+            tools (List[BaseTool]): List of tools to register. Default: empty list
             logger (Optional[logging.Logger]): Logger instance. Default: module logger
         """
         self.logger = logger or logging.getLogger(__name__)
         self.registry: Dict[str, BaseTool] = {}
         self.specs: Dict[str, ToolSpec] = {}
+        for tool in tools:
+            self.register_tool(tool)
 
     def register_tool(self, tool: BaseTool):
         """

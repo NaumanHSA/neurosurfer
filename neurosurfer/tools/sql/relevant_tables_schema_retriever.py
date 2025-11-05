@@ -1,7 +1,6 @@
 import logging
 from typing import Optional, List, Any
 
-from neurosurfer.models.embedders.base import BaseEmbedder  
 from neurosurfer.models.chat_models.base import BaseModel
 from neurosurfer.db.sql_schema_store import SQLSchemaStore
 from neurosurfer.agents.rag import RAGAgent
@@ -86,8 +85,8 @@ class RelevantTableSchemaFinderLLM(BaseTool):
             temperature=self.temperature,
             max_new_tokens=trim_results.final_max_new_tokens,
             stream=False
-        )
-        relevant_tables = eval(response["choices"][0]["message"]["content"]) if response else []
+        ).choices[0].message.content
+        relevant_tables = eval(response) if response else []
         message = "I have retrieved schema for the following tables which are relevant to answer the user query:\n" + ", ".join(relevant_tables)
         schema_context = message + "\n" + self.get_table_schema(relevant_tables)
         return ToolResponse(final_answer=False, observation=message, extras={"schema_context": schema_context})

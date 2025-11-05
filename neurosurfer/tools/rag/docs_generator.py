@@ -154,14 +154,6 @@ class DocsGenerator(BaseTool):
       - prepend_title (bool): Whether to start doc with "# Project Documentation" (default True).
       - doc_title (str): Custom H1 title if prepend_title is True (default "Project Documentation").
     """
-    # name = "docs_generator"
-    # description = (
-    #     "Generates structured documentation by first planning sections from the user query, folder structure, "
-    #     "and high-level context, then writing each section using retrieval-augmented generation. "
-    #     "Adapts to intent: can create full documentation or only specific sections requested by the user.\n"
-    #     "Inputs: user_query (str) for goals, specific instructions, or section constraints."
-    # )
-
     spec = ToolSpec(
         name="docs_generator",
         description="Generates structured documentation by first planning sections from the user query, folder structure, "

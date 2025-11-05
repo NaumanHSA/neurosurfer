@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 import json
 
-SUPPORTED_TYPES = {"string", "integer", "number", "boolean", "array", "object"}
+SUPPORTED_TYPES = {"string", "integer", "number", "boolean", "array", "object", "float"}
 
 TYPE_CHECK = {
     "string": lambda v: isinstance(v, str),
@@ -50,6 +50,18 @@ TYPE_CHECK = {
     "boolean": lambda v: isinstance(v, bool),
     "array":   lambda v: isinstance(v, list),
     "object":  lambda v: isinstance(v, dict),
+    "float":   lambda v: isinstance(v, float),
+}
+
+TOOL_TYPE_CAST = {
+    "string": lambda v: str(v),
+    "str": lambda v: str(v),
+    "integer": lambda v: int(v),
+    "number":  lambda v: float(v),
+    "boolean": lambda v: bool(v),
+    "array":   lambda v: list(v),
+    "object":  lambda v: dict(v),
+    "float":   lambda v: float(v),
 }
 
 @dataclass

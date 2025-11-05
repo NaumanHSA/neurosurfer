@@ -79,7 +79,7 @@ class SQLQueryGenerator(BaseTool):
             temperature=self.temperature,
             max_new_tokens=self.max_new_tokens,
             stream=False
-        )["choices"][0]["message"]["content"]
+        ).choices[0].message.content
 
         sql_query = response.replace("```sql", "").replace("`", "").strip()
         return ToolResponse(final_answer=False, observation=sql_query, extras={"sql_query": sql_query})
