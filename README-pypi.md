@@ -92,6 +92,8 @@ neurosurfer serve
 - Auto-detects UI; pass `--ui-root` if needed. First run may `npm install`.  
 - Backend binds to config defaults; override with flags or envs.
 
+> Before running the CLI, make sure you have environment ready with dependencies installed. For the default UI, cli requires `npm`, `nodejs` and `serve` to be installed on your system.
+
 **Hello LLM Example:**
 ```python
 from neurosurfer.models.chat_models.transformers import TransformersModel

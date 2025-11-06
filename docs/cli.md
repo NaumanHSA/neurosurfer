@@ -10,6 +10,9 @@ neurosurfer --help
 neurosurfer serve --help
 ```
 
+!!! info "Dependencies"
+    Before running the CLI, make sure you have environment ready with dependencies installed. For the default UI, cli requires `npm`, `nodejs` and `serve` to be installed on your system.
+
 ### What happens if nothing is specified?
 
 If you run `neurosurfer serve` with no flags, the CLI boots **the built-in example backend** (a ready-to-use NeurosurferApp) on your configured host/port and then looks for a **bundled UI build**; if it finds one, it serves it automatically, otherwise it runs **backend-only**. For details, see: [Built-in Example App](./examples/server-app-example.md) and [Bundled UI Build](./server/neurosurferui.md).
