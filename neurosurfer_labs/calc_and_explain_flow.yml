@@ -1,0 +1,41 @@
+name: calc_and_explain
+inputs:
+  num1: float
+  num2: float
+  operation: str         # "add" | "subtract" | "multiply" | "divide"
+  explanation_style: str # optional; e.g., "brief", "teacherly", "kid-friendly"
+config:
+  max_concurrency: 2
+
+nodes:
+  - id: compute
+    kind: task
+    fn: calculator
+    inputs:
+      num1: ${inputs.num1}
+      num2: ${inputs.num2}
+      operation: ${inputs.operation}
+    outputs: ["text"]   # calculator returns the numeric result; we treat it as text for downstream
+
+  - id: explain
+    kind: task
+    fn: general_query_assistant
+    inputs:
+      query: |
+        You are a concise math explainer.
+        Operation: ${inputs.operation}
+        Numbers: ${inputs.num1} and ${inputs.num2}
+        Result: ${compute.text}
+        Style: ${inputs.explanation_style}
+
+        Write one short paragraph that explains what was computed and why this result makes sense.
+        Avoid extra fluff.
+    outputs: ["text"]
+    policy:
+      retries: 1
+      timeout_s: 30
+      budget: { max_new_tokens: 180, temperature: 0.2 }
+
+outputs:
+  result: ${compute.text}
+  explanation: ${explain.text}
