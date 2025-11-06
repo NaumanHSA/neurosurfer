@@ -70,12 +70,14 @@ class AppConfig(BaseSettings):
     host_protocol: str = Field(default="http")
     worker_timeout: int = Field(default=300)   # Workers silent for more than this many seconds are killed and restarted
     logs_level: str = Field(default="info")
-    cors_origins: List[str] = Field(default=[
-        "http://localhost:5173", 
-        "http://127.0.0.1:5173", 
-        "http://0.0.0.0:5173",
-        "http://server-ip:5173"
-    ])
+    cors_origins: List[str] = Field(default=[])
+    # cors_origins: List[str] = Field(default=[
+    #     "http://localhost:5173", 
+    #     "http://127.0.0.1:5173", 
+    #     "http://0.0.0.0:5173",
+    #     "http://server-ip:5173"
+    # ])
+    allow_origin_regex: str = Field(default=".*")
     
     # UI settings
     ui_host: str = Field(default="0.0.0.0")

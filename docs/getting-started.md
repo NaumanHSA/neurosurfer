@@ -75,8 +75,8 @@ pip install -U 'neurosurfer[torch]'
 
 This extra adds `torch`, `transformers`, `sentence-transformers`, `accelerate`, `bitsandbytes`, and `unsloth`.
 
-!!! info "Pin with constraints (optional)"
-    If you prefer exact versions, use a constraints/requirements file; the extra is a convenience group.
+!!! info "OS Platform"
+    Neurosurfer has only been tested on Ubuntu Linux x86_64. It is expected to work on Windows and macOS, but you may need to verify CUDA related dependencies.
 
 ### GPU / CUDA notes (PyTorch)
 

@@ -23,7 +23,8 @@ Application/server behavior (host/port, CORS, logging) and derived paths/URLs.
 | `host_port` | `APP_HOST_PORT` | `8081` | Bind port for the server. |
 | `host_protocol` | `APP_HOST_PROTOCOL` | `http` | Protocol used in `host_url`. |
 | `logs_level` | `APP_LOGS_LEVEL` | `info` | Global logging level. |
-| `cors_origins` | `APP_CORS_ORIGINS` | `["*"]` | Allowed browser origins. |
+| `cors_origins` | `APP_CORS_ORIGINS` | `[]` | Allowed browser origins. |
+| `allow_origin_regex` | `APP_ALLOW_ORIGIN_REGEX` | `.*` | Allowed browser origins. |
 | `reload` | `APP_RELOAD` | `false` | Auto‑reload in dev. |
 | `workers` | `APP_WORKERS` | `1` | Uvicorn/Gunicorn workers. |
 | `enable_docs` | `APP_ENABLE_DOCS` | `true` | Enable `/docs` UI. |

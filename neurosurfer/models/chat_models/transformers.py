@@ -74,7 +74,7 @@ class TransformersModel(BaseModel):
         model_args = {
             "device_map": "auto" if self.device == "cuda" else None,
             "trust_remote_code": True,
-            "torch_dtype": self.dtype,
+            "dtype": self.dtype,
         }
         is_prequantized = self._is_model_already_quantized(self.model_name)
         
@@ -91,10 +91,11 @@ class TransformersModel(BaseModel):
                 self.logger.warning(f"Could not enable 4-bit quantization: {e}")
         elif load_in_4bit and is_prequantized:
             self.logger.warning("Model is already quantized. Ignoring load_in_4bit=True.")
+            model_args.pop("dtype", None)
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
         self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_args)
-        if self.device == "cpu":
+        if self.device == "cpu" and not load_in_4bit:
             self.model.to(self.dtype)
         self.model.eval()
         self.logger.info("Transformers model initialized successfully.")

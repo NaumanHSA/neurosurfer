@@ -11,7 +11,8 @@ from .schemas.model_registry import ModelList
 from .security import get_current_user, get_db
 from .models_registry import ModelRegistry
 from .api import _auth_router, _chats_router, chat_completion_router
-from .config import CORS_ORIGINS, SECRET_KEY
+from .config import SECRET_KEY
+from neurosurfer.config import config
 
 # ---------- Neurosurfer app builder ----------
 class NeurosurferApp:
@@ -61,7 +62,8 @@ class NeurosurferApp:
         self,
         app_name: str = "Neurosurfer API",
         api_keys: List[str] = [],
-        cors_origins: List[str] = CORS_ORIGINS,
+        cors_origins: List[str] = config.app.cors_origins,
+        allow_origin_regex: str = config.app.allow_origin_regex,
         api_key: str = "",
         enable_docs: bool = True,
         host: str = "0.0.0.0",
@@ -110,6 +112,7 @@ class NeurosurferApp:
         self.app_name = app_name
         self.api_keys = api_keys
         self.cors_origins = cors_origins
+        self.allow_origin_regex = allow_origin_regex
         self.api_key = api_key
         self.enable_docs = enable_docs
         self.host = host
@@ -161,6 +164,7 @@ class NeurosurferApp:
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=self.cors_origins,
+            allow_origin_regex=self.allow_origin_regex,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"]

@@ -68,6 +68,10 @@ For deeper topics, jump directly to the dedicated pages linked below.
 
 ---
 
+!!! info "CORS Configuration"
+    By default, CORS is enabled for all origins. This has been done by setting `allow_origin_regex` to `.*`. To restrict access, set `cors_origins` in the config. See [Configuration](../../api-reference/configuration.md) for more details.
+
+
 ## Quick start
 
 ### Minimal handler

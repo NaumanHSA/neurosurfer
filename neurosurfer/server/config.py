@@ -48,7 +48,7 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"  # set TRU
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax").capitalize()     # Lax/None/Strict
 
 # CORS
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+# CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
 
