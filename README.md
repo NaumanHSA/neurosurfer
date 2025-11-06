@@ -13,22 +13,29 @@
 
 **Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval** with a ready-to-run **FastAPI** backend and a **React** dev UI. Start lean, add power as you go — CPU-only or GPU-accelerated.
 
-- 🧩 **OpenAI-style API** with streaming & tool-calling  
-- 📚 **RAG-ready**: ingest → chunk → retrieve → augment  
-- 🤖 **Agents** (ReAct, SQL, RAG) + 🔧 **Tools** (calc, web, custom)  
-- 🧠 **Multi-LLM**: OpenAI, Transformers/Unsloth, vLLM, Llama.cpp, more  
-- 🖥️ **NeurowebUI** (React) for chat UX, threads, uploads
+---
+
+## 🚀 What’s in the box
+
+- 🤖 **Agents**: Production-ready patterns for ReAct, SQL, RAG, Router etc. think → act → observe → answer
+- 🧠 **Models**: Unified interface for OpenAI-style and local backends like Transformers/Unsloth, vLLM, Llama.cpp etc.
+- 📚 **RAG**: Simple, swappable retrieval core: embed → search → format → **token-aware trimming**
+- ⚙️ **FastAPI Server**: OpenAI-compatible endpoints for chat + tools — custom endpoints, chat handlers, RAG etc.
+- 🖥️ **NeurowebUI**: React chat UI (GPT-style) that communicates with the server out-of-the-box
+- 🧪 **CLI**: `neurosurfer serve` to run server/UI — custom backend app and UI support
+
+---
 
 ## 🗞️ News
 
-- **CLI `serve` improvements** — run backend-only or UI-only, inject `VITE_BACKEND_URL` automatically. See [CLI guide](https://naumanhsa.github.io/neurosurfer/cli/).  
-- **Model registry & RAG hooks** — easier wiring for multi-model setups. See [Example App](https://naumanhsa.github.io/neurosurfer/server/example-app/).  
-- **Optional LLM stack** — install heavy deps only when you need them:  
-  ```bash
-  pip install "neurosurfer[torch]"
-  ```
+- **Agents**: ReAct & SQLAgent upgraded with bounded retries, spec-aware input validation, and better final-answer streaming; new **ToolsRouterAgent** for quick one-shot tool picks.
+- **Models**: Cleaner OpenAI-style responses across backends; smarter token budgeting + fallbacks when tokenizer isn’t available.
+- **Server**: Faster startup, better logging/health endpoints, and safer tool execution paths; OpenAI-compatible routes refined for streaming/tool-calling.
+- **CLI**: `serve` now runs backend-only or UI-only and auto-injects `VITE_BACKEND_URL`; new subcommands for ingest/traces to standardize local workflows.
 
 > Looking for older updates? Check the repo **Releases** and **Changelog**.
+
+---
 
 
 ## ⚡ Quick Start
