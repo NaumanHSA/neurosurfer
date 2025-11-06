@@ -9,8 +9,8 @@ from typing import Any, Generator, List, Optional, Tuple, Union
 from neurosurfer.runtime.checks import require
 require("unsloth", "Unsloth Framwork", "pip install unsloth")
 
-import torch
 from unsloth import FastLanguageModel
+import torch
 from transformers import TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList
 
 from .base import BaseModel

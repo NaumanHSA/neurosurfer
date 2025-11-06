@@ -210,6 +210,9 @@ class ToolSpec:
             "returns": {"type": self.returns.type, "description": self.returns.description},
         }
 
+    def parse_inputs(self, raw: Dict[str, Any]):
+        ...
+
     def check_inputs(self, raw: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validate and sanitize runtime inputs against the specification.
@@ -245,15 +248,21 @@ class ToolSpec:
                 raise ValueError(f"Missing required input: {p.name}")
 
         # No extras
-        allowed = {p.name for p in self.inputs}
-        extras = set(raw.keys()) - allowed
-        if extras:
-            raise ValueError(f"Unexpected inputs for {self.name}: {sorted(extras)}")
+        # allowed = {p.name for p in self.inputs}
+        # extras = set(raw.keys()) - allowed
+        # if extras:
+        #     raise ValueError(f"Unexpected inputs for {self.name}: {sorted(extras)}")
 
         # Types
         for p in self.inputs:
             if p.name in raw:
                 val = raw[p.name]
+                # parse the values to correct format
+                try:
+                    val = TOOL_TYPE_CAST[p.type](val)
+                except:
+                    raise ValueError(f"Input '{p.name}: {type(val).__name__}' cannot be parsed to {p.type}")
+
                 if not TYPE_CHECK[p.type](val):
                     raise ValueError(f"Input '{p.name}' expected {p.type}, got {type(val).__name__}")
         return raw

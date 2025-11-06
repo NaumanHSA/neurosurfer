@@ -1,0 +1,38 @@
+# .github/workflows/cleanup.yml
+name: Remove neurosurfer_labs folder from main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed to push back changes
+
+      - name: Remove neurosurfer_labs folder if exists
+        run: |
+          if [ -d "neurosurfer_labs" ]; then
+            echo "🧹 Removing neurosurfer_labs/ folder from main branch..."
+            rm -rf neurosurfer_labs
+          else
+            echo "✅ No neurosurfer_labs folder found."
+          fi
+
+      - name: Commit and push changes if any
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Auto-remove neurosurfer_labs folder from main"
+            git push origin main
+          else
+            echo "✅ No changes to commit."
+          fi

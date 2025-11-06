@@ -27,6 +27,39 @@
 
 ---
 
+<h2>🎓 Tutorials</h2>
+
+<table style="width:100%; border-collapse: collapse; text-align: left;">
+  <thead>
+    <tr style="border-bottom: 2px solid #ccc;">
+      <th style="width:5%;">#</th>
+      <th style="width:20%;">Tutorial</th>
+      <th style="width:15%;">Link</th>
+      <th style="width:60%;">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>Neurosurfer Quickstart</strong></td>
+      <td>
+        <a href="https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/00_neurosurfer_quickstart.ipynb" target="_blank">
+          <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab" style="vertical-align: middle;"/>
+        </a>
+      </td>
+      <td>
+        Learn how to load local and OpenAI models, stream responses, and build your first RAG and tool-based agents directly in Jupyter or Colab.
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="margin-top: 10px;">
+  <em>More tutorials coming soon — covering <strong>RAG</strong>, <strong>Custom Tools</strong>, <strong>More on Agents</strong>, <strong>FastAPI integration</strong> and more.</em>
+</p>
+
+---
+
 ## 🗞️ News
 
 - **Agents**: ReAct & SQLAgent upgraded with bounded retries, spec-aware input validation, and better final-answer streaming; new **ToolsRouterAgent** for quick one-shot tool picks.

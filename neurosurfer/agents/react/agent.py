@@ -138,7 +138,7 @@ class ReActAgent(BaseAgent):
                 if not self.config.skip_special_tokens:
                     yield self.delims.eof
                 break
-
+            
             # No final answer yet, try to parse an Action
             tool_call = self._decide_tool_call(response, user_query, history)
             if tool_call is None or tool_call.tool is None:
@@ -186,16 +186,6 @@ class ReActAgent(BaseAgent):
                 history.append(f"Observation: {observation_text}")
                 if self.config.verbose:
                     rprint(f"[bold]Observation:[/bold] {observation_text}")
-                    
-            # observation, is_final = self._try_execute_tool(tool_call)
-            # if is_final:
-            #     yield self.delims.sof + observation + self.delims.eof
-            #     final_answer = observation
-            #     break
-
-            # history.append(f"Observation: {observation}")
-            # if self.config.verbose:
-            #     rprint(f"[bold]Observation:[/bold] {observation}")
 
         # self.logger.info(f"[ReActAgent] Stopped -> Final answer length: {len(final_answer)}")
         return final_answer or "I couldn't determine the answer."
@@ -350,6 +340,7 @@ class ReActAgent(BaseAgent):
 
     # ---------- Prompts ----------
     def _system_prompt(self) -> str:
+        from .scratchpad import REACT_AGENT_PROMPT
         tool_desc = self.toolkit.get_tools_description().strip()
         return REACT_AGENT_PROMPT.format(
             tool_descriptions=tool_desc,
