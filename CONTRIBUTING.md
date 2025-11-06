@@ -4,6 +4,23 @@ Thank you not only for using **Neurosurfer**, but also for being interested in h
 
 ---
 
+## 🚩 Important: Pull Requests Target `dev`
+
+Please open PRs **only against the `dev` branch**.  
+PRs targeting `main` are not accepted and may be auto-closed by CI. We promote stable changes from `dev` → `main` during release cycles.
+
+**Quick example:**
+
+```bash
+# Good
+base: dev   ← your-username:feature/add-rag-agent
+
+# Avoid
+base: main  ← will be rejected
+```
+
+---
+
 ## How You Can Help
 
 There isn’t just one way to contribute. Some people dive into code; others lift the community by sharing knowledge. All of it matters.
@@ -30,16 +47,36 @@ If it’s a **feature request**, explain the problem you’re solving, the desir
 
 ---
 
+## Branch Model
+
+| Branch | Purpose | Who pushes | Notes |
+|-------|---------|------------|-------|
+| `main` | Stable, production, releases (docs & PyPI) | Maintainers only | Protected; PRs from `dev` only |
+| `dev`  | Active development | Contributors via PR | Default target for all PRs |
+| `feature/*` | Work-in-progress features | Contributors | Open PRs into `dev` |
+| `hotfix/*` | Urgent fixes for `main` | Maintainers | Promoted to `main` with a patch release |
+
+> Maintainers may keep experimental folders (e.g., `labs/`) on `dev` only; workflows prevent them from landing in `main`.
+
+---
+
 ## Pull Requests (PRs)
 
 PRs are very welcome — small and focused is best. Before you open one:
 
-- Make sure your change builds locally and tests pass.
-- Include tests for new behavior when possible.
-- Update docs if user‑facing behavior changes.
-- Keep the description short but clear about *what* and *why*.
+1. **Fork** the repo and create a topic branch from `dev`:
+   ```bash
+   git checkout dev
+   git pull origin dev
+   git checkout -b feature/short-name
+   ```
+2. **Implement** your change; keep commits tidy (use meaningful messages).
+3. **Run checks** locally (tests, lint, type checks).
+4. **Target `dev`** when opening the PR. Describe *what* and *why* briefly.
+5. **Update docs** if user‑facing behavior changes.
+6. **Add tests** for new behavior whenever possible.
 
-We review for correctness, clarity, and scope. Friendly feedback is normal; we appreciate your iteration!
+**We review for** correctness, clarity, scope, and tests. Friendly iteration is normal — thank you for working with us!
 
 ---
 
@@ -69,6 +106,7 @@ black neurosurfer tests && ruff check --fix .
 ```
 
 If you’re working on the docs:
+
 ```bash
 mkdocs serve   # preview locally at http://127.0.0.1:8000
 ```
@@ -87,9 +125,9 @@ mkdocs serve   # preview locally at http://127.0.0.1:8000
 
 We aim for a welcoming, inclusive space. Be respectful, kind, and constructive. If you see something that could be better, propose a change — we’re all building this together.
 
-- Issues → bugs and feature requests  
-- Discussions → questions, design ideas, showcases  
-- Security → email naumanhsa965@gmail.com
+- **Issues** → bugs and feature requests  
+- **Discussions** → questions, design ideas, showcases  
+- **Security** → email naumanhsa965@gmail.com
 
 ---
 

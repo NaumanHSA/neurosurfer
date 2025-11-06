@@ -32,10 +32,10 @@
 <table style="width:100%; border-collapse: collapse; text-align: left;">
   <thead>
     <tr style="border-bottom: 2px solid #ccc;">
-      <th style="width:5%;">#</th>
+      <th style="width:3%;">#</th>
       <th style="width:20%;">Tutorial</th>
-      <th style="width:15%;">Link</th>
-      <th style="width:60%;">Description</th>
+      <th style="width:23%;">Link</th>
+      <th style="width:54%;">Description</th>
     </tr>
   </thead>
   <tbody>
