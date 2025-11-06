@@ -120,6 +120,5 @@ mkdocs.log
 unsloth_compiled_cache/
 site/
 extras/
-neurosurfer_labs/
 commands.txt
 test.py
