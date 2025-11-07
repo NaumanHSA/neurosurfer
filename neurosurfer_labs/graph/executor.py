@@ -1,6 +1,7 @@
 # neurosurfer/agents/graph/executor.py
 from __future__ import annotations
 import asyncio, inspect, math
+import json, re
 from typing import Any, Dict, Tuple, List, Callable, Optional, Iterable
 import contextlib, traceback, time
 
@@ -14,6 +15,33 @@ from .tracing import Tracer, NullTracer
 from .model_pool import ModelPool
 from .artifacts import ArtifactStore, LocalArtifactStore
 
+
+_TMPL_RE = re.compile(r"\$\{([^}]+)\}")
+
+def _interpolate_template(text: str, ctx: dict, *, item=None) -> str:
+    def _repl(m: re.Match) -> str:
+        path = m.group(1).strip()
+        if path == "item" and item is not None:
+            return str(item)
+        try:
+            return str(_get_from_ctx(ctx, path))
+        except Exception:
+            return m.group(0)  # leave unresolved
+    return _TMPL_RE.sub(_repl, text)
+
+def _preview_value(v: Any, max_chars: int) -> str:
+    try:
+        if isinstance(v, (dict, list, tuple)):
+            s = json.dumps(v, ensure_ascii=False, default=str)
+        else:
+            s = str(v)
+    except Exception:
+        s = f"<unserializable:{type(v).__name__}>"
+    return s if len(s) <= max_chars else s[:max_chars] + "…"
+
+def _apply_redact(v: Any, redactor: Optional[Callable[[str], str]], max_chars: int) -> str:
+    s = _preview_value(v, max_chars)
+    return redactor(s) if redactor else s
 
 def _is_ref(x: Any) -> bool:
     return isinstance(x, Ref)
@@ -50,6 +78,10 @@ class GraphExecutor:
         tracer: Optional[Tracer] = None,
         artifact_store: Optional[ArtifactStore] = None,
         max_concurrency: int = 4,
+        *,
+        trace_payloads: bool = False,               # enable IO tracing
+        trace_max_chars: int = 600,                 # per-field preview limit
+        trace_redactor: Optional[Callable[[str], str]] = None,  # redact fn
     ):
         self.llm = llm
         self.toolkit = toolkit
@@ -57,6 +89,11 @@ class GraphExecutor:
         self.tracer = tracer or NullTracer()
         self.artifacts = artifact_store or LocalArtifactStore()
         self.sema = asyncio.Semaphore(max_concurrency)
+
+        # tracing config
+        self._trace_payloads = trace_payloads
+        self._trace_max_chars = int(trace_max_chars)
+        self._trace_redactor = trace_redactor
 
     async def run(
         self,
@@ -82,34 +119,6 @@ class GraphExecutor:
                 if head not in ("inputs", n.id):
                     dep_ids.add(head)
             deps[n.id] = dep_ids
-
-        pending = {n.id: n for n in graph.nodes}
-        in_progress: set[str] = set()
-
-        async def ready_nodes() -> List[Node]:
-            ready: List[Node] = []
-            for nid, node in list(pending.items()):
-                if all(d not in pending and d not in in_progress for d in deps[nid]):
-                    ready.append(node)
-            return ready
-
-        async def launch_node(n: Node):
-            in_progress.add(n.id)
-            async with self.sema:
-                try:
-                    with self.tracer.span(f"node:{n.id}", {"kind": n.kind, "fn": str(n.fn)}):
-                        if n.kind == "map":
-                            await self._run_map_node(n, ctx)
-                        else:
-                            out = await self._run_single_node(n, ctx)
-                            _set_ctx(ctx, n.id, out)
-                except Exception as e:
-                    tb = traceback.format_exc()
-                    errors[n.id] = tb
-                    raise NodeError(n.id, f"Node failed: {e}", cause=e)
-                finally:
-                    in_progress.discard(n.id)
-                    pending.pop(n.id, None)
 
         # Main loop
         pending = {n.id: n for n in graph.nodes}
@@ -166,30 +175,6 @@ class GraphExecutor:
                         p.cancel()
                     raise exc
                     
-        # tasks: List[asyncio.Task] = []
-        # while pending or in_progress:
-        #     r = await ready_nodes()
-        #     if not r and not in_progress and pending:
-        #         # deadlock due to missing deps (failed nodes)
-        #         for nid in list(pending.keys()):
-        #             errors[nid] = errors.get(nid) or "Upstream dependency failed"
-        #             pending.pop(nid, None)
-        #         break
-
-        #     for node in r:
-        #         tasks.append(asyncio.create_task(launch_node(node)))
-
-        #     if tasks:
-        #         done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-        #         # if any raised, let it bubble; loop will mark deadlocks
-        #         for t in done:
-        #             exc = t.exception()
-        #             if exc:
-        #                 # bubble first failure so caller can surface it, but keep ctx partial
-        #                 raise exc
-        #     else:
-        #         await asyncio.sleep(0.01)
-
         # Compute outputs
         outs: Dict[str, Any] = {}
         for k, ref_path in (graph.outputs or {}).items():
@@ -206,9 +191,12 @@ class GraphExecutor:
         results = []
         for i, item in enumerate(seq):
             bound_inputs = self._materialize_inputs(node.inputs, ctx, item=item)
+            # TRACE: map-item-inputs
+            self._trace_node_io(node_id=node.id, phase="map-item-inputs", data=bound_inputs, extra={"index": i})
             out = await self._call_fn(node, bound_inputs)
+            # TRACE: map-item-outputs
+            self._trace_node_io(node_id=node.id, phase="map-item-outputs", data=out, extra={"index": i})
             results.append(out)
-        # Collate mapped outputs into arrays keyed by each declared output
         collated: Dict[str, List[Any]] = {}
         for o in node.outputs:
             collated[o] = [res.get(o) for res in results]
@@ -216,11 +204,17 @@ class GraphExecutor:
 
     async def _run_single_node(self, node: Node, ctx: Dict[str, Any]) -> Dict[str, Any]:
         payload = self._materialize_inputs(node.inputs, ctx)
+        # TRACE: inputs
+        self._trace_node_io(node_id=node.id, phase="inputs", data=payload)
+
         attempts = 0
         while True:
             attempts += 1
             try:
-                return await self._call_fn(node, payload)
+                out = await self._call_fn(node, payload)
+                # TRACE: outputs
+                self._trace_node_io(node_id=node.id, phase="outputs", data=out)
+                return out
             except Exception as e:
                 if attempts > max(1, node.policy.retries):
                     raise
@@ -234,10 +228,12 @@ class GraphExecutor:
                 bound[k] = _get_from_ctx(ctx, v.path)
             else:
                 bound[k] = v
+            if isinstance(bound[k], str):
+                bound[k] = _interpolate_template(bound[k], ctx, item=item)
         if item is not None:
-            # allow using special key "item" in mapping nodes
             bound.setdefault("item", item)
         return bound
+
 
     async def _call_fn(self, node: Node, payload: Dict[str, Any]) -> Dict[str, Any]:
         fn = node.fn
@@ -333,6 +329,21 @@ class GraphExecutor:
             raise
         finally:
             self.model_pool.release(model_name)
+
+    def _trace_node_io(self, *, node_id: str, phase: str, data: Dict[str, Any], extra: Optional[Dict[str, Any]] = None):
+        """
+        phase: 'inputs' | 'outputs' | 'map-item-inputs' | 'map-item-outputs'
+        Emits a span with a pretty, truncated, optionally redacted preview.
+        """
+        if not self._trace_payloads:
+            return
+        preview = {k: _apply_redact(v, self._trace_redactor, self._trace_max_chars) for k, v in (data or {}).items()}
+        attrs = {"phase": phase, "node": node_id, "io_preview": preview}
+        if extra:
+            attrs.update(extra)
+        with self.tracer.span(f"node:{node_id}:{phase}", attrs):
+            # no body; start/end timestamps + attrs do the job
+            pass
 
     def _normalize_outputs(self, node: Node, res: Any) -> Dict[str, Any]:
         """

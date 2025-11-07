@@ -1,21 +1,36 @@
 name: calc_and_explain
 inputs:
-  num1: float
-  num2: float
-  operation: str         # "add" | "subtract" | "multiply" | "divide"
+  prompt: str
   explanation_style: str # optional; e.g., "brief", "teacherly", "kid-friendly"
 config:
   max_concurrency: 2
 
 nodes:
+  - id: rewrite
+    kind: task
+    fn: general_query_assistant
+    inputs:
+      query: |
+        You are a math problem rewriter.
+        Prompt: ${inputs.prompt}
+        Style: ${inputs.explanation_style}
+
+        Rewrite the problem in a different way, but keep the core math operation the same.
+        Avoid extra fluff.
+    outputs: ["num1", "num2", "operation"]
+    policy:
+      retries: 1
+      timeout_s: 30
+      budget: { max_new_tokens: 180, temperature: 0.2}
+
   - id: compute
     kind: task
     fn: calculator
     inputs:
-      num1: ${inputs.num1}
-      num2: ${inputs.num2}
-      operation: ${inputs.operation}
-    outputs: ["text"]   # calculator returns the numeric result; we treat it as text for downstream
+      num1: ${rewrite.num1}
+      num2: ${rewrite.num2}
+      operation: ${rewrite.operation}
+    outputs: ["calculation"]   # calculator returns the numeric result; we treat it as text for downstream
 
   - id: explain
     kind: task
@@ -23,9 +38,9 @@ nodes:
     inputs:
       query: |
         You are a concise math explainer.
-        Operation: ${inputs.operation}
-        Numbers: ${inputs.num1} and ${inputs.num2}
-        Result: ${compute.text}
+        Operation: ${rewrite.operation}
+        Numbers: ${rewrite.num1} and ${rewrite.num2}
+        Result: ${compute.calculation}
         Style: ${inputs.explanation_style}
 
         Write one short paragraph that explains what was computed and why this result makes sense.
@@ -34,8 +49,8 @@ nodes:
     policy:
       retries: 1
       timeout_s: 30
-      budget: { max_new_tokens: 180, temperature: 0.2 }
+      budget: { max_new_tokens: 180, temperature: 0.7 }
 
 outputs:
-  result: ${compute.text}
+  result: ${compute.calculation}
   explanation: ${explain.text}
