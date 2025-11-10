@@ -310,16 +310,26 @@ class GraphExecutor:
                 outline = payload.get("outline", "")
                 body = payload.get("body", "")
                 prompt = f"Compose a clear report.\nOutline:\n{outline}\n\nBody:\n{body}\n"
-                resp = self.llm.ask(user_prompt=prompt, system_prompt="You are a helpful writer.",
-                                    temperature=0.2, max_new_tokens=max_new, stream=False)
+                resp = self.llm.ask(
+                    user_prompt=prompt,
+                    system_prompt="You are a helpful writer.",
+                    temperature=0.2,
+                    max_new_tokens=max_new,
+                    stream=False
+                )
                 return self._normalize_outputs(node, {"text": resp.choices[0].message.content})
 
             if name == "llm.summarize_pages":
                 pages = payload.get("pages", [])
                 joined = "\n\n---\n\n".join(pages if isinstance(pages, list) else [str(pages)])
                 prompt = f"Summarize the key points from the following sources:\n{joined}"
-                resp = self.llm.ask(user_prompt=prompt, system_prompt="Be concise and factual.",
-                                    temperature=0.2, max_new_tokens=max_new, stream=False)
+                resp = self.llm.ask(
+                    user_prompt=prompt,
+                    system_prompt="Be concise and factual.",
+                    temperature=0.2,
+                    max_new_tokens=max_new,
+                    stream=False
+                )
                 return self._normalize_outputs(node, {"summary": resp.choices[0].message.content})
 
             raise NodeError(node.id, f"Unknown llm program: {name}")
