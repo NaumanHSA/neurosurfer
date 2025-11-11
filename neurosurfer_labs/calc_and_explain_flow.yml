@@ -8,7 +8,7 @@ config:
 nodes:
   - id: rewrite
     kind: task
-    fn: general_query_assistant
+    fn: llm.call
     inputs:
       query: |
         You are a math problem rewriter.
@@ -16,8 +16,11 @@ nodes:
         Style: ${inputs.explanation_style}
 
         Rewrite the problem in a different way, but keep the core math operation the same.
-        Avoid extra fluff.
-    outputs: ["num1", "num2", "operation"]
+        Avoid extra fluff. Operation should be one of: ['add', 'subtract', 'multiply', 'divide']
+    outputs:
+      num1: float
+      num2: float
+      operation: str
     policy:
       retries: 1
       timeout_s: 30
@@ -30,11 +33,12 @@ nodes:
       num1: ${rewrite.num1}
       num2: ${rewrite.num2}
       operation: ${rewrite.operation}
-    outputs: ["calculation"]   # calculator returns the numeric result; we treat it as text for downstream
+    outputs: 
+      calculation: float   # calculator returns the numeric result; we treat it as text for downstream
 
   - id: explain
     kind: task
-    fn: general_query_assistant
+    fn: llm.call
     inputs:
       query: |
         You are a concise math explainer.
@@ -45,7 +49,8 @@ nodes:
 
         Write one short paragraph that explains what was computed and why this result makes sense.
         Avoid extra fluff.
-    outputs: ["text"]
+    outputs: 
+      text: str
     policy:
       retries: 1
       timeout_s: 30

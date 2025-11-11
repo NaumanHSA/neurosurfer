@@ -2,18 +2,19 @@
 from __future__ import annotations
 import asyncio, inspect, math
 import json, re
-from typing import Any, Dict, Tuple, List, Callable, Optional, Iterable
+from typing import Any, Dict, Tuple, List, Callable, Optional, Iterable, Generator
 import contextlib, traceback, time
 
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.models.chat_models.base import BaseModel
 
-from .types import Graph, Node, Ref, GraphResult
+from .types import Graph, Node, Ref, GraphResult, GraphSpec, NodeSpec
 from .errors import NodeError
 from .tracing import Tracer, NullTracer
 from .model_pool import ModelPool
 from .artifacts import ArtifactStore, LocalArtifactStore
+from .schema import pydantic_model_from_outputs, structure_block_for_outputs
 
 
 _TMPL_RE = re.compile(r"\$\{([^}]+)\}")
@@ -99,7 +100,6 @@ class GraphExecutor:
         self,
         graph: Graph,
         inputs: Dict[str, Any],
-        stream: bool = True,
     ) -> GraphResult:
         ctx: Dict[str, Any] = {"inputs": inputs}
         errors: Dict[str, str] = {}
@@ -285,52 +285,106 @@ class GraphExecutor:
             res = {"text": text}
         else:
             res = {"text": resp.observation}
-
         return self._normalize_outputs(node, res)
 
     async def _run_llm_program(self, node: Node, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Minimal helpers:
+        Minimal helpers + generic llm.call:
         - llm.echo(text)
         - llm.compose_report(outline, body)
         - llm.summarize_pages(pages)
-        Extend as needed; or switch to a general prompt-template loader.
+        - llm.call(system_prompt?, user_prompt? or query) with outputs:
+            * ["text"] -> normal text call (stream or not)
+            * ["name: type", ...] -> structured call
+            * { ... } (dict spec) -> structured call (back-compat)
         """
         model_name = node.policy.model_hint or getattr(self.llm, "model_name", "unknown")
         req_max_new = int(node.policy.budget.get("max_new_tokens", 512))
-        # respect ModelPool metering
         await self.model_pool.acquire(model_name)
         try:
             max_new = self.model_pool.recommend_max_new_tokens(model_name, req_max_new)
-            if name == "llm.echo":
-                text = str(payload.get("text", ""))
-                return self._normalize_outputs(node, {"text": text})
+            # generic llm.call
+            if name == "llm.call":
+                print("llm.call", node)
+                print("payload", payload)
+                print("outputs", node.outputs, type(node.outputs))
 
-            if name == "llm.compose_report":
-                outline = payload.get("outline", "")
-                body = payload.get("body", "")
-                prompt = f"Compose a clear report.\nOutline:\n{outline}\n\nBody:\n{body}\n"
+                outputs = node.outputs or ["text"]
+                user_prompt = payload.get("user_prompt") or payload.get("query") or ""
+                system_prompt = payload.get("system_prompt", "You are a helpful assistant. Always answer in a concise, clear, and direct way.")
+                stream = bool(payload.get("stream", False))
+
+                # Case A: ["text"] => normal un/streamed text generation
+                if self._outputs_is_text_only(outputs):
+                    resp = self.llm.ask(
+                        user_prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        temperature=node.policy.budget.get("temperature", 0.2),
+                        max_new_tokens=max_new,
+                        stream=stream,
+                    )
+                    if stream:
+                        buf = []
+                        for chunk in resp:
+                            buf.append(chunk.choices[0].delta.content or "")
+                        return self._normalize_outputs(node, {"text": "".join(buf)})
+                    else:
+                        # ChatCompletionResponse
+                        return self._normalize_outputs(node, {"text": resp.choices[0].message.content})
+
+                # Case B: structured list like ["num1: float", "meta: object{unit:str}", "tags: str[]"]
+                if self._outputs_is_structured_list(outputs):
+                    spec_map = self._parse_outputs_list_to_spec(outputs)
+                    Model = pydantic_model_from_outputs(spec_map, model_name=f"{node.id.capitalize()}Output")
+
+                    # Compact contract + structure block (auto-injected)
+                    structure_block = structure_block_for_outputs(spec_map, title=Model.__name__)
+                    contract = (
+                        "## Structured Output Contract\n"
+                        "- Return a single JSON object matching the structure below.\n"
+                        "- Valid JSON only (RFC 8259). No code fences, no markdown, no explanations.\n"
+                        f'- Do NOT wrap the object under a named key like "{Model.__name__}". Return the object itself.\n\n'
+                        "### Structure (read-only guidance)\n"
+                        f"{structure_block}\n"
+                    )
+                    sys = (system_prompt + "\n\n" + contract).strip()
+
+                    # Force non-stream structured output
+                    parsed = self.llm.ask(
+                        user_prompt=user_prompt,
+                        system_prompt=sys,
+                        temperature=node.policy.budget.get("temperature", 0.2),
+                        max_new_tokens=max_new,
+                        stream=False,
+                        output_schema=Model,
+                    )
+                    data = parsed.model_dump() if hasattr(parsed, "model_dump") else parsed
+                    return self._normalize_outputs(node, data)
+
+                # Case C: dict spec (back-compat)
+                if self._outputs_is_structured_dict(outputs):
+                    Model = pydantic_model_from_outputs(outputs, model_name=f"{node.id.capitalize()}Output")
+                    struct_response = self.llm.ask(
+                        user_prompt=user_prompt,
+                        system_prompt=system_prompt,
+                        temperature=node.policy.budget.get("temperature", 0.2),
+                        max_new_tokens=max_new,
+                        stream=False,
+                        output_schema=Model,
+                    )
+                    data = struct_response.parsed_output.model_dump()
+                    print("data", data, type(data))
+                    return self._normalize_outputs(node, data)
+
+                # Otherwise treat as raw text fallback
                 resp = self.llm.ask(
-                    user_prompt=prompt,
-                    system_prompt="You are a helpful writer.",
-                    temperature=0.2,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    temperature=node.policy.budget.get("temperature", 0.2),
                     max_new_tokens=max_new,
-                    stream=False
+                    stream=False,
                 )
                 return self._normalize_outputs(node, {"text": resp.choices[0].message.content})
-
-            if name == "llm.summarize_pages":
-                pages = payload.get("pages", [])
-                joined = "\n\n---\n\n".join(pages if isinstance(pages, list) else [str(pages)])
-                prompt = f"Summarize the key points from the following sources:\n{joined}"
-                resp = self.llm.ask(
-                    user_prompt=prompt,
-                    system_prompt="Be concise and factual.",
-                    temperature=0.2,
-                    max_new_tokens=max_new,
-                    stream=False
-                )
-                return self._normalize_outputs(node, {"summary": resp.choices[0].message.content})
 
             raise NodeError(node.id, f"Unknown llm program: {name}")
         except RuntimeError as e:
@@ -339,6 +393,7 @@ class GraphExecutor:
             raise
         finally:
             self.model_pool.release(model_name)
+
 
     def _trace_node_io(self, *, node_id: str, phase: str, data: Dict[str, Any], extra: Optional[Dict[str, Any]] = None):
         """
@@ -373,3 +428,70 @@ class GraphExecutor:
         for k in node.outputs:
             out[k] = res.get(k)
         return out
+
+    @staticmethod
+    def _outputs_is_text_only(outputs: Any) -> bool:
+        """
+        True if outputs equals ["text"] (case-sensitive).
+        """
+        return isinstance(outputs, list) and len(outputs) == 1 and outputs[0] == "text"
+
+    @staticmethod
+    def _outputs_is_structured_list(outputs: Any) -> bool:
+        """
+        True if outputs is a list of "name: type" entries, e.g. ["num1: float", "num2: float"].
+        """
+        if not isinstance(outputs, list):
+            return False
+        if GraphExecutor._outputs_is_text_only(outputs):
+            return False
+        # Everything must contain a colon (name: type)
+        return all(isinstance(x, str) and (":" in x) for x in outputs)
+
+    @staticmethod
+    def _outputs_is_structured_dict(outputs: Any) -> bool:
+        return isinstance(outputs, dict)
+
+    @staticmethod
+    def _parse_outputs_list_to_spec(outputs: List[str]) -> Dict[str, Any]:
+        """
+        Convert ["num1: float", "meta: object{unit:str, method:str}", "tags: str[]"]
+        into a dict spec understood by pydantic_model_from_outputs.
+
+        Supported type tokens:
+          str | int | float | bool
+          str[] / int[] / float[] / bool[] (arrays)
+          object{ field: type, ... }  (nested object, single level)
+        """
+        SIMPLE = {"str": "str", "int": "int", "float": "float", "bool": "bool"}
+
+        def parse_type(tok: str) -> Any:
+            tok = tok.strip()
+            # arrays like float[]
+            for base in SIMPLE:
+                if tok == f"{base}[]":
+                    return {"$array": SIMPLE[base]}
+            # simple
+            if tok in SIMPLE:
+                return SIMPLE[tok]
+            # object{ a:str, b:int }
+            if tok.startswith("object{") and tok.endswith("}"):
+                inner = tok[len("object{"):-1].strip()
+                if not inner:
+                    return {"$object": {}}
+                fields: Dict[str, Any] = {}
+                # split by commas that separate fields
+                parts = [p.strip() for p in inner.split(",") if p.strip()]
+                for p in parts:
+                    if ":" not in p:
+                        raise ValueError(f"Invalid object field spec: {p}")
+                    k, t = p.split(":", 1)
+                    fields[k.strip()] = parse_type(t.strip())
+                return {"$object": fields}
+            raise ValueError(f"Unsupported type token: {tok}")
+
+        spec: Dict[str, Any] = {}
+        for item in outputs:
+            name, typ = item.split(":", 1)
+            spec[name.strip()] = parse_type(typ.strip())
+        return spec

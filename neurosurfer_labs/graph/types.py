@@ -1,7 +1,12 @@
 # neurosurfer/agents/graph/types.py
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Union
+
+OutputsSpec = Union[
+    List[str],            # e.g. ["text"] -> free text
+    Dict[str, Any],       # e.g. {"num1": "float", "meta": {"$object": {...}}, "tags": {"$array": "str"}}
+]
 
 class Ref:
     """Reference to another node's output, or inputs.*"""
@@ -28,9 +33,19 @@ class Node:
     kind: NodeKind = "task"
     fn: str | Any = ""                 # string name resolved via registry/toolkit OR callable
     inputs: Dict[str, Any] = field(default_factory=dict)    # literals and/or Ref(...)
-    outputs: List[str] = field(default_factory=list)        # keys produced by this node
+    outputs: Dict[str, Any] = field(default_factory=dict)        # keys produced by this node
     map_over: Optional[str] = None     # for kind="map": Ref path to list; ex: "plan.subtopics"
     policy: NodePolicy = field(default_factory=NodePolicy)
+
+@dataclass
+class NodeSpec:
+    id: str
+    kind: Literal["task", "join"]
+    fn: str
+    inputs: Dict[str, Any] = field(default_factory=dict)
+    outputs: OutputsSpec = field(default_factory=list)
+    policy: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class GraphConfig:
@@ -41,8 +56,16 @@ class Graph:
     name: str
     nodes: List[Node]
     inputs_schema: Dict[str, Any] = field(default_factory=dict)  # optional, for validation/docs
-    outputs: Dict[str, str] = field(default_factory=dict)        # name -> Ref path
+    outputs: Dict[str, Any] = field(default_factory=dict)        # name -> Ref path
     config: GraphConfig = field(default_factory=GraphConfig)
+
+@dataclass
+class GraphSpec:
+    name: str
+    inputs: Dict[str, str] = field(default_factory=dict)
+    nodes: List[NodeSpec] = field(default_factory=list)
+    outputs: Dict[str, Any] = field(default_factory=dict)
+    config: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class GraphResult:

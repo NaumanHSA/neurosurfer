@@ -18,7 +18,7 @@ def _parse_value(v: Any):
             return Ref(m.group(1))
     return v
 
-def _parse_inputs(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _parse_io(obj: Dict[str, Any]) -> Dict[str, Any]:
     return {k: _parse_value(v) for k, v in (obj or {}).items()}
 
 class FlowLoader:
@@ -38,8 +38,8 @@ class FlowLoader:
             nid = raw["id"]
             kind = raw.get("kind", "task")
             fn = raw.get("fn", "")
-            inputs = _parse_inputs(raw.get("inputs", {}))
-            outputs = list(raw.get("outputs", []))
+            inputs = _parse_io(raw.get("inputs", {}))
+            outputs = _parse_io(raw.get("outputs", {}))
             policy = NodePolicy(
                 retries=int(raw.get("policy", {}).get("retries", 1)),
                 timeout_s=int(raw.get("policy", {}).get("timeout_s", 60)),

@@ -47,8 +47,16 @@ from neurosurfer.server.schemas import (
     DeltaContent,
     Usage
 )
+from neurosurfer.models.utils import build_structured_system_prompt, extract_first_json_object, maybe_unwrap_named_root
 from neurosurfer.config import config
 from transformers import TextIteratorStreamer
+
+@dataclass
+class StructuredOutput:
+    output_schema: PydanticModel
+    model_response: str
+    json_obj: Optional[str] = None
+    parsed_output: Optional[PydanticModel] = None
 
 
 class BaseModel(ABC):
@@ -144,14 +152,13 @@ class BaseModel(ABC):
         stream: bool = False,
         *,
         output_schema: Optional[Type[PydanticModel]] = None,
-        strict_json: bool = True,
         on_parse_error: Optional[Callable[[str], str]] = None,
         max_repair_attempts: int = 1,
         **kwargs: Any,
     ) -> Union[
         ChatCompletionResponse,
         Generator[ChatCompletionChunk, None, None],
-        PydanticModel,
+        StructuredOutput,
     ]:
         """
         Main entry point for generating model responses.
@@ -173,7 +180,6 @@ class BaseModel(ABC):
             **kwargs: Additional model-specific generation parameters
 
             output_schema (Type[PydanticModel]): Optional Pydantic model for returning structured responses.
-            strict_json (bool): Whether to enforce strict JSON parsing. Default: True
             on_parse_error (Callable[[str], str]): Optional callback to handle parse errors.
             max_repair_attempts (int): Maximum number of repair attempts. Default: 1
         
@@ -194,7 +200,7 @@ class BaseModel(ABC):
             
             >>> # Structured
             >>> response = model.ask("Give me 3 examples of AI applications", output_schema=MyPydanticModel)
-            >>> print(response.data)
+            >>> print(response.parsed_output)
         """
 
         self.call_id = str(uuid.uuid1())
@@ -202,52 +208,60 @@ class BaseModel(ABC):
         if output_schema is not None:
             if stream:
                 self.logger.warning("[BaseModel] `output_schema` provided with `stream=True`; forcing non-streaming structured output.")
-            # sys = self._make_structured_system_prompt(system_prompt, output_schema, strict_json=strict_json)
-            sys = self._make_minimal_structured_system_prompt(system_prompt, output_schema)
-            print(sys)
-        
+
+            # Build a tiny, human-readable structure prompt (no huge JSON schema)
+            sys = build_structured_system_prompt(
+                base_system_prompt=system_prompt,
+                schema_cls=output_schema,
+                options=kwargs.pop("structured_prompt_options", None),  # optional
+            )
+            print("sys-----------:\n", sys)
             resp: ChatCompletionResponse = self._call(
                 user_prompt=user_prompt,
                 system_prompt=sys,
                 chat_history=chat_history or [],
                 temperature=temperature,
                 max_new_tokens=max_new_tokens,
-                **kwargs
+                **kwargs,
             )
             raw_text = resp.choices[0].message.content or ""
-            
-            candidate = self._extract_json_object(raw_text)
-            print(candidate)
-
-            if candidate is None and on_parse_error and max_repair_attempts > 0:
+            json_obj = extract_first_json_object(raw_text)
+            json_obj = maybe_unwrap_named_root(json_obj, output_schema)
+            if json_obj is None and on_parse_error and max_repair_attempts > 0:
                 try:
                     repaired = on_parse_error(raw_text)
-                    candidate = self._extract_json_object(repaired)
+                    json_obj = extract_first_json_object(repaired)
                 except Exception:
-                    candidate = None
+                    json_obj = None
 
-            if candidate is None:
-                raise ValueError(
-                    "Structured output: could not locate a JSON object in model output.\n"
-                    f"--- RAW ---\n{raw_text}"
+            if json_obj is None:
+                self.logger.error(f"Structured output: could not locate a JSON object in model output.\n--- RAW ---\n{raw_text}")
+                return StructuredOutput(
+                    output_schema=output_schema,
+                    model_response=raw_text,
+                    json_obj=None,
+                    parsed_output=None,
                 )
-
+            # Validate against your real Pydantic model (no content shaping)
+            parsed_output = None
             try:
-                parsed = output_schema.model_validate_json(candidate)
+                parsed_output = output_schema.model_validate_json(json_obj)
             except Exception as e:
                 if on_parse_error and max_repair_attempts > 0:
                     try:
-                        repaired = on_parse_error(candidate)
-                        parsed = output_schema.model_validate_json(repaired)
+                        repaired = on_parse_error(raw_text)
+                        json_obj = extract_first_json_object(repaired)
+                        parsed_output = output_schema.model_validate_json(json_obj)
                     except Exception as e2:
-                        raise ValueError(
-                            f"Structured output JSON failed validation after repair: {e2}\n--- RAW ---\n{raw_text}"
-                        ) from e2
+                        self.logger.error(f"Structured output JSON failed validation after repair: {e2}\n--- RAW ---\n{raw_text}")
                 else:
-                    raise ValueError(
-                        f"Structured output JSON failed validation: {e}\n--- JSON ---\n{candidate}"
-                    ) from e
-            return parsed
+                    self.logger.error(f"Structured output JSON failed validation: {e}\n--- JSON ---\n{    json_obj}")
+            return StructuredOutput(
+                output_schema=output_schema,
+                model_response=raw_text,
+                json_obj=json_obj,
+                parsed_output=parsed_output,
+            )
 
         # Normal path (unchanged)
         params = dict({
@@ -499,162 +513,3 @@ class BaseModel(ABC):
                 self.logger.info(f"[BaseModel] Stop word '{hit}' detected.")
                 break
             if piece: yield piece
-
-    def _schema_as_pretty_json(self, schema_cls: Type[PydanticModel]) -> str:
-        """
-        Build JSON Schema for a single pydantic model (Pydantic v2).
-        Works without tuple-packing or multi-model plumbing.
-        """
-        schema = schema_cls.model_json_schema(ref_template="#/components/schemas/{model}")  # v2 API
-        # If you prefer the fully-inlined schema for the model itself:
-        # many UIs do better with just the direct object schema for display
-        return json.dumps(schema, ensure_ascii=False, indent=2)
-
-    def _make_structured_system_prompt(
-        self,
-        base_system_prompt: str,
-        schema_cls: Type[PydanticModel],
-        *,
-        strict_json: bool = True,
-    ) -> str:
-        schema_json = self._schema_as_pretty_json(schema_cls)
-        rules = [
-            "You MUST respond with a single JSON object that validates against the schema below.",
-            "Do NOT include code fences, markdown, explanations, or additional keys.",
-            "If a field is unknown, choose a default that still validates (e.g., empty string/array/0/false).",
-        ]
-        if strict_json:
-            rules.append("Output MUST be valid JSON (RFC 8259). No comments or trailing commas.")
-        sys = (base_system_prompt or "You are a function that returns JSON.").strip()
-        return (
-            f"{sys}\n\n"
-            "## Structured Output Contract\n"
-            + "\n".join(f"- {r}" for r in rules)
-            + "\n\n### JSON Schema\n"
-            f"{schema_json}\n"
-        )
-
-    def _extract_json_object(self, text: str) -> Optional[str]:
-        if not text: return None
-        t = text.strip()
-        if t.startswith("{") and t.endswith("}"): return t
-        # naive balanced-brace extractor (good enough; no extra deps)
-        depth = 0
-        start = None
-        for i, ch in enumerate(t):
-            if ch == "{":
-                if depth == 0:
-                    start = i
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0 and start is not None:
-                    return t[start:i+1]
-        return None
-
-
-    # ---------- Minimal structural schema (prompt-side only) ----------
-
-    def _py_type_to_minimal(self, t) -> str | dict | list:
-        """
-        Map Python/Pydantic field annotations to minimal structural markers.
-
-        Returns one of:
-          - "string" | "integer" | "number" | "boolean" | "object" | "array"
-          - dict (nested object with properties)
-          - list (single-item list meaning homogeneous array element type)
-        """
-        origin = get_origin(t)
-        args = get_args(t)
-
-        # Optional[X] or Union[X, None] -> use X
-        if origin is Union and len(args) == 2 and type(None) in args:
-            non_none = args[0] if args[1] is type(None) else args[1]
-            return self._py_type_to_minimal(non_none)
-
-        # Generic containers
-        if origin in (list, List, tuple, Tuple, set, Set):
-            elem = args[0] if args else str  # default to string
-            return [self._py_type_to_minimal(elem)]
-
-        if origin in (dict, Dict):
-            # keep simple; object is enough for guidance
-            return "object"
-
-        # Primitive types
-        if t in (str,):
-            return "string"
-        if t in (int,):
-            return "integer"
-        if t in (float,):
-            return "number"
-        if t in (bool,):
-            return "boolean"
-
-        # Pydantic model (nested object)
-        try:
-            # v2: Pydantic models have .model_fields
-            fields = getattr(t, "model_fields", None)
-            if isinstance(fields, dict):
-                return self._minimal_object_from_model(t)
-        except Exception:
-            pass
-
-        # Fallbacks
-        return "object"
-
-    def _minimal_object_from_model(self, schema_cls: Type[PydanticModel]) -> dict:
-        """
-        Build a compact schema for a Pydantic model:
-        {
-          "title": "Car",
-          "type": "object",
-          "required": [...],
-          "properties": { k: <minimal type> | {nested} | [elem] }
-        }
-        """
-        fields = schema_cls.model_fields  # pydantic v2
-        required = [name for name, f in fields.items() if f.is_required()]
-        props: dict[str, object] = {}
-
-        for name, f in fields.items():
-            ann = f.annotation
-            props[name] = self._py_type_to_minimal(ann)
-
-        return {
-            "title": schema_cls.__name__,
-            "type": "object",
-            "required": required,
-            "properties": props,
-        }
-
-    def _schema_as_minimal_structure(self, schema_cls: Type[PydanticModel]) -> str:
-        """
-        Produce a compact, human-readable schema that conveys only structure.
-        """
-        struct = self._minimal_object_from_model(schema_cls)
-        # pretty but short; if you prefer single-line, set indent=None and separators=(',',':')
-        return json.dumps(struct, ensure_ascii=False, indent=2)
-
-    def _make_minimal_structured_system_prompt(
-        self,
-        base_system_prompt: str,
-        schema_cls,
-    ) -> str:
-        """
-        Embed the minimal schema plus concise rules.
-        """
-        sys = (base_system_prompt or "You are a function that returns JSON.").strip()
-        minimal = self._schema_as_minimal_structure(schema_cls)
-        rules = [
-            "Return a single JSON object that matches the structure below.",
-            "No code fences, no markdown, no explanations, no extra keys.",
-            "The output MUST be valid JSON (RFC 8259).",
-        ]
-        return (
-            f"{sys}\n\n"
-            "## Structured Output Contract\n"
-            + "\n".join(f"- {r}" for r in rules)
-            + "\n\n### Structure\n"
-            f"{minimal}\n"
-        )
