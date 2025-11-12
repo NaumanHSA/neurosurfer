@@ -134,3 +134,24 @@ class BaseTool(ABC):
             ...     return ToolResponse(final_answer=True, observation=result)
         """
         raise NotImplementedError("Tool must implement __call__(**kwargs).")
+
+    def get_tool_description(self) -> str:
+        """
+        Generate a formatted description of the tool.
+        
+        Returns:
+            str: Formatted tool description in markdown
+        """
+        if not self.spec:
+            raise ValueError("Tool must have a valid ToolSpec.")
+
+        description = []
+        description.append(f"Tool Name: `{self.spec.name}`")
+        description.append(f"Description: {self.spec.description}")
+        description.append(f"When to use: {self.spec.when_to_use}")
+        description.append("Tool Inputs:")
+        for p in self.spec.inputs:
+            req = "required" if p.required else "optional"
+            description.append(f"- `{p.name}`: {p.type} ({req}) — {p.description}")
+        description.append(f"Tool Return: {self.spec.returns.type} — {self.spec.returns.description}\n")
+        return "\n".join(description)

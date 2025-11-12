@@ -1,75 +1,49 @@
 # neurosurfer/agents/graph/types.py
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal, Union
+from typing import Any, Dict, List, Optional, Callable
 
-OutputsSpec = Union[
-    List[str],            # e.g. ["text"] -> free text
-    Dict[str, Any],       # e.g. {"num1": "float", "meta": {"$object": {...}}, "tags": {"$array": "str"}}
-]
-
-class Ref:
-    """Reference to another node's output, or inputs.*"""
-    def __init__(self, path: str):
-        self.path = path  # e.g., "plan.subtopics", "inputs.topic"
-    def __repr__(self) -> str:
-        return f"Ref({self.path!r})"
-
-NodeKind = Literal["task", "map", "join"]
+# Existing types you already had:
+# - Graph, Node, Ref, GraphResult, GraphSpec, NodeSpec
+# We extend Node/NodeSpec with `agent` and `tools` (non-breaking; defaults safe).
 
 @dataclass
-class NodePolicy:
+class AgentDecl:
+    purpose: str = ""     # what this node tries to do
+    goal: str = ""        # concrete objective
+    expected: str = ""    # short description of expected result
+
+@dataclass
+class Policy:
     retries: int = 1
     timeout_s: int = 60
-    backoff: str = "exponential"  # or "fixed"
-    backoff_base: float = 0.6
-    budget: Dict[str, Any] = field(default_factory=dict)  # e.g., {"max_new_tokens": 512, "temperature": 0.2}
+    budget: Dict[str, Any] = field(default_factory=lambda: {"max_new_tokens": 512, "temperature": 0.2})
     model_hint: Optional[str] = None
-    concurrency_group: Optional[str] = None   # for shared throttling groups
+    backoff: str = "exp"          # "fixed" or "exp"
+    backoff_base: float = 0.2     # seconds
 
 @dataclass
 class Node:
     id: str
-    kind: NodeKind = "task"
-    fn: str | Any = ""                 # string name resolved via registry/toolkit OR callable
-    inputs: Dict[str, Any] = field(default_factory=dict)    # literals and/or Ref(...)
-    outputs: Dict[str, Any] = field(default_factory=dict)        # keys produced by this node
-    map_over: Optional[str] = None     # for kind="map": Ref path to list; ex: "plan.subtopics"
-    policy: NodePolicy = field(default_factory=NodePolicy)
-
-@dataclass
-class NodeSpec:
-    id: str
-    kind: Literal["task", "join"]
-    fn: str
+    kind: str = "task"                        # "task" | "map"
+    fn: Any = ""                              # str tool id OR "llm.call" OR callable
     inputs: Dict[str, Any] = field(default_factory=dict)
-    outputs: OutputsSpec = field(default_factory=list)
-    policy: Dict[str, Any] = field(default_factory=dict)
+    outputs: List[str] = field(default_factory=list)    # ["text"] or ["name: type", ...] or dict (back-compat)
+    map_over: Optional[str] = None            # for kind="map"
+    policy: Policy = field(default_factory=Policy)
 
-
-@dataclass
-class GraphConfig:
-    max_concurrency: int = 4
+    # NEW (optional)
+    agent: AgentDecl = field(default_factory=AgentDecl)
+    tools: List[str] = field(default_factory=list)      # presence => router mode for llm.call
 
 @dataclass
 class Graph:
-    name: str
     nodes: List[Node]
-    inputs_schema: Dict[str, Any] = field(default_factory=dict)  # optional, for validation/docs
-    outputs: Dict[str, Any] = field(default_factory=dict)        # name -> Ref path
-    config: GraphConfig = field(default_factory=GraphConfig)
-
-@dataclass
-class GraphSpec:
-    name: str
-    inputs: Dict[str, str] = field(default_factory=dict)
-    nodes: List[NodeSpec] = field(default_factory=list)
     outputs: Dict[str, Any] = field(default_factory=dict)
-    config: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class GraphResult:
     ok: bool
     context: Dict[str, Any]
     outputs: Dict[str, Any]
-    errors: Dict[str, str] = field(default_factory=dict)
+    errors: Dict[str, str]

@@ -7,26 +7,22 @@ import re
 import time
 import logging
 import copy
+from pydantic import BaseModel
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
 
-from ..models.chat_models.base import BaseModel
+from ..models.chat_models.base import BaseModel as ChatBaseModel
 from ..tools import Toolkit
 from ..tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.tools.tool_spec import ToolSpec, TOOL_TYPE_CAST
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse
 
-
-# =========================
 # Config & Retry Policy
-# =========================
-
 @dataclass
 class RouterRetryPolicy:
     max_route_retries: int = 2        # attempts to repair/redo routing when JSON invalid or no tool
     max_tool_retries: int = 1         # attempts to rerun tool after error (with repaired inputs if possible)
     backoff_sec: float = 0.7          # linear backoff between retries
-
 
 @dataclass
 class ToolsRouterConfig:
@@ -39,11 +35,12 @@ class ToolsRouterConfig:
     temperature: float = 0.7
     max_new_tokens: int = 4000
 
+# Tool and Input Response
+class ToolAndInputsModel(BaseModel):
+    tool_name: str
+    tool_inputs: Dict[str, Any]
 
-# =========================
 # Agent
-# =========================
-
 class ToolsRouterAgent:
     """
     Minimal, production-ready tools router:
@@ -56,7 +53,7 @@ class ToolsRouterAgent:
     def __init__(
         self,
         toolkit: Toolkit,
-        llm: BaseModel,
+        llm: ChatBaseModel,
         logger: logging.Logger = logging.getLogger(__name__),
         verbose: bool = False,
         specific_instructions: str = "",
@@ -70,11 +67,12 @@ class ToolsRouterAgent:
         self.config = config or ToolsRouterConfig()
 
     # ---------- PUBLIC API ----------
-
     def run(
         self,
         user_query: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        execute_tool: bool = True,
+        strict_tool_call: bool = False,
         *,
         stream: Optional[bool] = None,
         temperature: Optional[float] = None,
@@ -105,6 +103,7 @@ class ToolsRouterAgent:
                 temperature=temp,
                 max_new_tokens=mnt,
                 extra_error_context=last_error_context,
+                strict_tool_call=strict_tool_call
             )
             if tool_name and tool_name != "none":
                 break
@@ -148,6 +147,10 @@ class ToolsRouterAgent:
             msg = f"Input validation failed for '{tool_name}': {e}"
             return self._error_response_streaming(msg) if use_stream else self._error_response_text(msg)
 
+        # Return tool and inputs if not executing
+        if not execute_tool:
+            return ToolAndInputsModel(tool_name=tool_name, tool_inputs=checked_inputs)
+
         # Execute with bounded retries
         # payload = {"query": user_query, **kwargs, **checked_inputs}
         payload = {**checked_inputs, **kwargs}
@@ -166,7 +169,6 @@ class ToolsRouterAgent:
                 time.sleep(self.config.retry.backoff_sec * exec_attempt)
 
     # ---------- TOOL EXECUTION ----------
-
     def _execute_tool(
         self,
         tool: BaseTool,
@@ -205,7 +207,6 @@ class ToolsRouterAgent:
             return self._to_text(response.observation)
 
     # ---------- LLM ROUTING ----------
-
     def _route(
         self,
         user_query: str,
@@ -214,12 +215,13 @@ class ToolsRouterAgent:
         temperature: float,
         max_new_tokens: int,
         extra_error_context: str = "",
+        strict_tool_call: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Ask the LLM to pick a tool. Returns (tool_name, inputs_dict).
         Enforces: valid JSON with exactly {"tool": "...", "inputs": {...}}.
         """
-        system_prompt = self._tools_router_system_prompt()
+        system_prompt = self._tools_router_system_prompt(strict_tool_call=strict_tool_call)
         routing_prompt = self._format_router_input(user_query, chat_history, extra_error_context=extra_error_context)
 
         resp = self.llm.ask(
@@ -244,25 +246,12 @@ class ToolsRouterAgent:
         return tool_name, inputs
 
     # ---------- PROMPTS ----------
-
-    def _tools_router_system_prompt(self) -> str:
+    def _tools_router_system_prompt(self, strict_tool_call: bool = False) -> str:
         tool_descriptions = self.toolkit.get_tools_description().strip()
-        return f"""
-You are a stateless tool router. Choose exactly ONE tool and emit STRICT JSON:
-{{"tool":"<tool_name>","inputs":{{<param>:<value>}}}}
-
-Rules:
-- Output MUST be one-line valid JSON with exactly the keys "tool" and "inputs".
-- Choose at most one tool.
-- Use only explicit inputs defined by that tool. Do NOT invent parameters.
-- Include only required parameters; omit optional ones unless obviously needed.
-- If no tool fits OR required inputs are ambiguous, output: {{"tool":"none","inputs":{{}}}}
-
-TOOL CATALOG:
-{tool_descriptions}
-
-{self.specific_instructions}
-""".strip()
+        return (STRICT_TOOL_ROUTING_PROMPT if strict_tool_call else TOOL_ROUTING_PROMPT).format(
+            tool_descriptions=tool_descriptions,
+            specific_instructions=self.specific_instructions,
+        ).strip()
 
     def _format_router_input(
         self,
@@ -428,3 +417,47 @@ TOOL CATALOG:
         def _g():
             yield str(x)
         return _g()
+
+
+TOOL_ROUTING_PROMPT = """You are a stateless tool router. 
+You may either call a tool or respond directly with a natural language message — whichever best fits the user query.
+
+If you decide to call a tool, respond **only** with one-line valid JSON in the exact format below:
+{{"tool": "<tool_name>", "inputs": {{<param>: <value>}}}}
+
+If you decide to respond directly, emit your message as a plain string (not JSON).
+
+Rules:
+- Choose at most ONE tool per request.
+- Use only explicit parameters defined by that tool. Do NOT invent or rename parameters.
+- Include only required parameters unless an optional one is clearly implied.
+- If no tool fits the request or inputs are ambiguous, output:
+  {{"tool": "none", "inputs": {{}}}}
+- Otherwise, respond in plain text when a natural language answer is more suitable.
+
+TOOL CATALOG:
+{tool_descriptions}
+
+{specific_instructions}
+"""
+
+
+STRICT_TOOL_ROUTING_PROMPT = """You are a stateless tool router.
+Your task is to select exactly ONE tool from the catalog below and output STRICT JSON describing how to call it.
+
+Always respond with a single one-line valid JSON object:
+{{"tool": "<tool_name>", "inputs": {{<param>: <value>}}}}
+
+Rules:
+- Output MUST contain exactly the keys "tool" and "inputs".
+- Select at most one tool; if none applies or inputs are unclear, use:
+  {{"tool": "none", "inputs": {{}}}}
+- Use only parameters explicitly defined by that tool — do NOT invent, rename, or add extra fields.
+- Include only required parameters unless an optional one is obviously needed.
+- Do NOT produce natural language; emit JSON only.
+
+TOOL CATALOG:
+{tool_descriptions}
+
+{specific_instructions}
+"""

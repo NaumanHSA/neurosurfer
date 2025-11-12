@@ -1,0 +1,37 @@
+name: calc_and_explain
+inputs:
+  prompt: str
+  explanation_style: str
+
+nodes:
+  - id: rewrite_and_compute
+    kind: task
+    fn: llm.call
+    inputs:
+      system_prompt: "You are a math task solver."
+      user_prompt: |
+        Decide if you should call a tool. If calculation is needed, pick calculator.
+        Prompt: ${inputs.prompt}
+        Style: ${inputs.explanation_style}
+    tools: [calculator]
+    policy:
+      retries: 1
+      timeout_s: 30
+      budget: { max_new_tokens: 180, temperature: 0.2}
+
+  - id: explain
+    kind: task
+    fn: llm.call
+    inputs:
+      system_prompt: "You are a concise math explainer."
+      user_prompt: |
+        Operation: ${rewrite_and_compute.result.operation}
+        Numbers: ${rewrite_and_compute.result.num1} and ${rewrite_and_compute.result.num2}
+        Result: ${rewrite_and_compute.result.calculation}
+        Style: ${inputs.explanation_style}
+    # no tools here; plain generation
+    # (outputs aren’t needed; engine exposes "text" as default)
+
+outputs:
+  result: ${rewrite_and_compute.calculation}
+  explanation: ${explain.text}

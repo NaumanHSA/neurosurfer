@@ -1,88 +1,59 @@
-# neurosurfer_labs/schema/dynamic.py
+# neurosurfer/agents/graph/schema.py
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple, Union, Optional
+from typing import Any, Dict, List, Tuple, Type
 from pydantic import BaseModel, create_model
-import typing
 
-# ---------- Simple type spec -> Pydantic ----------
-# Allowed spec forms:
-#   "str" | "int" | "float" | "bool"
-#   {"$array": <spec>}         # list[...] 
-#   {"$object": { key: <spec>, ... }}  # nested object
+_SIMPLE = {"str": str, "string": str, "int": int, "integer": int, "float": float, "number": float, "bool": bool, "boolean": bool}
 
-_SIMPLE = {"str": str, "int": int, "float": float, "bool": bool}
+def _parse_field(line: str) -> Tuple[str, Any]:
+    # "name: float" | "tags: str[]" | "choice: enum{a,b,c}" | "meta: object{unit:str, m:int}"
+    name, typ = [x.strip() for x in line.split(":", 1)]
+    tl = typ.lower()
 
-def spec_to_type(spec: Any) -> Any:
-    if isinstance(spec, str):
-        if spec not in _SIMPLE:
-            raise ValueError(f"Unsupported primitive: {spec}")
-        return _SIMPLE[spec]
+    # enum
+    if tl.startswith("enum{") and tl.endswith("}"):
+        items = [x.strip() for x in typ[5:-1].split(",")]
+        from typing import Literal
+        return name, Literal[tuple(items)]  # type: ignore
 
-    if isinstance(spec, dict):
-        if "$array" in spec:
-            inner = spec_to_type(spec["$array"])
-            return List[inner]  # typing.List
-        if "$object" in spec:
-            fields = spec["$object"]
-            if not isinstance(fields, dict):
-                raise ValueError("`$object` must map to a dict")
-            sub_fields: Dict[str, Tuple[Any, ...]] = {}
-            for k, v in fields.items():
-                sub_fields[k] = (spec_to_type(v), ...)
-            # name an anonymous nested object (won’t leak in prompt; only type identity)
-            return create_model("Obj", **sub_fields)  # type: ignore
-    raise ValueError(f"Unsupported spec: {spec!r}")
+    # arrays like str[]
+    for base in _SIMPLE:
+        if tl == f"{base}[]":
+            from typing import List as TList
+            return name, TList[_SIMPLE[base]]  # type: ignore
 
-def pydantic_model_from_outputs(outputs: Dict[str, Any], model_name: str="NodeOutput") -> type[BaseModel]:
-    """
-    Build a Pydantic model from outputs mapping:
-      outputs:
-        num1: float
-        meta: { $object: { unit: str, method: str } }
-        tags: { $array: str }
-    """
-    fields: Dict[str, Tuple[Any, ...]] = {}
-    for name, spec in outputs.items():
-        t = spec_to_type(spec)
-        fields[name] = (t, ...)
-    return create_model(model_name, **fields)
+    # object{...}
+    if tl.startswith("object{") and tl.endswith("}"):
+        inner = typ[len("object{"):-1].strip()
+        fields: Dict[str, Tuple[Any, Any]] = {}
+        if inner:
+            for pair in [p.strip() for p in inner.split(",") if p.strip()]:
+                k, t = [s.strip() for s in pair.split(":", 1)]
+                sub_ann = _SIMPLE.get(t.strip().lower(), str)
+                fields[k] = (sub_ann, ...)
+        Sub = create_model("SubObject", **fields)  # type: ignore
+        return name, Sub
 
-# ---------- Compact structure guidance ----------
-def structure_lines_from_spec(outputs: Dict[str, Any], indent: int=2, max_inline: int=80) -> str:
-    def render(spec: Any, lvl: int=0) -> str:
-        pad = " " * (indent * lvl)
-        if isinstance(spec, str):
-            return spec  # "str"/"int"/...
+    # primitive
+    return name, _SIMPLE.get(tl, str)
 
-        if isinstance(spec, dict) and "$array" in spec:
-            inner = render(spec["$array"], lvl)
-            # inline if short
-            candidate = f"[{inner}]"
-            if len(candidate) <= max_inline and "\n" not in inner:
-                return candidate
-            return "[\n" + pad + " " * indent + inner + "\n" + pad + "]"
+def pydantic_model_from_outputs(outputs_spec: List[str], model_name: str = "StructuredOutput") -> Type[BaseModel]:
+    fields: Dict[str, Tuple[Any, Any]] = {}
+    for line in outputs_spec:
+        if ":" not in line:
+            # tolerate bare names like "text" => str
+            fields[line.strip()] = (str, ...)
+        else:
+            k, ann = _parse_field(line)
+            fields[k] = (ann, ...)
+    return create_model(model_name, **fields)  # type: ignore
 
-        if isinstance(spec, dict) and "$object" in spec:
-            obj = spec["$object"]
-            parts = [f"{k}: {render(v, lvl+1)}" for k, v in obj.items()]
-            inline = "{ " + ", ".join(parts) + " }"
-            if len(inline) <= max_inline and all("\n" not in p for p in parts):
-                return inline
-            # multiline
-            body = "\n".join((" " * (indent * (lvl+1))) + p for p in parts)
-            return "{\n" + body + "\n" + pad + "}"
-        raise ValueError(f"Bad spec: {spec!r}")
-
-    lines = []
-    for name, spec in outputs.items():
-        lines.append(f"{name}: {render(spec, 1)}")
+def structure_block_for_outputs(outputs_spec: List[str], title: str = "Output") -> str:
+    # Minimal, single readable block. Example:
+    # Output = {
+    #   num1: float
+    #   num2: float
+    #   operation: enum{add,subtract,multiply,divide}
+    # }
+    lines = [f"{title} = {{"] + [f"  {line.strip()}" for line in outputs_spec] + ["}"]
     return "\n".join(lines)
-
-def structure_block_for_outputs(outputs: Dict[str, Any], title: Optional[str]=None) -> str:
-    """
-    Returns a compact, LLM-friendly “Structure” section (no JSON Schema verbosity).
-    """
-    head = (title + " = {\n") if title else "{\n"
-    body = structure_lines_from_spec(outputs)
-    tail = "\n}"
-    return head + "  " + body.replace("\n", "\n  ") + tail

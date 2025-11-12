@@ -121,9 +121,8 @@ class Toolkit:
         - When to use it
         - Input parameters (with types and requirements)
         - Return type and description
-        
+
         This description is used by agents to understand available tools.
-        
         Returns:
             str: Formatted tool descriptions in markdown
         
@@ -132,20 +131,20 @@ class Toolkit:
             >>> toolkit.register_tool(MyTool())
             >>> desc = toolkit.get_tools_description()
             >>> print(desc)
-            ### `my_tool`
-            Does something useful
-            **When to use**: When you need to do X
-            **Inputs**:
-            - `param1`: string (required) — Description of param1
-            **Returns**: string — Description of return value
+            Available tools:
+            Tool Name: <tool_name>
+            Description: <tool_description>
+            When to use: <when_to_use>
+            Tool Inputs:
+            - <input_name>: <input_type> (<required/optional>) — <input_description>
+              ...
+            Tool Return: <return_type> — <return_description>
+            
         """
-        lines = []
-        for name, spec in self.specs.items():
-            lines.append(f"### `{spec.name}`\n{spec.description}")
-            lines.append(f"**When to use**: {spec.when_to_use}")
-            lines.append("**Inputs**:")
-            for p in spec.inputs:
-                req = "required" if p.required else "optional"
-                lines.append(f"- `{p.name}`: {p.type} ({req}) — {p.description}")
-            lines.append(f"**Returns**: {spec.returns.type} — {spec.returns.description}\n")
-        return "\n".join(lines)
+        tools_descriptions = []
+        tools_descriptions.append("\nAvailable tools:")
+        for t in self.registry.values():
+            tools_descriptions.append(t.get_tool_description())
+            tools_descriptions.append("\n")
+        tools_descriptions.append("\n")
+        return "\n".join(tools_descriptions)
