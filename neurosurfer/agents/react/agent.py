@@ -18,7 +18,7 @@ from .exceptions import ToolCallParseError, ToolExecutionError
 from .retry import RetryPolicy
 from .history import History
 from .memory import EphemeralMemory
-from .utils import normalize_tool_observation
+from ..common.utils import normalize_tool_observation
 from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT
 
 

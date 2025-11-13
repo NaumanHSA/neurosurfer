@@ -25,17 +25,10 @@ import logging
 import uuid
 from threading import Lock
 from typing import Any, Generator, List, Dict, Union, Optional, Tuple, Set, Type, Callable
-from typing import get_origin, get_args
 from datetime import datetime
 import time
 from abc import ABC, abstractmethod
-import threading
 from threading import RLock
-
-from dataclasses import dataclass
-import json
-from pydantic import BaseModel as PydanticModel
-from pydantic.json_schema import models_json_schema
 
 # Import Pydantic models
 from neurosurfer.server.schemas import (
@@ -47,16 +40,8 @@ from neurosurfer.server.schemas import (
     DeltaContent,
     Usage
 )
-from neurosurfer.models.utils import build_structured_system_prompt, extract_first_json_object, maybe_unwrap_named_root
 from neurosurfer.config import config
 from transformers import TextIteratorStreamer
-
-@dataclass
-class StructuredOutput:
-    output_schema: PydanticModel
-    model_response: str
-    json_obj: Optional[str] = None
-    parsed_output: Optional[PydanticModel] = None
 
 
 class BaseModel(ABC):
@@ -150,16 +135,8 @@ class BaseModel(ABC):
         temperature: float = config.base_model.temperature,
         max_new_tokens: int = config.base_model.max_new_tokens,
         stream: bool = False,
-        *,
-        output_schema: Optional[Type[PydanticModel]] = None,
-        on_parse_error: Optional[Callable[[str], str]] = None,
-        max_repair_attempts: int = 1,
         **kwargs: Any,
-    ) -> Union[
-        ChatCompletionResponse,
-        Generator[ChatCompletionChunk, None, None],
-        StructuredOutput,
-    ]:
+    ) -> Union[ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]:
         """
         Main entry point for generating model responses.
         
@@ -178,16 +155,11 @@ class BaseModel(ABC):
             max_new_tokens (int): Maximum number of tokens to generate. Default: 2000
             stream (bool): Enable streaming response. Default: False
             **kwargs: Additional model-specific generation parameters
-
-            output_schema (Type[PydanticModel]): Optional Pydantic model for returning structured responses.
-            on_parse_error (Callable[[str], str]): Optional callback to handle parse errors.
-            max_repair_attempts (int): Maximum number of repair attempts. Default: 1
         
         Returns:
-            Union[ChatCompletionResponse, Generator[ChatCompletionChunk, None, None], PydanticModel]:
+            Union[ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]:
                 - If stream=False: Returns ChatCompletionResponse (Pydantic model)
                 - If stream=True: Returns Generator yielding ChatCompletionChunk objects
-                - If output_schema is provided: Returns PydanticModel. Structured Responses are always non-streaming.
         
         Example:
             >>> # Non-streaming
@@ -196,74 +168,10 @@ class BaseModel(ABC):
             
             >>> # Streaming
             >>> for chunk in model.ask("Explain quantum computing", stream=True):
-            ...     print(chunk.choices[0].delta.content, end="")
-            
-            >>> # Structured
-            >>> response = model.ask("Give me 3 examples of AI applications", output_schema=MyPydanticModel)
-            >>> print(response.parsed_output)
+            ...     print(chunk.choices[0].delta.content, end="")            
         """
 
         self.call_id = str(uuid.uuid1())
-        # Structured mode takes precedence; force non-streaming
-        if output_schema is not None:
-            if stream:
-                self.logger.warning("[BaseModel] `output_schema` provided with `stream=True`; forcing non-streaming structured output.")
-
-            # Build a tiny, human-readable structure prompt (no huge JSON schema)
-            sys = build_structured_system_prompt(
-                base_system_prompt=system_prompt,
-                schema_cls=output_schema,
-                options=kwargs.pop("structured_prompt_options", None),  # optional
-            )
-            print("sys-----------:\n", sys)
-            resp: ChatCompletionResponse = self._call(
-                user_prompt=user_prompt,
-                system_prompt=sys,
-                chat_history=chat_history or [],
-                temperature=temperature,
-                max_new_tokens=max_new_tokens,
-                **kwargs,
-            )
-            raw_text = resp.choices[0].message.content or ""
-            json_obj = extract_first_json_object(raw_text)
-            json_obj = maybe_unwrap_named_root(json_obj, output_schema)
-            if json_obj is None and on_parse_error and max_repair_attempts > 0:
-                try:
-                    repaired = on_parse_error(raw_text)
-                    json_obj = extract_first_json_object(repaired)
-                except Exception:
-                    json_obj = None
-
-            if json_obj is None:
-                self.logger.error(f"Structured output: could not locate a JSON object in model output.\n--- RAW ---\n{raw_text}")
-                return StructuredOutput(
-                    output_schema=output_schema,
-                    model_response=raw_text,
-                    json_obj=None,
-                    parsed_output=None,
-                )
-            # Validate against your real Pydantic model (no content shaping)
-            parsed_output = None
-            try:
-                parsed_output = output_schema.model_validate_json(json_obj)
-            except Exception as e:
-                if on_parse_error and max_repair_attempts > 0:
-                    try:
-                        repaired = on_parse_error(raw_text)
-                        json_obj = extract_first_json_object(repaired)
-                        parsed_output = output_schema.model_validate_json(json_obj)
-                    except Exception as e2:
-                        self.logger.error(f"Structured output JSON failed validation after repair: {e2}\n--- RAW ---\n{raw_text}")
-                else:
-                    self.logger.error(f"Structured output JSON failed validation: {e}\n--- JSON ---\n{    json_obj}")
-            return StructuredOutput(
-                output_schema=output_schema,
-                model_response=raw_text,
-                json_obj=json_obj,
-                parsed_output=parsed_output,
-            )
-
-        # Normal path (unchanged)
         params = dict({
             "user_prompt": user_prompt,
             "system_prompt": system_prompt,

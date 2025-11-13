@@ -14,7 +14,7 @@ All tools must inherit from BaseTool and implement the __call__ method.
 Tools are registered in a Toolkit and can be invoked by agents (e.g., ReActAgent).
 """
 from abc import ABC, abstractmethod
-from typing import Any, Generator, Union
+from typing import Any, Generator, Union, Dict
 from dataclasses import dataclass, field
 from .tool_spec import ToolSpec
 from ..server.schemas import ChatCompletionChunk, ChatCompletionResponse
@@ -52,7 +52,7 @@ class ToolResponse:
         ... )
     """
     final_answer: bool
-    observation: Union[str, ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]
+    observation: Union[str, Dict, ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]
     extras: dict = field(default_factory=dict)
 
 
