@@ -1,8 +1,21 @@
-# neurosurfer/agents/graph/errors.py
+from __future__ import annotations
 from typing import Optional
 
 class GraphError(Exception):
-    pass
+    """Base exception for graph-related issues."""
+
+
+class GraphConfigurationError(GraphError):
+    """Invalid graph spec, missing tools, cycles, etc."""
+
+
+class GraphExecutionError(GraphError):
+    """Errors that occur during graph execution."""
+
+
+class NodeExecutionError(GraphExecutionError):
+    """A single node failed in an unexpected way."""
+
 
 class ValidationError(GraphError):
     pass

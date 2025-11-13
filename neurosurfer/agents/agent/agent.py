@@ -21,7 +21,6 @@ from .schema_utils import (
     maybe_unwrap_named_root,
 )
 from .responses import StructuredResponse, ToolCallResponse
-
 from neurosurfer.agents.common.tracing import Tracer, NullTracer, LoggerTracer, RichTracer
 
 
@@ -97,7 +96,7 @@ class Agent:
         # Tracing setup
         # -------------
         # Base tracer that actually records spans (LoggerTracer by default).
-        self._base_tracer: Tracer = tracer or LoggerTracer(logger=self.logger)
+        self._base_tracer: Tracer = tracer or RichTracer()
         # Null tracer to cheaply disable tracing.
         self._null_tracer: Tracer = NullTracer()
         # Default "is tracing enabled?" behaviour.
@@ -316,9 +315,7 @@ class Agent:
                     .message.content
                     or ""
                 )
-
             json_obj = extract_and_repair_json(model_response, return_dict=True)
-
             # Repair loop when we can't find JSON at all
             if json_obj is None and self.config.max_repair_attempts > 0:
                 try:

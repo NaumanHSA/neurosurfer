@@ -1,59 +1,120 @@
-# neurosurfer/agents/graph/schema.py
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple, Type
-from pydantic import BaseModel, create_model
 
-_SIMPLE = {"str": str, "string": str, "int": int, "integer": int, "float": float, "number": float, "bool": bool, "boolean": bool}
+from typing import List, Optional
 
-def _parse_field(line: str) -> Tuple[str, Any]:
-    # "name: float" | "tags: str[]" | "choice: enum{a,b,c}" | "meta: object{unit:str, m:int}"
-    name, typ = [x.strip() for x in line.split(":", 1)]
-    tl = typ.lower()
+from pydantic import BaseModel, Field, field_validator
 
-    # enum
-    if tl.startswith("enum{") and tl.endswith("}"):
-        items = [x.strip() for x in typ[5:-1].split(",")]
-        from typing import Literal
-        return name, Literal[tuple(items)]  # type: ignore
+from .types import NodeMode
 
-    # arrays like str[]
-    for base in _SIMPLE:
-        if tl == f"{base}[]":
-            from typing import List as TList
-            return name, TList[_SIMPLE[base]]  # type: ignore
 
-    # object{...}
-    if tl.startswith("object{") and tl.endswith("}"):
-        inner = typ[len("object{"):-1].strip()
-        fields: Dict[str, Tuple[Any, Any]] = {}
-        if inner:
-            for pair in [p.strip() for p in inner.split(",") if p.strip()]:
-                k, t = [s.strip() for s in pair.split(":", 1)]
-                sub_ann = _SIMPLE.get(t.strip().lower(), str)
-                fields[k] = (sub_ann, ...)
-        Sub = create_model("SubObject", **fields)  # type: ignore
-        return name, Sub
+class GraphNode(BaseModel):
+    """
+    One node in a graph.
 
-    # primitive
-    return name, _SIMPLE.get(tl, str)
+    Each node:
+      - Is backed by an Agent instance created automatically by the executor.
+      - Has PURPOSE / GOAL / EXPECTED_RESULT (used for manager + system prompt).
+      - Declares dependencies via `depends_on` (forming a DAG).
+      - Declares tools it is allowed to use.
+      - Can optionally specify a Pydantic `output_schema` for structured mode.
+      - Can optionally override `strict_tool_call`.
+    """
 
-def pydantic_model_from_outputs(outputs_spec: List[str], model_name: str = "StructuredOutput") -> Type[BaseModel]:
-    fields: Dict[str, Tuple[Any, Any]] = {}
-    for line in outputs_spec:
-        if ":" not in line:
-            # tolerate bare names like "text" => str
-            fields[line.strip()] = (str, ...)
-        else:
-            k, ann = _parse_field(line)
-            fields[k] = (ann, ...)
-    return create_model(model_name, **fields)  # type: ignore
+    id: str = Field(..., description="Unique node identifier.")
+    description: Optional[str] = Field(
+        None, description="Short human description of this node."
+    )
+    purpose: Optional[str] = Field(
+        None, description="High-level purpose of this node in the workflow."
+    )
+    goal: Optional[str] = Field(
+        None,
+        description="What this node is trying to accomplish in this step.",
+    )
+    expected_result: Optional[str] = Field(
+        None,
+        description="What shape / content we expect from this node's output.",
+    )
+    tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names this node is allowed to use (subset of the master Toolkit).",
+    )
+    depends_on: List[str] = Field(
+        default_factory=list,
+        description="List of predecessor node IDs this node depends on.",
+    )
+    mode: NodeMode = Field(
+        default=NodeMode.AUTO,
+        description=(
+            "Execution mode preference. AUTO = let Agent decide; TEXT = plain LLM; "
+            "STRUCTURED = use Pydantic schema; TOOL = emphasize tools."
+        ),
+    )
+    output_schema: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional fully-qualified import path to a Pydantic model "
+            "for structured output (e.g. 'myproj.schemas.Answer')."
+        ),
+    )
+    strict_tool_call: Optional[bool] = Field(
+        default=None,
+        description="Override Agent's strict_tool_call setting for this node.",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional model identifier (e.g. 'openai/gpt-4o-mini'). "
+            "Reserved for future per-node LLM routing; currently unused."
+        ),
+    )
 
-def structure_block_for_outputs(outputs_spec: List[str], title: str = "Output") -> str:
-    # Minimal, single readable block. Example:
-    # Output = {
-    #   num1: float
-    #   num2: float
-    #   operation: enum{add,subtract,multiply,divide}
-    # }
-    lines = [f"{title} = {{"] + [f"  {line.strip()}" for line in outputs_spec] + ["}"]
-    return "\n".join(lines)
+    @field_validator("id")
+    def _id_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("node id must not be empty")
+        return v
+
+
+class GraphSpec(BaseModel):
+    """
+    Full graph specification, typically loaded from YAML.
+
+    Example:
+
+    ```yaml
+    name: blog_workflow
+    description: "Research -> outline -> draft -> review"
+    nodes:
+      - id: research
+        purpose: ...
+        goal: ...
+        tools: ["web_search"]
+      - id: outline
+        depends_on: ["research"]
+        ...
+    outputs:
+      - draft
+      - review
+    ```
+    """
+
+    name: str
+    description: Optional[str] = None
+    nodes: List[GraphNode]
+    outputs: List[str] = Field(
+        default_factory=list,
+        description="Which node IDs are considered 'final outputs' of the graph.",
+    )
+
+    @field_validator("nodes")
+    def _unique_node_ids(cls, v: List[GraphNode]) -> List[GraphNode]:
+        ids = [n.id for n in v]
+        if len(ids) != len(set(ids)):
+            dupes = {i for i in ids if ids.count(i) > 1}
+            raise ValueError(f"duplicate node IDs in graph: {sorted(dupes)}")
+        return v
+
+    def node_map(self) -> dict[str, GraphNode]:
+        return {n.id: n for n in self.nodes}

@@ -21,7 +21,7 @@ class AgentConfig:
     # synonyms: Dict[str, Dict[str, str]] = field(default_factory=dict)  # field -> {from: to}
 
     # LLM defaults:
-    temperature: float = 0.3
+    temperature: float = 0.7
     max_new_tokens: int = 512
     return_stream_by_default: bool = False
 

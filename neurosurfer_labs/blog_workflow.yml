@@ -1,0 +1,55 @@
+name: blog_workflow
+description: >
+  Example multi-agent workflow for writing and reviewing a technical blog
+  using multiple specialized nodes (each node uses an Agent under the hood).
+
+nodes:
+  - id: research
+    purpose: "Perform focused research on the requested topic."
+    goal: >
+      Collect key facts, terminology, and references that are directly useful
+      for writing a technical blog post.
+    expected_result: >
+      A compact, structured summary with sections for 'key_points',
+      'sources', and 'risks_or_caveats'.
+    tools: ["web_search"]
+    mode: structured
+    strict_tool_call: true
+
+  - id: outline
+    depends_on: ["research"]
+    purpose: "Design a clear structure for the article."
+    goal: >
+      Turn the research summary into a logical outline suitable for a
+      1500–2000 word blog post.
+    expected_result: >
+      A title, a short description, and an ordered list of sections with
+      headings and bullet points.
+    tools: []
+    mode: structured
+
+  - id: draft
+    depends_on: ["outline", "research"]
+    purpose: "Write the first full draft of the article."
+    goal: >
+      Use the outline and research to produce a readable, coherent blog draft
+      with clear headings, examples, and smooth transitions.
+    expected_result: >
+      A complete draft in markdown, including title, headings, and paragraphs.
+    tools: []
+    mode: text
+
+  - id: review
+    depends_on: ["draft", "research"]
+    purpose: "Perform technical and editorial review of the draft."
+    goal: >
+      Identify factual issues, missing explanations, and stylistic problems.
+      Suggest actionable edits and mark any unclear sections.
+    expected_result: >
+      A structured review with strengths, issues, and concrete suggestions.
+    tools: []
+    mode: structured
+
+outputs:
+  - draft
+  - review
