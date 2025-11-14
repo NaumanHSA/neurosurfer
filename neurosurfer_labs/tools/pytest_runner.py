@@ -21,6 +21,6 @@ class PytestRunTool(BaseTool):
                 "stdout_tail": proc.stdout.strip().splitlines()[-20:],
                 "stderr_tail": proc.stderr.strip().splitlines()[-20:],
             }
-            return ToolResponse(final_answer=False, observation=json.dumps(summary))
+            return ToolResponse(final_answer=False, results=json.dumps(summary))
         except Exception as e:
-            return ToolResponse(final_answer=False, observation=f"pytest error: {e}")
+            return ToolResponse(final_answer=False, results=f"pytest error: {e}")

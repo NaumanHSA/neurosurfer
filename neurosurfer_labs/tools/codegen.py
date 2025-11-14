@@ -21,7 +21,7 @@ class CodegenRequest:
 LLM_SYSTEM = """You are a senior Neurosurf maintainer.
 Generate a NEW Python tool module that conforms to Neurosurf's Tool contract:
 - Must subclass BaseTool and define a valid ToolSpec (name, description, when_to_use, inputs, returns).
-- __call__(...) must validate logic and return ToolResponse(final_answer: bool, observation: str|Generator, extras: dict).
+- __call__(...) must validate logic and return ToolResponse(final_answer: bool, results: str|Generator, extras: dict).
 - Keep the public API minimal; no external deps beyond stdlib and Neurosurf's own modules.
 - The code must be deterministic, safe (no network, no file writes), and easy to test.
 - Include clear error messages for invalid inputs.
@@ -126,7 +126,7 @@ class CodegenTool(BaseTool):
             try:
                 ast.parse(code_resp)
             except SyntaxError as e:
-                return ToolResponse(final_answer=False, observation=f"Generated code has syntax error: {e}")
+                return ToolResponse(final_answer=False, results=f"Generated code has syntax error: {e}")
 
             # 5) Write file
             path = Path(module_path)
@@ -139,6 +139,6 @@ class CodegenTool(BaseTool):
             except Exception:
                 pass
 
-            return ToolResponse(final_answer=False, observation=f"Generated and wrote: {module_path}")
+            return ToolResponse(final_answer=False, results=f"Generated and wrote: {module_path}")
         except Exception as e:
-            return ToolResponse(final_answer=False, observation=f"llm_codegen_tool error: {e}")
+            return ToolResponse(final_answer=False, results=f"llm_codegen_tool error: {e}")

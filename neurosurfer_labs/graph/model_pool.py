@@ -1,4 +1,3 @@
-# neurosurfer/agents/graph/model_pool.py
 from __future__ import annotations
 import asyncio, time
 from dataclasses import dataclass, field
@@ -6,7 +5,7 @@ from typing import Dict, Any, Optional, List
 
 @dataclass
 class ModelProfile:
-    name: str
+    name: str   
     device: str = "cpu"
     max_concurrency: int = 1
     supports_batching: bool = False

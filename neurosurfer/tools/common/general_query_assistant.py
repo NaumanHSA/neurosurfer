@@ -58,7 +58,7 @@ class GeneralQueryAssistantTool(BaseTool):
             query (str): The user's question.
             **kwargs: Runtime parameters (e.g., temperature, max_new_tokens).
         Returns:
-            ToolResponse: {'final_answer': False, 'observation': str|Iterable}
+            ToolResponse: {'final_answer': False, 'results': str|Iterable}
         """
         response = self.llm.ask(
             system_prompt=self.prompt["system_prompt"],
@@ -67,4 +67,4 @@ class GeneralQueryAssistantTool(BaseTool):
             max_new_tokens=kwargs.get("max_new_tokens", self.max_new_tokens),
             stream=kwargs.get("stream", self.stream),
         )
-        return ToolResponse(final_answer=False, observation=response)
+        return ToolResponse(final_answer=False, results=response)

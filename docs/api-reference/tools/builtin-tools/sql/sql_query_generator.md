@@ -44,7 +44,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 
 1. Renders system & user prompts using the given `schema_context` and `query`.
 2. Calls the LLM and extracts `response["choices"][0]["message"]["content"]`.
-3. Strips code fences, returns `ToolResponse(final_answer=False, observation=sql_query, extras={{"sql_query": sql_query}})`.
+3. Strips code fences, returns `ToolResponse(final_answer=False, results=sql_query, extras={{"sql_query": sql_query}})`.
 
 ---
 

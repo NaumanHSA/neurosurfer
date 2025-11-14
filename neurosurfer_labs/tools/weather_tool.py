@@ -11,7 +11,7 @@ class WeatherToolTool(BaseTool):
         ],
         outputs=ToolReturn(
             final_answer=False,
-            observation="Weather data for the specified location",
+            results="Weather data for the specified location",
             extras={}
         )
     )
@@ -30,6 +30,6 @@ class WeatherToolTool(BaseTool):
         
         return ToolReturn(
             final_answer=False,
-            observation=weather_data,
+            results=weather_data,
             extras={}
         )

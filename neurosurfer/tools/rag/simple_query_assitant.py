@@ -76,5 +76,5 @@ class RagSimpleAnswerTool(BaseTool):
             max_new_tokens=retrieval_results.max_new_tokens,
             stream=self.stream
         )
-        return ToolResponse(final_answer=True, observation=response)
+        return ToolResponse(final_answer=True, results=response)
 

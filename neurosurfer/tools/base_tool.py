@@ -26,13 +26,13 @@ class ToolResponse:
     Structured response from tool execution.
     
     This dataclass encapsulates the output of a tool, including whether it
-    represents a final answer, the observation/result, and any extra data
+    represents a final answer, the results, and any extra data
     to pass to subsequent tool calls.
     
     Attributes:
-        final_answer (bool): If True, the observation should be treated as the
+        final_answer (bool): If True, the results should be treated as the
             final answer to the user's query (no further tool calls needed)
-        observation (Union[str, Generator]): The tool's output. Can be a string
+        results (Union[str, Generator]): The tool's output. Can be a string
             or a generator for streaming responses (ChatCompletionChunk style)
         extras (dict): Additional data to store in agent memory for subsequent
             tool calls. Default: {}
@@ -41,18 +41,18 @@ class ToolResponse:
         >>> # Simple tool response
         >>> response = ToolResponse(
         ...     final_answer=False,
-        ...     observation="Found 3 matching records",
+        ...     results="Found 3 matching records",
         ...     extras={"record_ids": [1, 2, 3]}
         ... )
         >>> 
         >>> # Final answer response
         >>> response = ToolResponse(
         ...     final_answer=True,
-        ...     observation="The answer is 42"
+        ...     results="The answer is 42"
         ... )
     """
     final_answer: bool
-    observation: Union[str, Dict, ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]
+    results: Union[str, Dict, ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]
     extras: dict = field(default_factory=dict)
 
 
@@ -86,7 +86,7 @@ class BaseTool(ABC):
         ...     
         ...     def __call__(self, query: str, **kwargs):
         ...         result = f"Processed: {query}"
-        ...         return ToolResponse(final_answer=False, observation=result)
+        ...         return ToolResponse(final_answer=False, results=result)
         >>> 
         >>> tool = MyTool()
         >>> response = tool(query="test")
@@ -121,7 +121,7 @@ class BaseTool(ABC):
         Returns:
             ToolResponse: Structured output containing:
                 - final_answer: Whether this is the final answer
-                - observation: The tool's result (string or generator)
+                - results: The tool's result (string or generator)
                 - extras: Additional data for agent memory
         
         Raises:
@@ -131,7 +131,7 @@ class BaseTool(ABC):
             >>> def __call__(self, query: str, llm=None, **kwargs):
             ...     # Use injected runtime context
             ...     result = llm.ask(query) if llm else "No LLM available"
-            ...     return ToolResponse(final_answer=True, observation=result)
+            ...     return ToolResponse(final_answer=True, results=result)
         """
         raise NotImplementedError("Tool must implement __call__(**kwargs).")
 

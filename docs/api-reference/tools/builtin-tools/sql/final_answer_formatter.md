@@ -42,9 +42,9 @@ Not for: generating or executing SQL. For generation, see [`SQLQueryGenerator`](
 
 ## Behavior
 
-1. Validates `db_results` from `kwargs`; if missing/empty, returns `ToolResponse(final_answer=False, observation="No results found...")`.
+1. Validates `db_results` from `kwargs`; if missing/empty, returns `ToolResponse(final_answer=False, results="No results found...")`.
 2. Builds a concise table preview (up to 10 rows).
-3. Calls `llm.ask(...)` to produce the final explanation/table and returns `ToolResponse(final_answer=True, observation=...)`.
+3. Calls `llm.ask(...)` to produce the final explanation/table and returns `ToolResponse(final_answer=True, results=...)`.
 
 ---
 
@@ -54,12 +54,12 @@ Not for: generating or executing SQL. For generation, see [`SQLQueryGenerator`](
 # After SQLExecutor
 fmt = FinalAnswerFormatter(llm=chat_llm)
 resp = fmt(user_query="Top 5 active users by posts?", db_results=db_results)
-# resp.final_answer == True; resp.observation is the final message (may stream)
+# resp.final_answer == True; resp.results is the final message (may stream)
 ```
 
 ---
 
 ## Error Handling & Notes
 
-- If `db_results` is empty or missing, the tool returns a non-final observation so the agent can branch (e.g., ask for a refined query).
-- The tool streams by default; ensure your agent can stream generators from `ToolResponse.observation`.
+- If `db_results` is empty or missing, the tool returns a non-final results so the agent can branch (e.g., ask for a refined query).
+- The tool streams by default; ensure your agent can stream generators from `ToolResponse.results`.

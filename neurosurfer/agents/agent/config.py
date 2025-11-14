@@ -30,4 +30,4 @@ class AgentConfig:
 
     # Structured-output options:
     strict_json: bool = True                  # enforce RFC 8259 JSON
-    max_repair_attempts: int = 1              # for malformed JSON repairs
+    max_json_repair_attempts: int = 1              # for malformed JSON repairs

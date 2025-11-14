@@ -274,7 +274,7 @@ class DocsGenerator(BaseTool):
                 ):  
                     yield chunk
                 yield self.llm._wrap_response(call_id="", model_name="", content="\n\n")
-        return ToolResponse(final_answer=True, observation=_grand_doc_stream())
+        return ToolResponse(final_answer=True, results=_grand_doc_stream())
 
     
     def plan_docs(

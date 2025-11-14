@@ -77,7 +77,7 @@ class DBInsightsTool(BaseTool):
             max_new_tokens=self.max_new_tokens,
             stream=self.stream
         )
-        return ToolResponse(final_answer=final_answer, observation=response)
+        return ToolResponse(final_answer=final_answer, results=response)
       
     def get_tables_summaries__(self):
         table_summaries = ""

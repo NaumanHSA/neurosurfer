@@ -22,4 +22,4 @@ class GitOpsTool(BaseTool):
         c = run(["git", "commit", "-m", message])
         d = run(["git", "diff", "--stat", "HEAD~1..HEAD"])
         obs = {"branch": branch, "commit_stdout": c.stdout, "commit_stderr": c.stderr, "diff_stat": d.stdout}
-        return ToolResponse(final_answer=False, observation=json.dumps(obs))
+        return ToolResponse(final_answer=False, results=json.dumps(obs))

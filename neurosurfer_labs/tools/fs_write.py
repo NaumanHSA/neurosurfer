@@ -20,7 +20,7 @@ class WriteFileTool(BaseTool):
         path_obj = Path(path).resolve()
         repo_root = Path(os.getcwd()).resolve()
         if not str(path_obj).startswith(str(repo_root)):
-            return ToolResponse(final_answer=False, observation=f"Blocked write outside repo: {path_obj}")
+            return ToolResponse(final_answer=False, results=f"Blocked write outside repo: {path_obj}")
         path_obj.parent.mkdir(parents=True, exist_ok=True)
         path_obj.write_text(content, encoding="utf-8")
-        return ToolResponse(final_answer=False, observation=f"Wrote {path}")
+        return ToolResponse(final_answer=False, results=f"Wrote {path}")

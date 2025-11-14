@@ -17,14 +17,14 @@ class CalculatorTool(BaseTool):
         if operation not in ["add", "subtract", "multiply", "divide"]:
             return ToolResponse(
                 final_answer=False,
-                observation="Invalid operation. Supported operations are 'add', 'subtract', 'multiply', and 'divide'.",
+                results="Invalid operation. Supported operations are 'add', 'subtract', 'multiply', and 'divide'.",
                 extras={}
             )
         
         if operation == "divide" and num2 == 0:
             return ToolResponse(
                 final_answer=False,
-                observation="Division by zero is not allowed.",
+                results="Division by zero is not allowed.",
                 extras={}
             )
         
@@ -40,12 +40,12 @@ class CalculatorTool(BaseTool):
         except Exception as e:
             return ToolResponse(
                 final_answer=False,
-                observation=f"An error occurred: {str(e)}",
+                results=f"An error occurred: {str(e)}",
                 extras={}
             )
         
         return ToolResponse(
             final_answer=True,
-            observation=result,
+            results=result,
             extras={}
         )

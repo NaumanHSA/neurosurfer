@@ -57,7 +57,7 @@ class EchoTool(BaseTool):
     name = "echo"
     description = "Repeat a message. Inputs: message (str)."
     def __call__(self, *, message: str, **_):
-        return ToolResponse(observation=f"[echo] {message}")
+        return ToolResponse(results=f"[echo] {message}")
 
 tk = Toolkit()
 tk.register_tool(EchoTool())
@@ -152,7 +152,7 @@ for piece in agent.run("Top 5 products by revenue last quarter, with totals."):
 
 ```python
 # The agent can also compute insights / stats via tools (registered in get_toolkit())
-# If a generated SQL has an error, the agent refines and retries using observations.
+# If a generated SQL has an error, the agent refines and retries using results.
 for x in agent.run("Average order value per month for 2024; format as a small table."):
     print(x, end="")
 ```

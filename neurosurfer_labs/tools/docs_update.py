@@ -20,7 +20,7 @@ class DocsUpdateTool(BaseTool):
         if fp.exists():
             prev = fp.read_text(encoding="utf-8")
             fp.write_text(prev.rstrip() + "\n\n" + append_md.strip() + "\n", encoding="utf-8")
-            return ToolResponse(final_answer=False, observation=f"Appended docs: {path}")
+            return ToolResponse(final_answer=False, results=f"Appended docs: {path}")
         else:
             fp.write_text(append_md.strip() + "\n", encoding="utf-8")
-            return ToolResponse(final_answer=False, observation=f"Created docs: {path}")
+            return ToolResponse(final_answer=False, results=f"Created docs: {path}")

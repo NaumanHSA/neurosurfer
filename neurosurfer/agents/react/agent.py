@@ -18,7 +18,7 @@ from .exceptions import ToolCallParseError, ToolExecutionError
 from .retry import RetryPolicy
 from .history import History
 from .memory import EphemeralMemory
-from ..common.utils import normalize_tool_observation
+from ..common.utils import normalize_response
 from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT
 
 
@@ -154,38 +154,38 @@ class ReActAgent(BaseAgent):
             # Execute tool safely with bounded retries
             # core.py, inside _run_loop, replacing the "execute tool" part
             tool_response = self._try_execute_tool(tool_call)
-            obs = normalize_tool_observation(tool_response.observation)
+            tool_results = normalize_response(tool_response.results)
 
-            if isinstance(obs, GeneratorType):
+            if isinstance(tool_results, GeneratorType):
                 # live stream to the user and accumulate
-                observation_text = ""
+                results_text = ""
                 if tool_response.final_answer:
                     if not self.config.skip_special_tokens:
                         yield self.delims.sof
-                for chunk in obs:
-                    observation_text += chunk
+                for chunk in tool_results:
+                    results_text += chunk
                     yield chunk
                 if tool_response.final_answer:
                     if not self.config.skip_special_tokens:
                         yield self.delims.eof
-                    final_answer = observation_text
+                    final_answer = results_text
                     break
                 # not final
-                history.append(f"Observation: {observation_text}")
+                history.append(f"results: {results_text}")
                 if self.config.verbose:
-                    rprint(f"[bold]Observation:[/bold] {observation_text}")
+                    rprint(f"[bold]results:[/bold] {results_text}")
             else:
                 # plain string
-                observation_text = obs
+                results_text = tool_results
                 if tool_response.final_answer:
-                    final_answer = observation_text
+                    final_answer = results_text
                     if not self.config.skip_special_tokens:
-                        final_answer = self.delims.sof + observation_text + self.delims.eof
+                        final_answer = self.delims.sof + results_text + self.delims.eof
                     yield final_answer
                     break
-                history.append(f"Observation: {observation_text}")
+                history.append(f"results: {results_text}")
                 if self.config.verbose:
-                    rprint(f"[bold]Observation:[/bold] {observation_text}")
+                    rprint(f"[bold]results:[/bold] {results_text}")
 
         # self.logger.info(f"[ReActAgent] Stopped -> Final answer length: {len(final_answer)}")
         return final_answer or "I couldn't determine the answer."
@@ -326,7 +326,7 @@ class ReActAgent(BaseAgent):
                 self.config.retry.sleep(attempts)
         # Synthesize a failure ToolResponse (non-final)
         return ToolResponse(
-            observation=f"[tool:{tool_name}] failed after retries: {last_err}",
+            results=f"[tool:{tool_name}] failed after retries: {last_err}",
             final_answer=False,
             extras={}
         )
@@ -335,7 +335,7 @@ class ReActAgent(BaseAgent):
         h = History()
         h.append(f"Thought: Previous tool call to {tool_name} failed.")
         h.append(f"Action: {json.dumps({'tool': tool_name, 'inputs': tool_call.inputs, 'final_answer': tool_call.final_answer})}")
-        h.append(f"Observation: ERROR -> {error}")
+        h.append(f"results: ERROR -> {error}")
         return h
 
     # ---------- Prompts ----------

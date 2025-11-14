@@ -82,4 +82,4 @@ class SQLQueryGenerator(BaseTool):
         ).choices[0].message.content
 
         sql_query = response.replace("```sql", "").replace("`", "").strip()
-        return ToolResponse(final_answer=False, observation=sql_query, extras={"sql_query": sql_query})
+        return ToolResponse(final_answer=False, results=sql_query, extras={"sql_query": sql_query})

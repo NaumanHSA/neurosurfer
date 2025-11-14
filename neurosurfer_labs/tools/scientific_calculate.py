@@ -32,12 +32,12 @@ class ScientificCalculateTool(BaseTool):
             result = eval(expression)
             return ToolResponse(
                 final_answer=True,
-                observation=str(result),
+                results=str(result),
                 extras={"expression": expression, "result": result}
             )
         except Exception as e:
             return ToolResponse(
                 final_answer=False,
-                observation=f"Error evaluating expression: {str(e)}",
+                results=f"Error evaluating expression: {str(e)}",
                 extras={"expression": expression}
             )

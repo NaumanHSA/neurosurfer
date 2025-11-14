@@ -38,7 +38,7 @@ class EchoTool(BaseTool):
     )
 
     def __call__(self, *, message: str, **_) -> ToolResponse:
-        return ToolResponse(final_answer=False, observation=f"[echo] {message}")
+        return ToolResponse(final_answer=False, results=f"[echo] {message}")
 ```
 
 Register in a toolkit:
@@ -76,7 +76,7 @@ class SumTool(BaseTool):
         total = sum(float(x) for x in values)
         return ToolResponse(
             final_answer=False,
-            observation=f"Sum = {total}",
+            results=f"Sum = {total}",
             extras={"sum": total}  # becomes available to the next tool call
         )
 ```
@@ -85,7 +85,7 @@ In a `ReActAgent`, those `extras` will be merged into the next tool’s inputs (
 
 ---
 
-## **Streaming** tool (generator observation)
+## **Streaming** tool (generator results)
 
 Return a generator for incremental output. Agents/UIs can stream it in real time.
 
@@ -109,7 +109,7 @@ class StreamLinesTool(BaseTool):
         def _gen() -> Generator[str, None, None]:
             for i in range(1, int(n) + 1):
                 yield f"line {i}\n"
-        return ToolResponse(final_answer=False, observation=_gen())
+        return ToolResponse(final_answer=False, results=_gen())
 ```
 
 ---
@@ -135,10 +135,10 @@ class SummarizeWithLLM(BaseTool):
 
     def __call__(self, *, text: str, llm=None, **_) -> ToolResponse:
         if llm is None:
-            return ToolResponse(final_answer=True, observation="No LLM available.")
+            return ToolResponse(final_answer=True, results="No LLM available.")
         resp = llm.ask(user_prompt=f"Summarize in 3 bullet points:\n\n{text}", temperature=0.2, max_new_tokens=200)
         out = resp.choices[0].message.content
-        return ToolResponse(final_answer=True, observation=out)
+        return ToolResponse(final_answer=True, results=out)
 ```
 
 Register and use in an agent:
@@ -215,7 +215,7 @@ for piece in agent.run("Add [2, 3, 5], then echo the total. Stream 3 lines at th
 - **Be strict in specs**: keep inputs minimal and types exact. Agents become more reliable.
 - **Keep tools single‑purpose**: complex tasks emerge from composing small tools.
 - **Use `extras`** for intermediate state (IDs, partial results, structured objects).
-- **Prefer streaming** where latency matters; return a generator for `observation`.
+- **Prefer streaming** where latency matters; return a generator for `results`.
 - **Document “when to use”** clearly — it improves tool selection in both ReAct and router agents.
 - **Log sparingly**: tools may run often; prefer concise, actionable logs.
 

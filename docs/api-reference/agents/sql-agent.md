@@ -12,7 +12,7 @@
 4. Execute the statement safely via SQLAlchemy
 5. Format the result into natural language
 
-Every step is streamed like the base ReAct agent (thoughts → action → observation → … → final). If your app suppresses special tokens, set `skip_special_tokens=True` in `ReActConfig` when constructing the agent (see below).
+Every step is streamed like the base ReAct agent (thoughts → action → results → … → final). If your app suppresses special tokens, set `skip_special_tokens=True` in `ReActConfig` when constructing the agent (see below).
 
 ---
 
@@ -41,7 +41,7 @@ SQLAgent(
 | `storage_path` | `str \| None` | Optional location for persisting schema summaries. Defaults to the `SQLSchemaStore` default under the working directory. |
 | `sample_rows_in_table_info` | `int` | Number of example rows to capture when summarizing table schema. |
 | `logger` | `logging.Logger` | Logger for status messages. |
-| `verbose` | `bool` | When `True`, prints tool calls and observations as they happen. |
+| `verbose` | `bool` | When `True`, prints tool calls and results as they happen. |
 | `config` | [`ReActConfig`](react-agent.md#reactconfig) \| `None` | Advanced configuration (retries, pruning, streaming markers, etc.). Defaults are used when `None`. |
 | `specific_instructions` | `str \| None` | Optional SQL-specific system addendum. If `None`, sensible SQL policies are used (discover → generate → execute → format). |
 
@@ -78,7 +78,7 @@ agent = SQLAgent(
 )
 
 for chunk in agent.run("List the top 5 artists by total sales."):
-    print(chunk, end="")  # Streams thoughts + tool observations + final answer markers
+    print(chunk, end="")  # Streams thoughts + tool results + final answer markers
 ```
 
 If you set `skip_special_tokens=True` in `ReActConfig`, the agent will **not** emit `<__final_answer__>` markers; only the raw text streams. This is useful if your UI has its own finalization logic.
@@ -89,7 +89,7 @@ If you set `skip_special_tokens=True` in `ReActConfig`, the agent will **not** e
 
 ### `run(user_query: str, **kwargs) -> Generator[str, None, str]`
 
-Delegates to `ReActAgent.run`. Pass generation kwargs such as `temperature` or `max_new_tokens`. The generator yields formatted strings (thoughts, actions, tool observations) and finally returns the final answer string.
+Delegates to `ReActAgent.run`. Pass generation kwargs such as `temperature` or `max_new_tokens`. The generator yields formatted strings (thoughts, actions, tool results) and finally returns the final answer string.
 
 Runtime context (for example injecting a runtime filter) can be supplied via keyword arguments; they are forwarded to every tool invocation.
 
@@ -139,7 +139,7 @@ Returns `True` when at least one cached schema summary is available.
 
 - **Read-only by default:** `SQLExecutor` will execute whatever SQL you pass it. For production, use read-only credentials unless write operations are explicitly intended and guarded.  
 - **Schema cache location:** supply `storage_path` if you need deterministic cache placement (e.g., containers, CI).  
-- **Streaming UI:** distinguish tool observations (e.g., `Observation:` lines) from the final answer markers (unless suppressed).  
+- **Streaming UI:** distinguish tool results (e.g., `Observation:` lines) from the final answer markers (unless suppressed).  
 - **Domain policy:** the agent ships with SQL-specific guidance (discover → generate → execute → format). You can override/extend via `specific_instructions`.  
 - **Extras between tools:** tool `extras` are passed **agent-side** to the next tool call without going through the LLM. Use this to pass rich Python objects (e.g., compiled queries, parsed schemas) that aren’t easily serializable.  
 - **Retries & repair:** Action parsing problems and tool failures are automatically repaired with bounded retries (see [`ReActConfig`](react-agent.md#reactconfig) and [`RetryPolicy`](react-agent.md#retrypolicy)).

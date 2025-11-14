@@ -63,7 +63,7 @@ class FinalAnswerFormatter(BaseTool):
         db_results = kwargs.get("db_results", [])
 
         if not db_results:
-            return ToolResponse(final_answer=False, observation=f"No results found for query: {user_query}")
+            return ToolResponse(final_answer=False, results=f"No results found for query: {user_query}")
 
         processed_results = self.preprocess_sql_results_for_llm(user_query=user_query, db_results=db_results)
         user_prompt = self.prompt["user_prompt"].format(
@@ -78,7 +78,7 @@ class FinalAnswerFormatter(BaseTool):
             max_new_tokens=self.max_new_tokens,
             stream=self.stream
         )
-        return ToolResponse(final_answer=True, observation=response)
+        return ToolResponse(final_answer=True, results=response)
     
     def preprocess_sql_results_for_llm(self, user_query: str, db_results: List[dict]) -> str:
         columns = list(db_results[0].keys())

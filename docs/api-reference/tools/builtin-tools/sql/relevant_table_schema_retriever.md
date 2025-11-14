@@ -44,7 +44,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 2. Trims context to token budget if needed.
 3. Calls LLM; expects output like `['Users', 'Orders']`.
 4. Builds a message and **schema context** by fetching schemas via `sql_schema_store.get_table_data(name)`.
-5. Returns `ToolResponse(final_answer=False, observation=<message>, extras={{"schema_context": ...}})`.
+5. Returns `ToolResponse(final_answer=False, results=<message>, extras={{"schema_context": ...}})`.
 
 ---
 

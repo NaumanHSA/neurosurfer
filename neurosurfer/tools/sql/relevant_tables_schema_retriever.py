@@ -89,7 +89,7 @@ class RelevantTableSchemaFinderLLM(BaseTool):
         relevant_tables = eval(response) if response else []
         message = "I have retrieved schema for the following tables which are relevant to answer the user query:\n" + ", ".join(relevant_tables)
         schema_context = message + "\n" + self.get_table_schema(relevant_tables)
-        return ToolResponse(final_answer=False, observation=message, extras={"schema_context": schema_context})
+        return ToolResponse(final_answer=False, results=message, extras={"schema_context": schema_context})
 
     def get_tables_summaries__(self):
         table_summaries = ""

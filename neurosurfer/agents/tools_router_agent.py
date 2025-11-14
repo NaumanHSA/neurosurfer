@@ -183,10 +183,10 @@ class ToolsRouterAgent:
         """
         response: ToolResponse = tool(**payload)
 
-        # Streamed observation (generator of strings or ChatCompletionChunk -> we make it strings)
-        if isinstance(response.observation, Generator):
+        # Streamed results (generator of strings or ChatCompletionChunk -> we make it strings)
+        if isinstance(response.results, Generator):
             def _proxy_stream() -> Generator[str, None, None]:
-                for chunk in response.observation:
+                for chunk in response.results:
                     # Handle OpenAI-like ChatCompletionChunk or plain strings
                     try:
                         # ChatCompletionChunk path
@@ -199,12 +199,12 @@ class ToolsRouterAgent:
         # Non-stream path
         if stream:
             def _single() -> Generator[str, None, None]:
-                obs = self._to_text(response.observation)
+                obs = self._to_text(response.results)
                 if obs:
                     yield obs
             return _single()
         else:
-            return self._to_text(response.observation)
+            return self._to_text(response.results)
 
     # ---------- LLM ROUTING ----------
     def _route(

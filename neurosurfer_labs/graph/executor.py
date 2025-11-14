@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from typing import Any, Dict, Optional, Tuple
-
 from pydantic import BaseModel as PydModel
 
 from neurosurfer.models.chat_models.base import BaseModel as ChatBaseModel
@@ -11,11 +11,10 @@ from neurosurfer.tools import Toolkit
 
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
-from .manager import ManagerAgent
-from .schema import GraphSpec, GraphNode
+from .manager import ManagerAgent, ManagerConfig
+from .schema import GraphSpec, GraphNode, NodeExecutionResult
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
-from .types import NodeExecutionResult, NodeMode
-from .utils import topo_sort, import_string
+from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs
 from neurosurfer.agents.common.tracing import Tracer, NullTracer
 from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
 from neurosurfer.agents import Agent, AgentConfig
@@ -33,7 +32,16 @@ class GraphExecutor:
       - `llm` instance
       - `toolkit` instance
 
-    Everything else (Agents, tool subsets, manager, etc.) is wired automatically.
+    Features:
+      - Per-node policy (NodePolicy) allowing AgentConfig-like overrides:
+          * budget: max_new_tokens, temperature, return_stream_by_default
+          * retries: override AgentConfig.retry.max_route_retries
+          * timeout_s: soft node-level timeout flag
+          * toggles: allow_input_pruning, repair_with_llm, strict_tool_call, etc.
+      - Top-level graph inputs (`GraphSpec.inputs`) that:
+          * validate runtime `inputs`
+          * cast values to expected types
+          * can be interpolated into node prompts via `{input_name}`.
     """
 
     def __init__(
@@ -43,7 +51,7 @@ class GraphExecutor:
         llm: ChatBaseModel,
         toolkit: Optional[Toolkit] = None,
         manager_llm: Optional[ChatBaseModel] = None,
-        agent_config: Optional[AgentConfig] = None,
+        manager_config: Optional[ManagerConfig] = None,
         tracer: Optional[Tracer] = None,
         artifact_store: Optional[ArtifactStore] = None,
         logger: Optional[logging.Logger] = None,
@@ -52,12 +60,11 @@ class GraphExecutor:
         self.graph = graph
         self.llm = llm
         self.toolkit = toolkit
-        self.agent_config = agent_config or AgentConfig()
         self.logger = logger or logging.getLogger(__name__)
         self.artifacts = artifact_store or ArtifactStore()
 
         # Manager uses same LLM by default
-        self.manager = ManagerAgent(manager_llm or llm)
+        self.manager = ManagerAgent(manager_llm or llm, config=manager_config)
 
         # Tracing
         self._base_tracer: Tracer = tracer or NullTracer()
@@ -69,7 +76,7 @@ class GraphExecutor:
         self._node_map: Dict[str, GraphNode] = self.graph.node_map()
         self._order = topo_sort(self.graph.nodes)
 
-        # Lazy-created Agents per node
+        # Lazy-created Agents per node (with per-node config)
         self._agents: Dict[str, Agent] = {}
 
         # Validate tools early if toolkit is provided
@@ -81,11 +88,11 @@ class GraphExecutor:
     # ------------------------------------------------------------------ #
     def run(
         self,
-        inputs: Dict[str, Any],
+        inputs: Any,
         *,
         trace: Optional[bool] = None,
-        manager_temperature: float = 0.2,
-        manager_max_new_tokens: int = 512,
+        manager_temperature: float = None,
+        manager_max_new_tokens: int = None,
     ) -> Dict[str, Any]:
         """
         Execute the entire graph once.
@@ -93,7 +100,16 @@ class GraphExecutor:
         Parameters
         ----------
         inputs:
-            Arbitrary JSON-serializable dict representing the graph input.
+            Runtime inputs to the graph.
+
+            If the graph declares `inputs` in YAML:
+              - Must be a mapping (dict)
+              - Validated and cast according to GraphInputSpec
+              - Extra keys are warned and ignored
+
+            If the graph does NOT declare `inputs`:
+              - If `inputs` is a dict, it's used as-is
+              - Otherwise, it's wrapped as: {"query": inputs}
         trace:
             Optional per-call override to enable/disable tracing.
         manager_temperature:
@@ -112,6 +128,7 @@ class GraphExecutor:
         """
         tracer = self._get_tracer(trace)
 
+        graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
         results: Dict[str, NodeExecutionResult] = {}
         last_result: Optional[NodeExecutionResult] = None
 
@@ -131,7 +148,7 @@ class GraphExecutor:
 
                 node_result = self._run_node(
                     node=node,
-                    graph_inputs=inputs,
+                    graph_inputs=graph_inputs,
                     dependency_results=dep_results,
                     previous_result=prev,
                     tracer=tracer,
@@ -147,6 +164,7 @@ class GraphExecutor:
             "results": results,
             "final": final,
         }
+
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -189,16 +207,39 @@ class GraphExecutor:
                     )
                 node_toolkit.register_tool(tool)
 
-        agent_logger = logging.getLogger(f"neurosurfer.agent.{node.id}")
+        # Per-node AgentConfig (copy global, then apply NodePolicy)
+        node_config = AgentConfig()
+        if node.policy is not None:
+            p = node.policy
 
+            if p.allow_input_pruning is not None:
+                node_config.allow_input_pruning = p.allow_input_pruning
+            if p.repair_with_llm is not None:
+                node_config.repair_with_llm = p.repair_with_llm
+            if p.strict_tool_call is not None:
+                node_config.strict_tool_call = p.strict_tool_call
+            if p.strict_json is not None:
+                node_config.strict_json = p.strict_json
+            if p.max_json_repair_attempts is not None:
+                node_config.max_json_repair_attempts = p.max_json_repair_attempts
+
+            if p.retries is not None and getattr(node_config, "retry", None) is not None:
+                # assuming RouterRetryPolicy has 'max_route_retries'
+                node_config.retry.max_route_retries = p.retries
+
+            if p.max_new_tokens is not None:
+                node_config.max_new_tokens = p.max_new_tokens
+            if p.temperature is not None:
+                node_config.temperature = p.temperature
+
+        agent_logger = logging.getLogger(f"neurosurfer.agent.{node.id}")
         agent = Agent(
             llm=self.llm,
             toolkit=node_toolkit,
-            config=self.agent_config,
+            config=node_config,
             logger=agent_logger,
             verbose=True,
         )
-
         self._agents[node.id] = agent
         return agent
 
@@ -219,7 +260,7 @@ class GraphExecutor:
             "graph.node.start",
             {
                 "node_id": node.id,
-                "mode": node.mode.value,
+                "mode": node.mode,
                 "depends_on": node.depends_on,
                 "tools": node.tools,
             },
@@ -232,17 +273,17 @@ class GraphExecutor:
                 temperature=manager_temperature,
                 max_new_tokens=manager_max_new_tokens,
             )
-
-        system_prompt = self._build_system_prompt(node)
+        system_prompt = self._build_system_prompt(node, graph_inputs)
         output_schema = self._load_output_schema_if_needed(node)
 
         started_at = time.time()
+        timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
 
         with tracer.span(
             "graph.node.agent_run",
             {
                 "node_id": node.id,
-                "mode": node.mode.value,
+                "mode": node.mode,
                 "has_schema": bool(output_schema),
             },
         ):
@@ -250,8 +291,8 @@ class GraphExecutor:
                 run_kwargs: Dict[str, Any] = {
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt,
-                    "temperature": None,       # let AgentConfig decide default
-                    "max_new_tokens": None,    # let AgentConfig decide default
+                    "temperature": None,       # per-node AgentConfig handles defaults
+                    "max_new_tokens": None,
                     "stream": False,
                     "context": {
                         "graph_inputs": graph_inputs,
@@ -262,13 +303,21 @@ class GraphExecutor:
                 if output_schema is not None:
                     run_kwargs["output_schema"] = output_schema
 
-                if node.strict_tool_call is not None:
-                    run_kwargs["strict_tool_call"] = node.strict_tool_call
+                # strict_tool_call field on node still takes precedence at call-time
+                if node.policy and node.policy.strict_tool_call is not None:
+                    run_kwargs["strict_tool_call"] = node.policy.strict_tool_call
 
                 result = agent.run(**run_kwargs)
-
                 raw, structured, tool_call = self._normalize_agent_output(result)
                 duration_ms = int((time.time() - started_at) * 1000)
+
+                error_msg: Optional[str] = None
+                if timeout_s is not None and duration_ms > int(timeout_s * 1000):
+                    error_msg = (
+                        f"Node '{node.id}' exceeded timeout_s={timeout_s}s "
+                        f"(took {duration_ms/1000:.3f}s)."
+                    )
+                    self.logger.warning(error_msg)
 
                 ner = NodeExecutionResult(
                     node_id=node.id,
@@ -278,7 +327,7 @@ class GraphExecutor:
                     tool_call_output=tool_call,
                     started_at=started_at,
                     duration_ms=duration_ms,
-                    error=None,
+                    error=error_msg,
                 )
                 self.artifacts.put(node.id, raw)
                 return ner
@@ -297,10 +346,35 @@ class GraphExecutor:
                     error=str(e),
                 )
 
-    def _build_system_prompt(self, node: GraphNode) -> str:
-        purpose = node.purpose or node.description or f"Node {node.id}"
-        goal = node.goal or "Follow the instructions in the user prompt."
-        expected = node.expected_result or "A useful, correct, and concise answer."
+    def _build_system_prompt(
+        self,
+        node: GraphNode,
+        graph_inputs: Dict[str, Any],
+    ) -> str:
+        """
+        Build the system prompt for a node, interpolating graph-level
+        inputs into purpose/goal/expected_result using `{name}` syntax.
+
+        Example:
+            purpose: "Perform research on {company_title}."
+        """
+        def tmpl(text: Optional[str]) -> str:
+            if not text:
+                return ""
+            try:
+                return text.format(**graph_inputs)
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to format node %s template %r with graph inputs: %s",
+                    node.id,
+                    text,
+                    e,
+                )
+                return text
+
+        purpose = tmpl(node.purpose or node.description or f"Node {node.id}")
+        goal = tmpl(node.goal or "Follow the instructions in the user prompt.")
+        expected = tmpl(node.expected_result or "A useful, correct, and concise answer.")
 
         return DEFAULT_NODE_SYSTEM_TEMPLATE.format(
             purpose=purpose,

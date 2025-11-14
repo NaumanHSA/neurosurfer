@@ -12,7 +12,7 @@ from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionRespon
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.tool_spec import TOOL_TYPE_CAST
 
-from ..common.utils import normalize_tool_observation
+from ..common.utils import normalize_response
 from .config import AgentConfig
 from .templates import TOOL_ROUTING_PROMPT, STRICT_TOOL_ROUTING_PROMPT
 from .schema_utils import (
@@ -250,7 +250,7 @@ class Agent:
                     max_new_tokens=mnt,
                     stream=use_stream,
                 )
-            return normalize_tool_observation(response)
+            return normalize_response(response)
 
     # --------------------------------------------------------------------- #
     # Structured output owned here (compact contract + parse + repair)
@@ -317,7 +317,7 @@ class Agent:
                 )
             json_obj = extract_and_repair_json(model_response, return_dict=True)
             # Repair loop when we can't find JSON at all
-            if json_obj is None and self.config.max_repair_attempts > 0:
+            if json_obj is None and self.config.max_json_repair_attempts > 0:
                 try:
                     self.logger.warning(
                         "Could not locate a JSON object in model output. Regenerating..."
@@ -426,7 +426,7 @@ class Agent:
           1. Builds a routing prompt including all tool descriptions.
           2. Asks the LLM to select a tool and provide inputs (JSON).
           3. Repairs invalid selections or inputs when possible.
-          4. Executes the selected tool and normalizes the observation.
+          4. Executes the selected tool and normalizes the results.
 
         Tracing
         -------
@@ -549,7 +549,7 @@ class Agent:
                 try:
                     tool_response = tool(**payload)
                     extras = tool_response.extras or {}
-                    tool_return = normalize_tool_observation(tool_response.observation)
+                    tool_return = normalize_response(tool_response.results)
                     return ToolCallResponse(
                         selected_tool=tool_name,
                         inputs=checked,

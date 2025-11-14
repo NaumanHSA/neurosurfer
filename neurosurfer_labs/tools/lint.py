@@ -21,6 +21,6 @@ class LintTool(BaseTool):
         try:
             proc = subprocess.run(["ruff", "check", path], capture_output=True, text=True)
             out = (proc.stdout or proc.stderr).splitlines()[-50:]
-            return ToolResponse(final_answer=False, observation="\n".join(out))
+            return ToolResponse(final_answer=False, results="\n".join(out))
         except Exception as e:
-            return ToolResponse(final_answer=False, observation=f"ruff error: {e}")
+            return ToolResponse(final_answer=False, results=f"ruff error: {e}")

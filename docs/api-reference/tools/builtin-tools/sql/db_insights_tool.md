@@ -14,7 +14,7 @@ It builds a prompt from your schema store and queries your LLM to produce a **st
 Use this tool when you need:
 - Conceptual insights about the **overall database design**.
 - Explanations about how **entities relate** (e.g., departments ↔ roles ↔ access control).
-- Architectural/security observations that **cannot** be answered by running a SQL query.
+- Architectural/security results that **cannot** be answered by running a SQL query.
 
 Not for: returning data rows or executing queries (use [`SQLExecutor`](./sql_executor.md) for that).
 
@@ -40,7 +40,7 @@ Not for: returning data rows or executing queries (use [`SQLExecutor`](./sql_exe
   - `system_prompt`: senior DB architect persona
   - `user_prompt`: injects your `query` and aggregated **table summaries**
 - **LLM call:** `llm.ask(system_prompt, user_prompt, temperature=0.7, max_new_tokens=3000, stream=True)`
-- **Streaming:** `True` by default → `observation` may be a **generator**.
+- **Streaming:** `True` by default → `results` may be a **generator**.
 - **`final_answer`:** Defaults to `True` (can be overridden via `kwargs["final_answer"]`).
 
 ---
@@ -60,7 +60,7 @@ Not for: returning data rows or executing queries (use [`SQLExecutor`](./sql_exe
 ```python
 tool = DBInsightsTool(llm=chat_llm, sql_schema_store=schema_store)
 resp = tool(query="How do departments relate to approvals?")
-# resp.observation may be a streaming generator (depending on llm.ask)
+# resp.results may be a streaming generator (depending on llm.ask)
 ```
 
 ---

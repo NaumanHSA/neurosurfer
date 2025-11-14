@@ -2,10 +2,15 @@ name: blog_workflow
 description: >
   Example multi-agent workflow for writing and reviewing a technical blog
   using multiple specialized nodes (each node uses an Agent under the hood).
+inputs:
+  - topic_title: str
+  - query:
+      type: string
+      required: true
 
 nodes:
   - id: research
-    purpose: "Perform focused research on the requested topic."
+    purpose: "Perform focused research on the requested topic titled {topic_title}."
     goal: >
       Collect key facts, terminology, and references that are directly useful
       for writing a technical blog post.
@@ -13,17 +18,15 @@ nodes:
       A compact, structured summary with sections for 'key_points',
       'sources', and 'risks_or_caveats'.
     tools: ["web_search"]
-    mode: structured
-    strict_tool_call: true
 
   - id: outline
     depends_on: ["research"]
     purpose: "Design a clear structure for the article."
     goal: >
       Turn the research summary into a logical outline suitable for a
-      1500–2000 word blog post.
+      2000-2500 word blog post.
     expected_result: >
-      A title, a short description, and an ordered list of sections with
+      A title, a detailed description, and an ordered list of sections with
       headings and bullet points.
     tools: []
     mode: structured
@@ -38,6 +41,10 @@ nodes:
       A complete draft in markdown, including title, headings, and paragraphs.
     tools: []
     mode: text
+    policy:
+      max_new_tokens: 8096
+      temperature: 0.7
+      repair_with_llm: true
 
   - id: review
     depends_on: ["draft", "research"]
@@ -49,6 +56,10 @@ nodes:
       A structured review with strengths, issues, and concrete suggestions.
     tools: []
     mode: structured
+    policy:
+      max_new_tokens: 8096
+      temperature: 0.7
+      repair_with_llm: true
 
 outputs:
   - draft

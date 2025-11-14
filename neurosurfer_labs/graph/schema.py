@@ -1,72 +1,136 @@
 from __future__ import annotations
 
 from typing import List, Optional
-
 from pydantic import BaseModel, Field, field_validator
+from enum import Enum
 
-from .types import NodeMode
+class NodeMode(str, Enum):
+    AUTO = "auto"
+    TEXT = "text"
+    STRUCTURED = "structured"
+    TOOL = "tool"
 
 
-class GraphNode(BaseModel):
+class NodeExecutionResult(BaseModel):
+    node_id: str
+    mode: NodeMode
+    raw_output: object
+    structured_output: Optional[object] = None
+    tool_call_output: Optional[object] = None
+    started_at: float
+    duration_ms: int
+    error: Optional[str] = None
+
+
+# ---------------------------
+# Graph-level input spec
+# ---------------------------
+class GraphInputSpec(BaseModel):
     """
-    One node in a graph.
+    Specification for a top-level graph input.
 
-    Each node:
-      - Is backed by an Agent instance created automatically by the executor.
-      - Has PURPOSE / GOAL / EXPECTED_RESULT (used for manager + system prompt).
-      - Declares dependencies via `depends_on` (forming a DAG).
-      - Declares tools it is allowed to use.
-      - Can optionally specify a Pydantic `output_schema` for structured mode.
-      - Can optionally override `strict_tool_call`.
+    Normalized form:
+      name: str
+      type: str     (string|integer|float|boolean|object|array, or synonyms)
+      required: bool
+      description: Optional[str]
     """
 
-    id: str = Field(..., description="Unique node identifier.")
+    name: str = Field(..., description="Input name (key expected at runtime).")
+    type: str = Field(
+        default="string",
+        description="Logical type: string|integer|float|boolean|object|array (or 'str', 'int', etc.).",
+    )
+    required: bool = Field(
+        default=True,
+        description="If True, this key must be present in runtime inputs.",
+    )
     description: Optional[str] = Field(
-        None, description="Short human description of this node."
+        default=None,
+        description="Optional human description of the input.",
     )
-    purpose: Optional[str] = Field(
-        None, description="High-level purpose of this node in the workflow."
-    )
-    goal: Optional[str] = Field(
-        None,
-        description="What this node is trying to accomplish in this step.",
-    )
-    expected_result: Optional[str] = Field(
-        None,
-        description="What shape / content we expect from this node's output.",
-    )
-    tools: List[str] = Field(
-        default_factory=list,
-        description="Tool names this node is allowed to use (subset of the master Toolkit).",
-    )
-    depends_on: List[str] = Field(
-        default_factory=list,
-        description="List of predecessor node IDs this node depends on.",
-    )
-    mode: NodeMode = Field(
-        default=NodeMode.AUTO,
-        description=(
-            "Execution mode preference. AUTO = let Agent decide; TEXT = plain LLM; "
-            "STRUCTURED = use Pydantic schema; TOOL = emphasize tools."
-        ),
-    )
-    output_schema: Optional[str] = Field(
+
+    @field_validator("type")
+    @classmethod
+    def _normalize_type(cls, v: str) -> str:
+        v = v.strip()
+        lower = v.lower()
+        if lower in {"str", "string", "text"}:
+            return "string"
+        if lower in {"int", "integer"}:
+            return "integer"
+        if lower in {"float", "number"}:
+            return "float"
+        if lower in {"bool", "boolean"}:
+            return "boolean"
+        if lower in {"dict", "object"}:
+            return "object"
+        if lower in {"list", "array"}:
+            return "array"
+        return lower
+
+    model_config = dict(extra="ignore")
+
+
+# ---------------------------
+# Node policy (per-node AgentConfig overrides)
+# ---------------------------
+class NodePolicy(BaseModel):
+    """
+    Per-node policy that can override some AgentConfig settings and add
+    node-level execution constraints (e.g., timeout).
+
+    YAML example:
+        nodes:
+          - id: research
+            policy:
+              retries: 1
+              timeout_s: 30
+              max_new_tokens: 180
+              temperature: 0.2
+              allow_input_pruning: false
+              repair_with_llm: true
+              strict_tool_call: true
+    """
+    max_new_tokens: Optional[int] = Field(default=None, description="Override AgentConfig.max_new_tokens for this node only.")
+    temperature: Optional[float] = Field(default=None, description="Override AgentConfig.temperature for this node only.")
+    retries: Optional[int] = Field(default=None, description="Override AgentConfig.retry.max_route_retries for this node.")
+    timeout_s: Optional[int] = Field(
         default=None,
         description=(
-            "Optional fully-qualified import path to a Pydantic model "
-            "for structured output (e.g. 'myproj.schemas.Answer')."
+            "Soft timeout for this node in seconds. Execution isn't forcibly "
+            "cancelled but the node will be marked as errored if exceeded."
         ),
     )
-    strict_tool_call: Optional[bool] = Field(
+    # Direct AgentConfig-like overrides
+    allow_input_pruning: Optional[bool] = None
+    repair_with_llm: Optional[bool] = None
+    strict_tool_call: Optional[bool] = None
+    strict_json: Optional[bool] = None
+    max_json_repair_attempts: Optional[int] = None    # for malformed JSON repairs
+
+    class Config:
+        extra = "ignore"  # ignore unknown keys under 'policy'
+
+
+# ---------------------------
+# Graph node & spec
+# ---------------------------
+class GraphNode(BaseModel):
+    id: str
+    description: Optional[str] = None
+    purpose: Optional[str] = None
+    goal: Optional[str] = None
+    expected_result: Optional[str] = None
+    tools: list[str] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list)
+    mode: NodeMode = Field(default=NodeMode.AUTO)
+    output_schema: Optional[str] = None
+    model: Optional[str] = None
+
+    policy: Optional[NodePolicy] = Field(
         default=None,
-        description="Override Agent's strict_tool_call setting for this node.",
-    )
-    model: Optional[str] = Field(
-        default=None,
-        description=(
-            "Optional model identifier (e.g. 'openai/gpt-4o-mini'). "
-            "Reserved for future per-node LLM routing; currently unused."
-        ),
+        description="Optional per-node AgentConfig/policy overrides.",
     )
 
     @field_validator("id")
@@ -78,42 +142,98 @@ class GraphNode(BaseModel):
 
 
 class GraphSpec(BaseModel):
-    """
-    Full graph specification, typically loaded from YAML.
-
-    Example:
-
-    ```yaml
-    name: blog_workflow
-    description: "Research -> outline -> draft -> review"
-    nodes:
-      - id: research
-        purpose: ...
-        goal: ...
-        tools: ["web_search"]
-      - id: outline
-        depends_on: ["research"]
-        ...
-    outputs:
-      - draft
-      - review
-    ```
-    """
-
     name: str
     description: Optional[str] = None
-    nodes: List[GraphNode]
-    outputs: List[str] = Field(
+
+    inputs: list[GraphInputSpec] = Field(
         default_factory=list,
-        description="Which node IDs are considered 'final outputs' of the graph.",
+        description="Optional declared graph inputs that runtime 'inputs' must satisfy.",
     )
 
+    nodes: list[GraphNode]
+    outputs: list[str] = Field(default_factory=list)
+
     @field_validator("nodes")
-    def _unique_node_ids(cls, v: List[GraphNode]) -> List[GraphNode]:
+    def _unique_node_ids(cls, v: list[GraphNode]) -> list[GraphNode]:
         ids = [n.id for n in v]
         if len(ids) != len(set(ids)):
             dupes = {i for i in ids if ids.count(i) > 1}
             raise ValueError(f"duplicate node IDs in graph: {sorted(dupes)}")
+        return v
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def _normalize_inputs(cls, v):
+        """
+        Accept flexible YAML forms and normalize to a list[GraphInputSpec]-compatible dicts.
+
+        Supported:
+
+        1) List of compact mappings:
+            inputs:
+              - topic_title: str
+              - query:
+                  type: string
+                  required: true
+
+        2) List of full specs:
+            inputs:
+              - name: topic_title
+                type: str
+                required: true
+
+        3) Single mapping:
+            inputs:
+              topic_title: str
+              query:
+                type: string
+                required: true
+        """
+        if v is None:
+            return []
+
+        # Case 3: single mapping
+        if isinstance(v, dict):
+            out = []
+            for name, spec in v.items():
+                if isinstance(spec, dict):
+                    # e.g. query: { type: string, required: true }
+                    merged = {"name": name, **spec}
+                else:
+                    # e.g. topic_title: str
+                    merged = {"name": name, "type": spec}
+                out.append(merged)
+            return out
+
+        # Expect list otherwise
+        if not isinstance(v, list):
+            raise TypeError("inputs must be a list or mapping")
+
+        normalized = []
+        for item in v:
+            if isinstance(item, dict) and "name" not in item and len(item) == 1:
+                # Compact mapping: { topic_title: str } OR { query: {type, required} }
+                name, spec = next(iter(item.items()))
+                if isinstance(spec, dict):
+                    # { query: {type: string, required: true} }
+                    merged = {"name": name, **spec}
+                else:
+                    # { topic_title: str }
+                    merged = {"name": name, "type": spec}
+                normalized.append(merged)
+            else:
+                # Already in normalized or near-normalized form
+                normalized.append(item)
+
+        return normalized
+
+    @field_validator("inputs")
+    @classmethod
+    def _unique_input_names(cls, v: List[GraphInputSpec]) -> List[GraphInputSpec]:
+        names = [f.name for f in v]
+        if len(names) != len(set(names)):
+            dupes = {n for n in names if names.count(n) > 1}
+            raise ValueError(f"duplicate graph input names: {sorted(dupes)}")
         return v
 
     def node_map(self) -> dict[str, GraphNode]:

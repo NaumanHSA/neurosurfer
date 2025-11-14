@@ -64,7 +64,7 @@ class ReActConfig:
 | --- | --- | --- |
 | `temperature` | `float` | Default sampling temperature for LLM calls made by the agent loop. Overridable per `run(...)` call. |
 | `max_new_tokens` | `int` | Default token cap for LLM generations inside the agent. Overridable per `run(...)` call. |
-| `verbose` | `bool` | When `True`, prints additional debug info (e.g., observations) via `rich`/logger. |
+| `verbose` | `bool` | When `True`, prints additional debug info (e.g., results) via `rich`/logger. |
 | `allow_input_pruning` | `bool` | If `True`, unknown keys in Action `inputs` are dropped before `ToolSpec` validation. If `False`, the agent attempts to **repair** the Action instead. |
 | `repair_with_llm` | `bool` | If `True`, the agent prompts the LLM to output a corrected Action when parsing/validation fails or a tool errors. |
 | `skip_special_tokens` | `bool` | If `True`, the agent **does not emit** `<__final_answer__>` / `</__final_answer__>` markers during streaming. Use this when your UI handles finalization itself. |
@@ -177,14 +177,14 @@ class MyTool(BaseTool):
             ToolParam(name="path", ptype=str, required=True, description="File path"),
             ToolParam(name="flag", ptype=bool, required=False, description="Optional flag"),
         ],
-        returns=ToolReturn(rtype=str, description="Human-readable observation")
+        returns=ToolReturn(rtype=str, description="Human-readable results")
     )
 
     def __call__(self, **kwargs) -> ToolResponse:
         params = self.spec.check_inputs(kwargs)
         # ... do work ...
         return ToolResponse(
-            observation="Done.",
+            results="Done.",
             final_answer=False,
             extras={"some_key": "value"}  # becomes ephemeral memory for the next step
         )
@@ -193,7 +193,7 @@ class MyTool(BaseTool):
 ### `ToolResponse.final_answer`
 
 - Tools return a `ToolResponse` with `final_answer: bool`.  
-- When `final_answer=True`, the agent **treats the tool’s observation as the final user‑facing answer** and stops the loop immediately.  
+- When `final_answer=True`, the agent **treats the tool’s results as the final user‑facing answer** and stops the loop immediately.  
 - When streaming, the agent typically wraps the final text with `<__final_answer__> ... </__final_answer__>` markers; **if** `config.skip_special_tokens=True`, it **does not emit markers** and just streams the text.  
 - Most tools should return `final_answer=False`. Only mark as final when the tool’s output is already the complete answer the user should see.
 
@@ -213,7 +213,7 @@ class MyTool(BaseTool):
 - **Tool validation errors** (unknown keys, missing requireds) → Either **drop extras** (`allow_input_pruning=True`) or ask the LLM to **repair** the inputs.  
 - **Tool runtime errors** → The agent returns the error text to the LLM and retries with a **repaired Action** up to `max_tool_errors`, with backoff.
 
-When retries are exhausted, the agent surfaces the failure as an observation and may still produce a final answer if appropriate.
+When retries are exhausted, the agent surfaces the failure as an results and may still produce a final answer if appropriate.
 
 ---
 

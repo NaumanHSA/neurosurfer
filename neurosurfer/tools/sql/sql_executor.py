@@ -32,14 +32,14 @@ class SQLExecutor(BaseTool):
             # sql_query = kwargs.get("sql_query", "")
             db_results = self.get_results_with_columns(sql_query)
             if db_results:
-                observation = "I've executed the SQL query and have fetched the results."
+                results = "I've executed the SQL query and have fetched the results."
             else:
-                observation = "I've executed the SQL query but no results were found."
+                results = "I've executed the SQL query but no results were found."
 
-            return ToolResponse(final_answer=False, observation=observation, extras={"db_results": db_results})
+            return ToolResponse(final_answer=False, results=results, extras={"db_results": db_results})
         except Exception as e:
             self.logger.error(f"SQL execution failed: {str(e)}")
-            return ToolResponse(final_answer=False, observation=[{"error": str(e)}])
+            return ToolResponse(final_answer=False, results=[{"error": str(e)}])
 
     def get_results_with_columns(self, query: str):
         with self.db_engine.connect() as connection:
