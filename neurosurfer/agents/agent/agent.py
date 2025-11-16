@@ -14,14 +14,19 @@ from neurosurfer.tools.tool_spec import TOOL_TYPE_CAST
 
 from ..common.utils import normalize_response
 from .config import AgentConfig
-from .templates import TOOL_ROUTING_PROMPT, STRICT_TOOL_ROUTING_PROMPT
+from .templates import (
+    TOOL_ROUTING_PROMPT,
+    STRICT_TOOL_ROUTING_PROMPT,
+    REPAIR_JSON_PROMPT,
+    CORRECT_JSON_PROMPT,
+)
 from .schema_utils import (
     build_structured_system_prompt,
     extract_and_repair_json,
     maybe_unwrap_named_root,
 )
-from .responses import StructuredResponse, ToolCallResponse
-from neurosurfer.agents.common.tracing import Tracer, NullTracer, LoggerTracer, RichTracer
+from .responses import StructuredResponse, ToolCallResponse, AgentResponse
+from neurosurfer.tracing import Tracer, TracerConfig
 
 
 class Agent:
@@ -51,29 +56,21 @@ class Agent:
     verbose:
         If True, the agent logs more detail (e.g. selected tool, errors).
     tracer:
-        Optional `Tracer` implementation used to record spans. If None, a
-        `LoggerTracer` based on `logger` is used as the base tracer.
-    enable_tracing:
-        If True, tracing is enabled by default for all `run()` calls.
-        If False, tracing is disabled by default (but can still be enabled
-        per-call via `trace=True` in `run()`).
-        If None, defaults to the value of `verbose`.
+        Optional `Tracer` used to record and span steps in the agent flow.
+    log_tracing:
+        If True, tracer if enabled will log spans to the console per step.
+        Only applicable if `tracer` is not None.
 
     Tracing behaviour
     -----------------
-    - The agent uses a small helper `_get_tracer(trace)` in `run()` to choose
-      the effective tracer for a given call:
-        * `trace` argument to `run()` (if provided) overrides everything.
-        * Otherwise it falls back to `enable_tracing` or `verbose`.
-    - When tracing is disabled for a call, a `NullTracer` is used, which is a
-      drop-in tracer that does nothing (zero overhead in your flow).
-    - Spans are opened around:
+    When tracing is enabled, spans are opened around:
         * `agent.run`
         * `agent.structured_call`
         * `agent.route_and_call`
         * `agent.route_and_call.router_llm_call`
         * `agent.route_and_call.tool_execute`
         * `agent.free_text_call`
+    Tracing results are available via the `traces` attribute of the `AgentResult` returned by `run()`, `structured_call()`, `route_and_call()`, and `free_text_call()`. 
     """
 
     def __init__(
@@ -85,30 +82,31 @@ class Agent:
         logger: logging.Logger = logging.getLogger(__name__),
         verbose: bool = False,
         tracer: Optional[Tracer] = None,
-        enable_tracing: Optional[bool] = None,
+        log_traces: Optional[bool] = True,
     ):
         self.llm = llm
         self.toolkit = toolkit
         self.config = config or AgentConfig()
         self.logger = logger
         self.verbose = verbose
+        self.log_traces = log_traces
 
         # Tracing setup
-        # -------------
-        # Base tracer that actually records spans (LoggerTracer by default).
-        self._base_tracer: Tracer = tracer or RichTracer()
-        # Null tracer to cheaply disable tracing.
-        self._null_tracer: Tracer = NullTracer()
-        # Default "is tracing enabled?" behaviour.
-        self._enable_tracing_default: bool = (
-            bool(enable_tracing) if enable_tracing is not None else bool(verbose)
+        # Base tracer that actually records and log steps (RichTracer by default).
+        self.tracer: Tracer = tracer or Tracer(
+            config=TracerConfig(log_steps=self.log_traces),
+            meta={
+                "agent_type": "generic_agent",
+                "agent_config": self.config,
+                "model": llm.model_name,
+                "toolkit": toolkit is not None,
+                "verbose": verbose,
+                "log_steps": self.log_traces,
+            },
+            logger_=logger,
         )
-        # Expose base tracer for external use (e.g. graph nodes).
-        self.tracer: Tracer = self._base_tracer
 
-    # --------------------------------------------------------------------- #
-    # Public API
-    # --------------------------------------------------------------------- #
+    # Public API to run the agent
     def run(
         self,
         *,
@@ -122,8 +120,8 @@ class Agent:
         context: Optional[Dict[str, Any]] = None,
         _route_extra_instructions: str = "",
         strict_tool_call: Optional[bool] = None,
-        trace: Optional[bool] = None,
-    ) -> Union[str, Generator[str, None, None], StructuredResponse, ToolCallResponse]:
+        reset_tracer: bool = True,
+    ) -> AgentResponse:
         """
         Run a single agent step.
 
@@ -163,21 +161,19 @@ class Agent:
             If True, the router must select a valid tool and repair invalid
             inputs; free-text fallback is disabled. If None, falls back to
             `config.strict_tool_call`.
-        trace:
-            Optional per-call override for tracing:
-              - None: use default from `enable_tracing` / `verbose`.
-              - True: force tracing on for this call.
-              - False: force tracing off for this call.
 
         Returns
         -------
-        Union[str, Generator[str, None, None], StructuredResponse, ToolCallResponse]
-            - Free-text answer (string or streaming generator of strings),
-              or
-            - StructuredResponse (for Pydantic-validated outputs), or
-            - ToolCallResponse (for tool routing mode).
+        AgentResponse
+            - `response`: Union[str, Generator[str, None, None], StructuredResponse, ToolCallResponse]
+                - Free-text answer (string or streaming generator of strings),
+                or
+                - StructuredResponse (for Pydantic-validated outputs), or
+                - ToolCallResponse (for tool routing mode).
+            - `traces`: Tracing results for the run.
         """
-        tracer = self._get_tracer(trace)
+        if reset_tracer:
+            self.tracer.reset()   # Reset tracer before each run
 
         use_stream = self.config.return_stream_by_default if stream is None else bool(stream)
         temp = float(self.config.temperature if temperature is None else temperature)
@@ -192,10 +188,18 @@ class Agent:
                 "Responses are returned from tools in case of a tool call. Ignoring output schema."
             )
             output_schema = None
+        
+        if output_schema and use_stream:
+            self.logger.warning("`output_schema` provided with `stream=True`; forcing non-streaming structured output.")
+            use_stream = False
 
-        with tracer.span(
-            "agent.run",
-            {
+        self._print("🧠 Thinking...", color="yellow")
+        if self.log_traces:
+            self._print("\nTracing Start!")
+        with self.tracer.step(
+            kind="agent",
+            label="agent.run",
+            inputs={
                 "agent_type": type(self).__name__,
                 "has_toolkit": bool(self.toolkit),
                 "structured": bool(output_schema),
@@ -203,58 +207,59 @@ class Agent:
                 "strict_tool_call": strict_tool_call,
             },
         ):
-            self.logger.info("🧠 Thinking...")
-
             # Tool mode?
             if self.toolkit:
-                return self._route_and_call(
+                response = self._route_and_call(
                     user_prompt=usr_prompt,
                     extra_instructions=_route_extra_instructions,
                     temperature=temp,
                     max_new_tokens=mnt,
                     use_stream=use_stream,
                     context=context or {},
-                    strict_tool_call=strict_tool_call,
-                    tracer=tracer,
+                    strict_tool_call=strict_tool_call
                 )
-
             # Structured mode via Pydantic
-            if output_schema is not None:
-                if use_stream:
-                    self.logger.warning(
-                        "`output_schema` provided with `stream=True`; "
-                        "forcing non-streaming structured output."
-                    )
-                return self._structured_llm_call(
+            elif output_schema is not None:
+                response = self._structured_llm_call(
                     sys_prompt=sys_prompt,
                     usr_prompt=usr_prompt,
                     output_schema=output_schema,
                     temperature=temp,
                     max_new_tokens=mnt,
-                    tracer=tracer,
                 )
-
-            # Free-text mode
-            with tracer.span(
-                "agent.free_text_call",
-                {
-                    "system_prompt_len": len(sys_prompt),
-                    "user_prompt_len": len(usr_prompt),
+            else:
+                # Free-text mode
+                llm_params = {
+                    "user_prompt": usr_prompt,
+                    "system_prompt": sys_prompt,
+                    "temperature": temp,
+                    "max_new_tokens": mnt,
                     "stream": use_stream,
-                },
-            ):
-                response = self.llm.ask(
-                    user_prompt=usr_prompt,
-                    system_prompt=sys_prompt,
-                    temperature=temp,
-                    max_new_tokens=mnt,
-                    stream=use_stream,
-                )
-            return normalize_response(response)
+                }
+                with self.tracer.step(
+                    kind="llm.call",
+                    label="agent.free_text_call",
+                    inputs={
+                        "system_prompt_len": len(sys_prompt),
+                        "user_prompt_len": len(usr_prompt),
+                        **llm_params,
+                    },
+                ) as t:
+                    response = normalize_response(self.llm.ask(**llm_params))
+                    t.outputs(output=response)
 
-    # --------------------------------------------------------------------- #
+        if self.log_traces:
+            self._print("Tracing End!\n")  
+        # Print final response
+        if isinstance(response, str):
+            self._print("Final response:", color="green")
+            self._print(response.strip(), rich=False)
+        return AgentResponse(
+            response=response,
+            traces=self.tracer.results,
+        )
+
     # Structured output owned here (compact contract + parse + repair)
-    # --------------------------------------------------------------------- #
     def _structured_llm_call(
         self,
         *,
@@ -263,7 +268,6 @@ class Agent:
         output_schema: Type[PydModel],
         temperature: float,
         max_new_tokens: int,
-        tracer: Tracer,
         **kwargs: Any,
     ) -> StructuredResponse:
         """
@@ -282,131 +286,83 @@ class Agent:
         Opens a span `agent.structured_call` with attributes including the
         schema name and token limits.
         """
-        with tracer.span(
-            "agent.structured_call",
-            {
+       
+        parsed_output = None
+        sys, model_structure = build_structured_system_prompt(
+            base_system_prompt=sys_prompt,
+            schema_cls=output_schema,
+            options=kwargs.pop("structured_prompt_options", None),
+            use_model_json_schema=True,
+        )
+        llm_params = {"user_prompt": usr_prompt,"system_prompt": sys,"temperature": temperature,"max_new_tokens": max_new_tokens,"stream": False}
+        # First pass: ask model for JSON directly
+        with self.tracer.step(
+            kind="llm.call",
+            label="agent.structured_call.first_pass",
+            inputs={
                 "schema": output_schema.__name__,
                 "system_prompt_len": len(sys_prompt),
                 "user_prompt_len": len(usr_prompt),
-                "max_new_tokens": max_new_tokens,
-                "temperature": temperature,
+                **llm_params,
             },
-        ):
-            parsed_output = None
-            sys, model_structure = build_structured_system_prompt(
-                base_system_prompt=sys_prompt,
-                schema_cls=output_schema,
-                options=kwargs.pop("structured_prompt_options", None),
-                use_model_json_schema=True,
-            )
-
-            # First pass: ask model for JSON directly
-            with tracer.span("llm.structured_call", {"schema": output_schema.__name__}):
-                model_response = (
-                    self.llm.ask(
-                        user_prompt=usr_prompt,
-                        system_prompt=sys,
-                        temperature=temperature,
-                        max_new_tokens=max_new_tokens,
-                        stream=False,
-                        **kwargs,
-                    )
-                    .choices[0]
-                    .message.content
-                    or ""
-                )
+        )as t:
+            model_response = self.llm.ask(**llm_params).choices[0].message.content or ""
+            t.outputs(model_response=model_response, model_response_len=len(model_response))
             json_obj = extract_and_repair_json(model_response, return_dict=True)
-            # Repair loop when we can't find JSON at all
-            if json_obj is None and self.config.max_json_repair_attempts > 0:
+
+        # Repair loop when we can't find JSON at all
+        if json_obj is None and self.config.max_json_repair_attempts > 0:
+            t = self.tracer.step(kind="llm.call", label="agent.structured_call.repair_json", inputs={"schema": output_schema.__name__}).start()
+            try:
+                t.log("Could not locate a JSON object in model output. Regenerating...", type="warning")
+                repair_user_prompt = REPAIR_JSON_PROMPT.format(model_structure=model_structure, model_response=model_response)
+                repair_sys_prompt = "You are a strict JSON fixer."
+                llm_params = {"user_prompt": repair_user_prompt, "system_prompt": repair_sys_prompt, "temperature": 0.3, "max_new_tokens": max_new_tokens, "stream": False}
+                t.inputs(system_prompt_len=len(repair_sys_prompt), user_prompt_len=len(repair_user_prompt), **llm_params)
+                
+                repaired_response = self.llm.ask(**llm_params).choices[0].message.content or ""
+                t.outputs(repaired_json=repaired_response, repaired_json_len=len(repaired_response))
+                json_obj = extract_and_repair_json(repaired_response, return_dict=True)
+            except Exception as e:
+                t.log(f"Structured output: could not locate a JSON object in model output with errors: {e}", type="error")
+                json_obj = None
+            t.close()
+
+        if json_obj:
+            json_obj = json.dumps(json_obj, ensure_ascii=False, indent=2)
+            try:
+                parsed_output = output_schema.model_validate_json(maybe_unwrap_named_root(json_obj, output_schema))
+            except Exception as e:
+                t = self.tracer.step(kind="llm.call", label="agent.structured_call.repair_validation", inputs={"schema": output_schema.__name__})
+                # Validation failed -> retry repair once more via the model
                 try:
-                    self.logger.warning(
-                        "Could not locate a JSON object in model output. Regenerating..."
-                    )
-                    with tracer.span("llm.structured_repair_no_json", {"attempt": 1}):
-                        repaired_response = (
-                            self.llm.ask(
-                                user_prompt=(
-                                    "Fix the following model output into valid JSON that matches the structure.\n\n"
-                                    f"### Structure\n{model_structure}\n\n"
-                                    "### Output to fix\n"
-                                    f"{model_response}\n\n"
-                                    "Return ONLY the JSON object. No markdown, no comments."
-                                ),
-                                system_prompt="You are a strict JSON fixer.",
-                                temperature=0.3,
-                                max_new_tokens=max_new_tokens,
-                                stream=False,
-                            )
-                            .choices[0]
-                            .message.content
-                            or ""
-                        )
+                    repair_sys_prompt = "You are a strict JSON fixer."
+                    repair_user_prompt = CORRECT_JSON_PROMPT.format(error=e, model_structure=model_structure, json_obj=json_obj)
+
+                    llm_params = {"user_prompt": repair_user_prompt, "system_prompt": repair_sys_prompt, "temperature": 0.3, "max_new_tokens": max_new_tokens, "stream": False}
+                    t.inputs(system_prompt_len=len(repair_sys_prompt), user_prompt_len=len(repair_user_prompt), **llm_params)
+                    t.log("Structured output JSON failed validation: Retrying...", type="warning")
+                    repaired_response = self.llm.ask(**llm_params).choices[0].message.content or ""
+                    t.outputs(repaired_json=repaired_response, repaired_json_len=len(repaired_response))
+
+                    # Try to extract and validate the repaired JSON
                     json_obj = extract_and_repair_json(repaired_response, return_dict=True)
+                    json_obj = json.dumps(json_obj, ensure_ascii=False, indent=2)
+                    parsed_output = output_schema.model_validate_json(maybe_unwrap_named_root(json_obj, output_schema))
+                    t.log("Structured output JSON successfully validated...", type="info")
                 except Exception as e:
-                    self.logger.error(
-                        f"Structured output: could not locate a JSON object in model output with errors: {e}"
-                    )
                     json_obj = None
+                    t.log(f"Structured output JSON failed validation with errors: {e}", type="error")
+                t.close()
 
-            if json_obj:
-                json_obj = json.dumps(json_obj, ensure_ascii=False, indent=2)
-                try:
-                    parsed_output = output_schema.model_validate_json(
-                        maybe_unwrap_named_root(json_obj, output_schema)
-                    )
-                except Exception as e:
-                    # Validation failed -> retry repair once more via the model
-                    self.logger.warning(
-                        "Structured output JSON failed validation: Retrying..."
-                    )
-                    try:
-                        with tracer.span(
-                            "llm.structured_repair_validation",
-                            {"schema": output_schema.__name__},
-                        ):
-                            repaired_response = (
-                                self.llm.ask(
-                                    user_prompt=(
-                                        "Parsing JSON to Pydantic Model failed with error: "
-                                        + str(e)
-                                        + "\n\n"
-                                        "Fix the following model output into valid JSON that matches the structure.\n\n"
-                                        f"### Structure\n{model_structure}\n\n"
-                                        "### Output to fix\n"
-                                        f"{json_obj}\n\n"
-                                        "Return ONLY the JSON object. No markdown, no comments."
-                                    ),
-                                    system_prompt="You are a strict JSON fixer.",
-                                    temperature=0.3,
-                                    max_new_tokens=max_new_tokens,
-                                    stream=False,
-                                )
-                                .choices[0]
-                                .message.content
-                                or ""
-                            )
-                        json_obj = extract_and_repair_json(repaired_response, return_dict=True)
-                        json_obj = json.dumps(json_obj, ensure_ascii=False, indent=2)
-                        parsed_output = output_schema.model_validate_json(
-                            maybe_unwrap_named_root(json_obj, output_schema)
-                        )
-                        self.logger.info("Structured output JSON successfully validated...")
-                    except Exception:
-                        json_obj = None
-                        self.logger.error(
-                            f"Structured output JSON failed validation with errors: {e}"
-                        )
+        return StructuredResponse(
+            output_schema=output_schema,
+            model_response=model_response,
+            json_obj=json_obj,
+            parsed_output=parsed_output,
+        )
 
-            return StructuredResponse(
-                output_schema=output_schema,
-                model_response=model_response,
-                json_obj=json_obj,
-                parsed_output=parsed_output,
-            )
-
-    # --------------------------------------------------------------------- #
     # Tool routing + execution
-    # --------------------------------------------------------------------- #
     def _route_and_call(
         self,
         *,
@@ -417,7 +373,6 @@ class Agent:
         use_stream: bool,
         context: Dict[str, Any],
         strict_tool_call: bool,
-        tracer: Tracer,
     ) -> Union[str, ToolCallResponse]:
         """
         Route a request to a tool (or fall back to text) using the toolkit.
@@ -435,141 +390,131 @@ class Agent:
           - `agent.route_and_call.tool_execute`: around the tool invocation.
         """
         tool_descriptions = self.toolkit.get_tools_description()
-        router_prompt = (
-            STRICT_TOOL_ROUTING_PROMPT if strict_tool_call else TOOL_ROUTING_PROMPT
-        ).format(
+        router_prompt = (STRICT_TOOL_ROUTING_PROMPT if strict_tool_call else TOOL_ROUTING_PROMPT).format(
             tool_descriptions=tool_descriptions,
             extra_instructions=extra_instructions or "",
         )
-
         routing_attempt = 0
         repair_prompt = ""
         tool_name: str = ""
         tool_inputs: Dict[str, Any] = {}
         checked: Dict[str, Any] = {}
 
-        with tracer.span(
-            "agent.route_and_call",
-            {
-                "user_prompt_len": len(user_prompt),
+        t = self.tracer.step(
+            kind="llm.call",
+            label="agent.route_and_call.router_llm_call",
+            inputs={
+                "attempt": routing_attempt + 1,
                 "strict_tool_call": strict_tool_call,
+                "system_prompt_len": len(router_prompt),
+                "user_prompt_len": len(user_prompt)
+            },
+        ).start()
+        while True:
+            user_prompt = user_prompt if not repair_prompt else f"{user_prompt}\n\n{repair_prompt}"
+            llm_params = {
+                "user_prompt": user_prompt,
+                "system_prompt": router_prompt,
                 "temperature": temperature,
                 "max_new_tokens": max_new_tokens,
-            },
-        ):
-            while True:
-                with tracer.span(
-                    "agent.route_and_call.router_llm_call",
-                    {
-                        "attempt": routing_attempt + 1,
-                        "strict_tool_call": strict_tool_call,
-                    },
-                ):
-                    model_response = (
-                        self.llm.ask(
-                            user_prompt=(
-                                user_prompt
-                                if not repair_prompt
-                                else f"{user_prompt}\n\n{repair_prompt}"
-                            ),
-                            system_prompt=router_prompt,
-                            temperature=temperature,
-                            max_new_tokens=max_new_tokens,
-                            stream=False,
-                        )
-                        .choices[0]
-                        .message.content
-                        or ""
-                    )
+                "stream": False,
+            }
+            t.inputs(**llm_params)
+            model_response = self.llm.ask(**llm_params).choices[0].message.content or ""
+            t.outputs(model_response=model_response, model_response_len=len(model_response))
 
-                # try parsing json, in case model suggests a tool call
-                obj = extract_and_repair_json(model_response, return_dict=True)
-                if obj and isinstance(obj, dict) and "tool" in obj and "inputs" in obj:
-                    tool_name = str(obj["tool"])
-                    tool_inputs = obj["inputs"] if isinstance(obj["inputs"], dict) else {}
+            # try parsing json, in case model suggests a tool call
+            obj = extract_and_repair_json(model_response, return_dict=True)
+            if obj and isinstance(obj, dict) and "tool" in obj and "inputs" in obj:
+                tool_name = str(obj["tool"])
+                tool_inputs = obj["inputs"] if isinstance(obj["inputs"], dict) else {}
+            else:
+                if strict_tool_call:
+                    tool_name, tool_inputs = "none", {}
                 else:
-                    if strict_tool_call:
-                        tool_name, tool_inputs = "none", {}
-                    else:
-                        # return plain response if model can choose between tool and direct answer
-                        return model_response
+                    # return plain response if model can choose between tool and direct answer
+                    t.log("Returning plain response", type="info")
+                    t.close()
+                    return model_response
 
-                # for strict tool calling, validate tool call and repair inputs if invalid
-                if tool_name and tool_name != "none":
-                    tool = self.toolkit.registry.get(tool_name)
-                    if tool is None:
-                        repair_prompt = (
-                            f"[Previous issue]\nThe tool '{tool_name}' you selected is not "
-                            "registered with the toolkit. Please select the right tool, "
-                            "double-check the name."
-                        )
-                        routing_attempt += 1
-                        continue
-                    try:
-                        checked = self._validate_inputs(tool_name, tool_inputs)
-                    except Exception as e:
-                        repair_prompt = (
-                            f"[Previous issue]\nFix inputs for tool '{tool_name}'. Error: {e}\n"
-                            f"Current: {tool_inputs}\n"
-                            "Return ONLY a JSON object for 'inputs'. Please double-check the input "
-                            "names and types."
-                        )
-                        routing_attempt += 1
-                        continue
-                    break
-
-                # If we get here, no usable tool was selected; try repair or give up
-                routing_attempt += 1
-                if (
-                    routing_attempt > self.config.retry.max_route_retries
-                    or not self.config.repair_with_llm
-                ):
-                    return (
-                        "There was a problem selecting the right tool or repairing invalid "
-                        "inputs while `strict_tool_call` is enabled."
+            # for strict tool calling, validate tool call and repair inputs if invalid
+            if tool_name and tool_name != "none":
+                tool = self.toolkit.registry.get(tool_name)
+                if tool is None:
+                    repair_prompt = (
+                        f"[Previous issue]\nThe tool '{tool_name}' you selected is not "
+                        "registered with the toolkit. Please select the right tool, "
+                        "double-check the name."
                     )
-
-                repair_prompt = (
-                    "[Previous issue]\nYour output was not valid JSON or did not select a "
-                    "usable tool. Return JSON only."
-                )
-                time.sleep(self.config.retry.backoff_sec * routing_attempt)
-
-            if self.verbose:
-                self.logger.info(f"[ToolsCallingAgent] Selected tool: {tool_name}")
-                self.logger.info(f"[ToolsCallingAgent] Raw inputs: {tool_inputs}")
-
-            payload = {**checked, **(context or {})}
-            tool = self.toolkit.registry.get(tool_name)
-
-            with tracer.span(
-                "agent.route_and_call.tool_execute",
-                {"tool_name": tool_name, "payload_keys": list(payload.keys())},
-            ):
+                    routing_attempt += 1
+                    continue
                 try:
-                    tool_response = tool(**payload)
-                    extras = tool_response.extras or {}
-                    tool_return = normalize_response(tool_response.results)
-                    return ToolCallResponse(
-                        selected_tool=tool_name,
-                        inputs=checked,
-                        returns=tool_return,
-                        final=bool(tool_response.final_answer),
-                        extras=extras,
-                    )
+                    checked = self._validate_inputs(tool_name, tool_inputs)
                 except Exception as e:
-                    if self.verbose:
-                        self.logger.exception(
-                            f"[ToolsCallingAgent] Tool '{tool_name}' error: {e}"
-                        )
-                    return (
-                        f"Error while executing tool '{tool_name}': {e}.\n"
-                        f"Inputs: {checked}\n"
+                    repair_prompt = (
+                        f"[Previous issue]\nFix inputs for tool '{tool_name}'. Error: {e}\n"
+                        f"Current: {tool_inputs}\n"
+                        "Return ONLY a JSON object for 'inputs'. Please double-check the input "
+                        "names and types."
                     )
+                    routing_attempt += 1
+                    continue
+                break
 
-    # --------------------------------------------------------------------- #
+            # If we get here, no usable tool was selected; try repair or give up
+            routing_attempt += 1
+            if (
+                routing_attempt > self.config.retry.max_route_retries
+                or not self.config.repair_with_llm
+            ):
+                e_msg = (
+                    "There was a problem selecting the right tool or repairing invalid "
+                    "inputs while `strict_tool_call` is enabled."
+                )
+                t.log(e_msg, type="error")
+                t.set_error(e_msg)
+                return e_msg
+            repair_prompt = (
+                "[Previous issue]\nYour output was not valid JSON or did not select a "
+                "usable tool. Return JSON only."
+            )
+            time.sleep(self.config.retry.backoff_sec * routing_attempt)
+
+        t.log(f"Selected tool: {tool_name}")
+        t.log(f"Raw inputs: {tool_inputs}")
+        t.close()
+
+        payload = {**checked, **(context or {})}
+        tool = self.toolkit.registry.get(tool_name)
+
+        with self.tracer.step(
+            kind="tool.execute",
+            label="agent.route_and_call.tool_execute",
+            inputs={
+                "tool_name": tool_name,
+                "payload": payload,
+            },
+        ) as t:
+            try:
+                tool_response = tool(**payload)
+                extras = tool_response.extras or {}
+                tool_return = normalize_response(tool_response.results)
+                t.outputs(tool_return=tool_return, extras=extras)
+                t.log(f"Tool '{tool_name}' returned: {tool_return}", type="info")
+                return ToolCallResponse(
+                    selected_tool=tool_name,
+                    inputs=checked,
+                    returns=tool_return,
+                    final=bool(tool_response.final_answer),
+                    extras=extras,
+                )
+            except Exception as e:
+                e_msg = f"Error while executing tool '{tool_name}': {e}.\nInputs: {checked}\n"
+                t.set_error(e_msg)
+                t.log(e_msg, type="error")
+                return e_msg
+
     # Input validation for tools
-    # --------------------------------------------------------------------- #
     def _validate_inputs(self, tool_name: str, raw_inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validate and cast raw tool inputs according to the tool's `ToolSpec`.
@@ -597,16 +542,14 @@ class Agent:
 
         return tool.spec.check_inputs(inputs)
 
-    # --------------------------------------------------------------------- #
-    # Internal helper
-    # --------------------------------------------------------------------- #
-    def _get_tracer(self, trace: Optional[bool]) -> Tracer:
-        """
-        Resolve the effective tracer for a single `run()` call.
-
-        - If `trace` is explicitly set on the call, we respect that.
-        - Otherwise fall back to `_enable_tracing_default` which is derived
-          from `enable_tracing` (if provided) or `verbose`.
-        """
-        effective = self._enable_tracing_default if trace is None else bool(trace)
-        return self._base_tracer if effective else self._null_tracer
+    # Internal helper to print messages
+    def _print(self, msg: str, color: str = "cyan", rich: bool = True):
+        try:
+            if rich:
+                from rich.console import Console
+                console = Console(force_jupyter=False, force_terminal=True)
+                console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
+            else:
+                print(msg)
+        except NameError:
+            print(msg)

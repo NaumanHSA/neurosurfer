@@ -58,3 +58,32 @@ Expected JSON Structure:
 
 Now generate your response strictly following this contract.
 """
+
+
+REPAIR_JSON_PROMPT = """Fix the following model output into valid JSON that matches the structure.
+
+### Structure
+# {model_structure}
+
+### Output to fix
+# {model_response}
+
+Return ONLY the JSON object. No markdown, no comments.
+"""
+
+
+CORRECT_JSON_PROMPT = """Parsing JSON to Pydantic Model failed with error:
+
+# Error
+{error}
+
+Fix the following model output into valid JSON that matches the structure.
+
+### Structure
+# {model_structure}
+
+### Output to fix
+# {json_obj}
+
+Return ONLY the JSON object. No markdown, no comments.
+"""
