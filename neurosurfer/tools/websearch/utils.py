@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Sequence, List
+from typing import Any, Dict, Optional, Sequence, List, Literal
 import requests
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from .engines.base import EngineResult
 from .extractor import get_domain, html_to_text
-from .config import WebSearchConfig, DOMAIN_CONTENT_CONFIG_DEFAULT
+from .config import WebSearchConfig, LimitStrategy
 from neurosurfer.models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ def build_result_from_engine_result(
         score=item.score,
     )
     if crawl and item.url:
-        crawl_res: Dict[str, Any] = crawl_url(url=item.url, config=config, content_char_limit=config.content_char_limit)
+        crawl_res: Dict[str, Any] = crawl_url(url=item.url, config=config)
         result.content = crawl_res.get("content")
         result.content_length = len(result.content) if result.content is not None else None
         result.error = crawl_res.get("error")
@@ -114,7 +114,7 @@ def build_result_from_engine_result(
 # ------------------------------------------------------------------ #
 # URL crawling + HTML parsing
 # ------------------------------------------------------------------ #
-def crawl_url(url: str, *, config: WebSearchConfig, content_char_limit: int) -> Dict[str, Any]:
+def crawl_url(url: str, *, config: WebSearchConfig) -> Dict[str, Any]:
     """
     Fetch page content and extract clean text.
 
@@ -158,15 +158,19 @@ def crawl_url(url: str, *, config: WebSearchConfig, content_char_limit: int) -> 
         text = html_to_text(
             html=html,
             url=url,
-            domain_content_config=DOMAIN_CONTENT_CONFIG_DEFAULT,
+            domain_content_config=config.domain_content_config,
         )
     except Exception as e:
         logger.warning("Failed to parse HTML for %s: %s", url, e)
         return {"content": None, "error": f"HTML parse error: {e}"}
 
-    if text and len(text) > content_char_limit:
-        text = text[:content_char_limit]
-
+    # Apply content limit if configured
+    if config.content_words_limit is not None and config.content_words_limit > 0:
+        text = limit_content_length(
+            content=text,
+            max_words=config.content_words_limit,
+            strategy=config.content_limit_strategy,
+        )
     return {"content": text, "error": None}
 
 
@@ -176,6 +180,95 @@ def is_preferred_domain(url: str, preferred_domains: Sequence[str]) -> bool:
         return False
     domain = domain.lower()
     return any(domain == d or domain.endswith(d) for d in preferred_domains)
+
+def limit_content_length(
+    content: str,
+    max_words: int,
+    strategy: LimitStrategy = "distributive",
+    distributive_segment_size: int = 100,
+) -> str:
+    """
+    Truncate `content` to at most `max_words` words using a given strategy.
+
+    Strategies
+    ----------
+    - "first":       Keep the first `max_words` words.
+    - "last":        Keep the last `max_words` words.
+    - "middle":      Keep a centered window of `max_words` words.
+    - "head_tail":   Split budget between start and end, join with "...".
+    - "distributive":Pick several short chunks distributed across the text,
+                     joined with "...".
+    """
+    words = content.split()
+    num_words = len(words)
+
+    if max_words <= 0 or num_words <= max_words:
+        return content
+
+    strategy = strategy.lower()
+    if strategy == "first":
+        return " ".join(words[:max_words])
+
+    if strategy == "last":
+        return " ".join(words[-max_words:])
+
+    if strategy == "middle":
+        # Centered window
+        start = max((num_words - max_words) // 2, 0)
+        end = start + max_words
+        return " ".join(words[start:end])
+
+    if strategy == "head_tail":
+        # Half from the start, half from the end
+        head_count = max_words // 2
+        tail_count = max_words - head_count
+        head = words[:head_count]
+        tail = words[-tail_count:] if tail_count > 0 else []
+        if not tail:
+            return " ".join(head)
+        return " ".join(head) + " ... " + " ".join(tail)
+
+    if strategy == "distributive":
+        # Very small budgets: just fall back to first
+        if max_words < 3:
+            return " ".join(words[:max_words])
+
+        # Ensure positive segment size
+        distributive_segment_size = max(1, distributive_segment_size)
+
+        # How many segments can we fit if each is ~distributive_segment_size words?
+        # e.g. max_words=900, segment_size=100 → 9 segments
+        segment_count = max(1, max_words // distributive_segment_size)
+
+        # Safety: don't have more segments than max_words (1 word per segment min)
+        segment_count = min(segment_count, max_words)
+
+        # Now recompute exact words per segment so we use (almost) full budget
+        words_per_segment = max(1, max_words // segment_count)
+
+        # If even a single segment is almost the whole thing, just do "first"
+        if words_per_segment >= num_words:
+            return " ".join(words[:max_words])
+
+        # Evenly spaced starting indices across the usable range
+        usable_range = max(0, num_words - words_per_segment)
+        if segment_count == 1 or usable_range == 0:
+            return " ".join(words[:max_words])
+
+        step = max(1, usable_range // (segment_count - 1))
+        starts = [min(i * step, usable_range) for i in range(segment_count)]
+
+        segments = [
+            " ".join(words[s : s + words_per_segment])
+            for s in starts
+            if s < num_words
+        ]
+        # In rare cases we might have fewer segments (e.g., very short text);
+        # that's fine — we still respect max_words.
+        return " ... ".join(segments)
+
+
+
 
 # ------------------------------------------------------------------ #
 # Optional LLM summarization

@@ -1,9 +1,21 @@
 from __future__ import annotations
 from typing import Any, Dict, Optional, Sequence
 from pydantic import BaseModel
+from typing import Literal
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
+# Content limit strategy.
+# Applicable when content_words_limit is set and the crawled content exceeds the limit.
+LimitStrategy = Literal[
+    "first",            # Keep the first N words
+    "last",             # Keep the last N words
+    "middle",           # Keep a centered window of N words
+    "head_tail",        # Split budget between start and end, join with "...".
+    "distributive"      # Pick several short chunks distributed across the text, joined with "...".
+]
+
 
 class WebSearchConfig(BaseModel):
     # Engine selection
@@ -11,7 +23,8 @@ class WebSearchConfig(BaseModel):
     engine_kwargs: Optional[Dict[str, Any]] = None            # Engine-specific config (api_key, endpoint, ...)
 
     # Generic knobs
-    content_char_limit: Optional[int] = -1                   # Effective per-call limit for crawled page text length (characters); -1 means no limit
+    content_words_limit: Optional[int] = 1500                # Effective per-call limit for crawled page text length (words); -1 means no limit
+    content_limit_strategy: LimitStrategy = "distributive"   # Strategy to use when limiting content length, must be one of ["first", "last", "middle", "head_tail", "distributive"]
     max_results: int = 10                                    # Maximum number of SERP results to return
     include_raw: bool = False                                # Whether to include raw SERP results in the output
 
@@ -28,7 +41,6 @@ class WebSearchConfig(BaseModel):
         "text/html", "text/plain", "application/json", 
         "application/xml", "application/xhtml+xml"
     ]                                                        # Allowed content types for crawled pages
-    max_content_chars: int = 20_000                          # Maximum number of characters to extract from each page
     user_agent: Optional[str] = USER_AGENT                   # User agent to use for crawl requests
 
     # Domain + extraction configuration

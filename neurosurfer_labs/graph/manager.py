@@ -1,10 +1,12 @@
 from __future__ import annotations
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
+import logging
 
 from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
+from neurosurfer.tracing import Tracer, TracerConfig
 from .schema import GraphNode
-from .templates import MANAGER_SYSTEM_PROMPT
+from .templates import MANAGER_SYSTEM_PROMPT, COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE
 
 @dataclass
 class ManagerConfig():
@@ -23,9 +25,22 @@ class ManagerAgent:
       - Previous node result
     """
 
-    def __init__(self, llm: BaseChatModel, config: ManagerConfig = None):
+    def __init__(
+        self, 
+        llm: BaseChatModel, 
+        config: ManagerConfig = None,
+        tracer: Optional[Tracer] = None,
+        logger: Optional[logging.Logger] = None,
+        log_traces: bool = True,
+    ):
+        self.id = "manager"
         self.llm = llm
         self.config = config or ManagerConfig()
+        self.logger = logger or logging.getLogger(__name__)
+        self.log_traces = log_traces
+        self.tracer = tracer or Tracer(
+            config=TracerConfig(enabled=True, log_steps=log_traces)
+        )
 
     def compose_user_prompt(
         self,
@@ -42,33 +57,65 @@ class ManagerAgent:
 
         Returns a plain string to pass into `Agent.run(...)`.
         """
+        if self.log_traces:
+            self._print(f"\n\\[{self.id}] Tracing Start!")
+
         purpose = node.purpose or ""
         goal = node.goal or ""
         expected = node.expected_result or ""
         tools = ", ".join(node.tools) if node.tools else "(none)"
         prev_txt = "" if previous_result is None else str(previous_result)
-        user = (
-            "You are preparing a prompt for the next agent in a workflow.\n\n"
-            f"NODE_ID: {node.id}\n"
-            f"NODE_PURPOSE: {purpose}\n"
-            f"NODE_GOAL: {goal}\n"
-            f"NODE_EXPECTED_RESULT: {expected}\n"
-            f"NODE_TOOLS: {tools}\n\n"
-            "GRAPH_INPUTS (as JSON-ish):\n"
-            f"{graph_inputs}\n\n"
-            "DEPENDENCY_RESULTS (node_id -> result):\n"
-            f"{dependency_results}\n\n"
-            "PREVIOUS_RESULT (may be empty if none):\n"
-            f"{prev_txt}\n\n"
-            "Compose the next user_prompt string that this node's agent should receive.\n"
-            "Return ONLY that prompt text."
+        user_prompt = COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE.format(
+                node_id=node.id,
+                purpose=purpose,
+                goal=goal,
+                expected=expected,
+                tools=tools,
+                graph_inputs=graph_inputs,
+                dependency_results=dependency_results,
+                prev_txt=prev_txt,
         )
+        llm_params = {
+            "user_prompt": user_prompt,
+            "system_prompt": MANAGER_SYSTEM_PROMPT,
+            "temperature": temperature or self.config.temperature,
+            "max_new_tokens": max_new_tokens or self.config.max_new_tokens,
+            "stream": False,
+        }
+        with self.tracer(
+            agent_id=self.id,
+            kind="llm.call",
+            label="manager.compose_user_prompt",
+            inputs={
+                "system_prompt_len": len(MANAGER_SYSTEM_PROMPT),
+                "user_prompt_len": len(user_prompt),
+                **llm_params,
+            },
+        ) as t:
+            next_agent_user_prompt = self.llm.ask(**llm_params).choices[0].message.content.strip()
+            # add results from dependency nodes as context to the next_agent_user_prompt
+            if dependency_results:
+                next_agent_user_prompt = "".join([
+                    next_agent_user_prompt,
+                    "\n\n# Context from dependency nodes:\n",
+                    "\n\n".join([
+                        f"## {node_id}\n{result}" for node_id, result in dependency_results.items()
+                    ]),
+                ])
+            t.outputs(output=next_agent_user_prompt)
 
-        resp = self.llm.ask(
-            user_prompt=user,
-            system_prompt=MANAGER_SYSTEM_PROMPT,
-            temperature=temperature or self.config.temperature,
-            max_new_tokens=max_new_tokens or self.config.max_new_tokens,
-            stream=False,
-        )
-        return (resp.choices[0].message.content or "").strip()
+        if self.log_traces:
+            self._print(f"\\[{self.id}] Tracing End!\n")  
+        return next_agent_user_prompt
+
+    # Internal helper to print messages
+    def _print(self, msg: str, color: str = "cyan", rich: bool = True):
+        try:
+            if rich:
+                from rich.console import Console
+                console = Console(force_jupyter=False, force_terminal=True)
+                console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
+            else:
+                print(msg)
+        except NameError:
+            print(msg)

@@ -20,6 +20,29 @@ Output:
 - Return ONLY the text for the `user_prompt`. No markdown fences, no JSON.
 """
 
+COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE = """You are preparing a prompt for the next agent in a workflow.
+
+NODE_ID: {node_id}
+NODE_PURPOSE: {purpose}
+NODE_GOAL: {goal}
+NODE_EXPECTED_RESULT: {expected}
+
+NODE_TOOLS:
+{tools}
+
+GRAPH_INPUTS (as JSON-ish):
+{graph_inputs}
+
+DEPENDENCY_RESULTS (node_id -> result):
+{dependency_results}
+
+PREVIOUS_RESULT (may be empty if none):
+{prev_txt}
+
+Compose the next user_prompt string that this node's agent should receive.
+Return ONLY that prompt text.
+"""
+
 
 DEFAULT_NODE_SYSTEM_TEMPLATE = """You are a specialized agent in a larger workflow.
 

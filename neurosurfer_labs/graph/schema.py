@@ -12,7 +12,6 @@ class NodeMode(str, Enum):
     STRUCTURED = "structured"
     TOOL = "tool"
 
-
 class NodeExecutionResult(BaseModel):
     node_id: str
     mode: NodeMode
@@ -245,4 +244,3 @@ class GraphExecutionResult(BaseModel):
     graph: GraphSpec
     nodes: Dict[str, NodeExecutionResult]
     final: Dict[str, Any]
-    

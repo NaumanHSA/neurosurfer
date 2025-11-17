@@ -236,6 +236,7 @@ class GraphExecutor:
         manager_temperature: float,
         manager_max_new_tokens: int,
     ) -> NodeExecutionResult:
+    
         agent = self._get_agent_for_node(node)
         user_prompt = self.manager.compose_user_prompt(
             node=node,

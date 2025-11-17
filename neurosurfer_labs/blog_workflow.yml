@@ -33,7 +33,7 @@ nodes:
 
   - id: draft
     depends_on: ["outline", "research"]
-    purpose: "Write the first full draft of the article."
+    purpose: "Write the first full draft of the article of about 5000 words including every detail."
     goal: >
       Use the outline and research to produce a readable, coherent blog draft
       with clear headings, examples, and smooth transitions.
@@ -42,7 +42,7 @@ nodes:
     tools: []
     mode: text
     policy:
-      max_new_tokens: 8096
+      max_new_tokens: 16000
       temperature: 0.7
       repair_with_llm: true
 
@@ -57,7 +57,7 @@ nodes:
     tools: []
     mode: structured
     policy:
-      max_new_tokens: 8096
+      max_new_tokens: 16000
       temperature: 0.7
       repair_with_llm: true
 
