@@ -40,7 +40,7 @@ from typing import List, Generator
 import os, shutil, logging
 
 from neurosurfer.models.embedders.base import BaseEmbedder
-from neurosurfer.models.chat_models import BaseModel as BaseChatModel
+from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
 from neurosurfer.rag.chunker import Chunker
 from neurosurfer.rag.filereader import FileReader
 

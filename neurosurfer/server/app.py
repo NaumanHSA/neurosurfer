@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+
 from .schemas.model_registry import ModelList
 from .security import get_current_user, get_db
 from .models_registry import ModelRegistry

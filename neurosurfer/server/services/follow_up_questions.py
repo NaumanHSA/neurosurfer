@@ -4,7 +4,7 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 import logging
-from neurosurfer.models.chat_models.base import BaseModel as BaseChatModel
+from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 
 logger = logging.getLogger(__name__)
 

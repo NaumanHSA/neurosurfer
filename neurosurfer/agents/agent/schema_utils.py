@@ -1,13 +1,9 @@
 from __future__ import annotations
-import json, re
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_origin, get_args
-from pydantic import BaseModel as PydModel, create_model
 from json_repair import repair_json
-import json
-import re
 import typing
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Optional, Tuple, Type, get_args, get_origin
+from typing import Any, Optional, Type, get_args, get_origin
 
 from pydantic import BaseModel as PydanticModel
 from .templates import STRUCTURED_CONTRACT_PROMPT

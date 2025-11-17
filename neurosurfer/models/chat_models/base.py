@@ -7,7 +7,7 @@ This module provides the abstract base class for all chat models in Neurosurfer.
 It defines a unified interface for interacting with different LLM backends
 (Transformers, Unsloth, vLLM, LlamaCpp, OpenAI) with consistent API.
 
-The BaseModel class handles:
+The BaseChatModel class handles:
     - Unified chat completion interface (streaming and non-streaming)
     - OpenAI-compatible response formats using Pydantic models
     - Token counting and context window management
@@ -15,7 +15,7 @@ The BaseModel class handles:
     - Stop word detection and thinking tag suppression
     - Thread-safe generation with stop signals
 
-All concrete model implementations must inherit from BaseModel and implement:
+All concrete model implementations must inherit from BaseChatModel and implement:
     - init_model(): Initialize the underlying model
     - _call(): Non-streaming generation
     - _stream(): Streaming generation
@@ -44,7 +44,7 @@ from neurosurfer.config import config
 from transformers import TextIteratorStreamer
 
 
-class BaseModel(ABC):
+class BaseChatModel(ABC):
     """
     Abstract base class for all chat models in Neurosurfer.
     
@@ -68,7 +68,7 @@ class BaseModel(ABC):
         stop_generation(): Stop ongoing generation
     
     Example:
-        >>> class MyModel(BaseModel):
+        >>> class MyModel(BaseChatModel):
         ...     def init_model(self):
         ...         # Load model
         ...         pass
@@ -395,7 +395,7 @@ class BaseModel(ABC):
         for token in streamer:
             # Check stop signal
             if self._stop_signal:
-                self.logger.info("[BaseModel] Stop signal detected.")
+                self.logger.info("[BaseChatModel] Stop signal detected.")
                 break
             piece: str = token
             # Handle thinking tag suppression
@@ -418,6 +418,6 @@ class BaseModel(ABC):
                 # Truncate before the stop sequence
                 to_emit = rolling[:cutoff]
                 if to_emit: yield to_emit
-                self.logger.info(f"[BaseModel] Stop word '{hit}' detected.")
+                self.logger.info(f"[BaseChatModel] Stop word '{hit}' detected.")
                 break
             if piece: yield piece

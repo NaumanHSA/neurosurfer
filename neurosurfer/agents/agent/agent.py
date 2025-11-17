@@ -7,7 +7,7 @@ from typing import Any, Dict, Generator, List, Optional, Union, Type
 
 from pydantic import BaseModel as PydModel
 
-from neurosurfer.models.chat_models.base import BaseModel as ChatBaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.tool_spec import TOOL_TYPE_CAST
@@ -37,13 +37,13 @@ class Agent:
       - Plain LLM calls (free-text responses).
       - Structured JSON outputs validated against Pydantic models.
       - Tool routing and execution when a `Toolkit` is provided.
-      - JSON prompting / parsing / repair (keeps ChatBaseModel slim).
+      - JSON prompting / parsing / repair (keeps BaseChatModel slim).
       - Optional tracing of key steps in the agentic flow via a pluggable `Tracer`.
 
     Parameters
     ----------
     llm:
-        Concrete chat model implementing `ChatBaseModel`. The agent calls this
+        Concrete chat model implementing `BaseChatModel`. The agent calls this
         for both routing and final answers.
     toolkit:
         Optional `Toolkit` to enable tool routing + execution. If provided,
@@ -75,7 +75,8 @@ class Agent:
 
     def __init__(
         self,
-        llm: ChatBaseModel,
+        id: str = "main_agent",
+        llm: BaseChatModel = None,
         toolkit: Optional[Toolkit] = None,
         *,
         config: Optional[AgentConfig] = None,
@@ -84,12 +85,16 @@ class Agent:
         tracer: Optional[Tracer] = None,
         log_traces: Optional[bool] = True,
     ):
+        self.id = id
         self.llm = llm
         self.toolkit = toolkit
         self.config = config or AgentConfig()
         self.logger = logger
         self.verbose = verbose
         self.log_traces = log_traces
+
+        if self.llm is None:
+            raise ValueError("llm must be provided")
 
         # Tracing setup
         # Base tracer that actually records and log steps (RichTracer by default).
@@ -98,7 +103,7 @@ class Agent:
             meta={
                 "agent_type": "generic_agent",
                 "agent_config": self.config,
-                "model": llm.model_name,
+                "model": self.llm.model_name,
                 "toolkit": toolkit is not None,
                 "verbose": verbose,
                 "log_steps": self.log_traces,
@@ -195,8 +200,9 @@ class Agent:
 
         self._print("🧠 Thinking...", color="yellow")
         if self.log_traces:
-            self._print("\nTracing Start!")
-        with self.tracer.step(
+            self._print(f"\n\\[{self.id}] Tracing Start!")
+        with self.tracer(
+            agent_id=self.id,
             kind="agent",
             label="agent.run",
             inputs={
@@ -236,7 +242,8 @@ class Agent:
                     "max_new_tokens": mnt,
                     "stream": use_stream,
                 }
-                with self.tracer.step(
+                with self.tracer(
+                    agent_id=self.id,
                     kind="llm.call",
                     label="agent.free_text_call",
                     inputs={
@@ -249,7 +256,7 @@ class Agent:
                     t.outputs(output=response)
 
         if self.log_traces:
-            self._print("Tracing End!\n")  
+            self._print(f"\\[{self.id}] Tracing End!\n")  
         # Print final response
         if isinstance(response, str):
             self._print("Final response:", color="green")
@@ -296,7 +303,8 @@ class Agent:
         )
         llm_params = {"user_prompt": usr_prompt,"system_prompt": sys,"temperature": temperature,"max_new_tokens": max_new_tokens,"stream": False}
         # First pass: ask model for JSON directly
-        with self.tracer.step(
+        with self.tracer(
+            agent_id=self.id,
             kind="llm.call",
             label="agent.structured_call.first_pass",
             inputs={
@@ -312,7 +320,7 @@ class Agent:
 
         # Repair loop when we can't find JSON at all
         if json_obj is None and self.config.max_json_repair_attempts > 0:
-            t = self.tracer.step(kind="llm.call", label="agent.structured_call.repair_json", inputs={"schema": output_schema.__name__}).start()
+            t = self.tracer(agent_id=self.id, kind="llm.call", label="agent.structured_call.repair_json", inputs={"schema": output_schema.__name__}).start()
             try:
                 t.log("Could not locate a JSON object in model output. Regenerating...", type="warning")
                 repair_user_prompt = REPAIR_JSON_PROMPT.format(model_structure=model_structure, model_response=model_response)
@@ -333,7 +341,7 @@ class Agent:
             try:
                 parsed_output = output_schema.model_validate_json(maybe_unwrap_named_root(json_obj, output_schema))
             except Exception as e:
-                t = self.tracer.step(kind="llm.call", label="agent.structured_call.repair_validation", inputs={"schema": output_schema.__name__})
+                t = self.tracer(agent_id=self.id, kind="llm.call", label="agent.structured_call.repair_validation", inputs={"schema": output_schema.__name__}).start()
                 # Validation failed -> retry repair once more via the model
                 try:
                     repair_sys_prompt = "You are a strict JSON fixer."
@@ -400,7 +408,8 @@ class Agent:
         tool_inputs: Dict[str, Any] = {}
         checked: Dict[str, Any] = {}
 
-        t = self.tracer.step(
+        t = self.tracer(
+            agent_id=self.id,
             kind="llm.call",
             label="agent.route_and_call.router_llm_call",
             inputs={
@@ -487,7 +496,8 @@ class Agent:
         payload = {**checked, **(context or {})}
         tool = self.toolkit.registry.get(tool_name)
 
-        with self.tracer.step(
+        with self.tracer(
+            agent_id=self.id,
             kind="tool.execute",
             label="agent.route_and_call.tool_execute",
             inputs={
@@ -500,7 +510,7 @@ class Agent:
                 extras = tool_response.extras or {}
                 tool_return = normalize_response(tool_response.results)
                 t.outputs(tool_return=tool_return, extras=extras)
-                t.log(f"Tool '{tool_name}' returned: {tool_return}", type="info")
+                t.log(f"Tool '{tool_name}' Tool Return: {str(tool_return)[:100]}...", type="info")
                 return ToolCallResponse(
                     selected_tool=tool_name,
                     inputs=checked,

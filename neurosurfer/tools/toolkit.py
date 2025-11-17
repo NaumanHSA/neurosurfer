@@ -141,10 +141,6 @@ class Toolkit:
             Tool Return: <return_type> — <return_description>
             
         """
-        tools_descriptions = []
-        tools_descriptions.append("\nAvailable tools:")
-        for t in self.registry.values():
-            tools_descriptions.append(t.get_tool_description())
-            tools_descriptions.append("\n")
-        tools_descriptions.append("\n")
-        return "\n".join(tools_descriptions)
+        tools_descriptions = ["\nAvailable tools:"]
+        tools_descriptions.extend([t.get_tool_description() for t in self.registry.values()])
+        return "\n".join(tools_descriptions).strip()

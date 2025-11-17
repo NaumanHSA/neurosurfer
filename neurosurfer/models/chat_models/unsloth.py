@@ -13,7 +13,7 @@ from unsloth import FastLanguageModel
 import torch
 from transformers import TextIteratorStreamer, StoppingCriteria, StoppingCriteriaList
 
-from .base import BaseModel
+from .base import BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.config import config
 
@@ -31,7 +31,7 @@ class StopSignalCriteria(StoppingCriteria):
         return self.stop_fn()
 
 
-class UnslothModel(BaseModel):
+class UnslothModel(BaseChatModel):
     """
     Unsloth FastLanguageModel wrapper with Pydantic response models.
     

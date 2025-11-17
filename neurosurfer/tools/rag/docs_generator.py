@@ -8,7 +8,7 @@ import json, re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from collections import defaultdict
 
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.agents.rag import RAGAgent, pick_files_by_grouped_chunk_hits
 from neurosurfer.vectorstores.base import Doc
 
@@ -168,7 +168,7 @@ class DocsGenerator(BaseTool):
 
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         rag_agent: RAGAgent,
         folder_structure: str = None,
         n_files_per_section: int = 10,

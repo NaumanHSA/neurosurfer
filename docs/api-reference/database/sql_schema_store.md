@@ -26,7 +26,7 @@ Each table is keyed by name and contains at least:
 
 ```python
 from neurosurfer.db.sql.sql_schema_store import SQLSchemaStore
-from neurosurfer.models.chat_models.openai_like import OpenAILikeModel  # implements BaseModel
+from neurosurfer.models.chat_models.openai_like import OpenAILikeModel  # implements BaseChatModel
 
 llm = OpenAILikeModel(model="gpt-4o-mini")  # optional if you won't summarize
 
@@ -83,7 +83,7 @@ tables = store.db.get_usable_table_names()    # from the underlying SQLDatabase
 ### `__init__(db_uri, llm=None, sample_rows_in_table_info=3, storage_path=None, logger=None)`
 
 - Creates an internal `SQLDatabase` with `view_support=True` and sets up a JSON file named `sql_schema_store_<db>.json` beneath `storage_path` (default `./`).  
-- If `llm` is provided, it must satisfy the `BaseModel` interface with `.ask(...)` returning an OpenAI-like response dict.
+- If `llm` is provided, it must satisfy the `BaseChatModel` interface with `.ask(...)` returning an OpenAI-like response dict.
 
 ### `train(summarize: bool = False, force: bool = False) -> Generator[int, None, None]`
 - Extracts schema strings for all usable tables.  

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import logging
 
 from neurosurfer.vectorstores.base import Doc, BaseVectorDB
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.models.embedders.base import BaseEmbedder
 
 from .config import RAGAgentConfig, RetrieveResult
@@ -32,7 +32,7 @@ class RAGAgent:
 
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         vectorstore: BaseVectorDB = None,
         embedder: BaseEmbedder = None,
         *,

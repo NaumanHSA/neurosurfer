@@ -4,7 +4,7 @@ from typing import Optional, Dict, List, Any, Union, Generator
 
 from .base_tool import BaseTool 
 from ..models.embedders.base import BaseEmbedder  
-from ..models.chat_models.base import BaseModel
+from ..models.chat_models.base import BaseChatModel
 from ..utils.prompts import ERD_DIAGRAM_GENERATION_PROMPT
 
 
@@ -16,7 +16,7 @@ class ERDDiagramGenerator(BaseTool):
 
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         embedder: BaseEmbedder,
         logger: Optional[logging.Logger] = None,
     ):

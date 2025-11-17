@@ -22,7 +22,7 @@ Every step is streamed like the base ReAct agent (thoughts → action → result
 
 ```python
 SQLAgent(
-    llm: BaseModel,
+    llm: BaseChatModel,
     db_uri: str,
     *,
     storage_path: str | None = None,
@@ -36,7 +36,7 @@ SQLAgent(
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `llm` | [`BaseModel`](../models/chat-models/base-model.md) | Model used for reasoning and SQL generation. |
+| `llm` | [`BaseChatModel`](../models/chat-models/base-model.md) | Model used for reasoning and SQL generation. |
 | `db_uri` | `str` | SQLAlchemy connection string (e.g. `postgresql://user:pass@host/db`). |
 | `storage_path` | `str \| None` | Optional location for persisting schema summaries. Defaults to the `SQLSchemaStore` default under the working directory. |
 | `sample_rows_in_table_info` | `int` | Number of example rows to capture when summarizing table schema. |

@@ -23,7 +23,7 @@ Key capabilities:
 ```python
 ReActAgent(
     toolkit: Toolkit,
-    llm: BaseModel,
+    llm: BaseChatModel,
     *,
     logger: logging.Logger | None = None,
     specific_instructions: str = "",
@@ -34,7 +34,7 @@ ReActAgent(
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `toolkit` | [`Toolkit`](../tools/index.md) | Registry of tools available to the agent. The agent will render descriptions from the toolkit into its system prompt. |
-| `llm` | [`BaseModel`](../models/chat-models/base-model.md) | Any supported chat model (OpenAI‑style, Transformers/Unsloth, Llama.cpp, vLLM, etc.). Must implement `ask(...)` and `stop_generation()`. |
+| `llm` | [`BaseChatModel`](../models/chat-models/base-model.md) | Any supported chat model (OpenAI‑style, Transformers/Unsloth, Llama.cpp, vLLM, etc.). Must implement `ask(...)` and `stop_generation()`. |
 | `logger` | `logging.Logger \| None` | Optional logger; defaults to module logger. |
 | `specific_instructions` | `str` | Extra system prompt addendum to steer behavior for a domain (e.g., SQL policy). |
 | `config` | [`ReActConfig`](#reactconfig) \| `None` | Advanced configuration (temperature, retries, pruning, streaming markers, etc.). If `None`, defaults are used. |

@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 from neurosurfer.tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.tools.tool_spec import ToolSpec, ToolParam, ToolReturn
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.agents.rag import RAGAgent
 
 @dataclass
@@ -63,7 +63,7 @@ class CodegenTool(BaseTool):
         returns=ToolReturn(type="string", description="Short result status or error message"),
     )
 
-    def __init__(self, llm: BaseModel, rag: RAGAgent, temperature: float = 0.7):
+    def __init__(self, llm: BaseChatModel, rag: RAGAgent, temperature: float = 0.7):
         """Initialize with LLM and RAG retriever."""
         self.llm = llm
         self.rag = rag

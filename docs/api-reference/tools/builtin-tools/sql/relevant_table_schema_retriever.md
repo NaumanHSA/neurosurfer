@@ -27,7 +27,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 
 ## Runtime Dependencies & Config
 
-- **Constructor:** `RelevantTableSchemaFinderLLM(llm: BaseModel, sql_schema_store: SQLSchemaStore, logger: logging.Logger | None = None)`
+- **Constructor:** `RelevantTableSchemaFinderLLM(llm: BaseChatModel, sql_schema_store: SQLSchemaStore, logger: logging.Logger | None = None)`
 - **Prompt:** `RELEVENT_TABLES_PROMPT` (note: result must be a valid Python list literal)
 - **Top K:** `top_k = 6` (upper bound; LLM can return fewer)
 - **Token trimming:** uses `RAGRetrieverAgent._trim_context_by_token_limit(...)` to fit summaries and adjust `max_new_tokens`.

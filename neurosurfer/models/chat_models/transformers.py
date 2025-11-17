@@ -18,7 +18,7 @@ from transformers import (
     StoppingCriteriaList,
 )
 
-from .base import BaseModel
+from .base import BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.config import config
 
@@ -31,7 +31,7 @@ class StopSignalCriteria(StoppingCriteria):
         return self.stop_fn()
 
 
-class TransformersModel(BaseModel):
+class TransformersModel(BaseChatModel):
     """
     HF Transformers local model - now returns Pydantic models
     """

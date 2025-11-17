@@ -30,7 +30,7 @@ Not for: generating or executing SQL. For generation, see [`SQLQueryGenerator`](
 
 ## Runtime Dependencies & Config
 
-- **Constructor:** `FinalAnswerFormatter(llm: BaseModel, logger: logging.Logger | None = None)`
+- **Constructor:** `FinalAnswerFormatter(llm: BaseChatModel, logger: logging.Logger | None = None)`
 - **Prompt:** `RESULTS_PRESENTATION_PROMPT` (system + user)
 - **Streaming:** `True`
 - **Temperature:** `0.7`

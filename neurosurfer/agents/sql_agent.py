@@ -28,7 +28,7 @@ import sqlalchemy
 from sqlalchemy import create_engine
 
 from neurosurfer.agents.react import ReActAgent, ReActConfig
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.base_tool import BaseTool
 from neurosurfer.tools.sql import (
@@ -71,7 +71,7 @@ class SQLAgent(ReActAgent):
 
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         db_uri: str,
         storage_path: Optional[str] = None,
         sample_rows_in_table_info: int = 3,

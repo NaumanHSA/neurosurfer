@@ -34,7 +34,7 @@ Not for: returning data rows or executing queries (use [`SQLExecutor`](./sql_exe
 
 ## Runtime Dependencies & Config
 
-- **Constructor:** `DBInsightsTool(llm: BaseModel, sql_schema_store: SQLSchemaStore, logger: logging.Logger | None = None)`
+- **Constructor:** `DBInsightsTool(llm: BaseChatModel, sql_schema_store: SQLSchemaStore, logger: logging.Logger | None = None)`
 - **Uses:** `sql_schema_store.store: Dict[str, {{summary: str, ...}}]`
 - **Prompt:** Built from `DATABASE_INSIGHT_PROMPT`:
   - `system_prompt`: senior DB architect persona

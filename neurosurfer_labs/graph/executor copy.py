@@ -12,7 +12,7 @@ from neurosurfer.tools import Toolkit
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
 from .manager import ManagerAgent, ManagerConfig
-from .schema import GraphSpec, GraphNode, NodeExecutionResult, GraphExecutionResult
+from .schema import GraphSpec, GraphNode, NodeExecutionResult
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
 from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs
 from neurosurfer.tracing import Tracer, TracerConfig
@@ -55,18 +55,37 @@ class GraphExecutor:
         tracer: Optional[Tracer] = None,
         artifact_store: Optional[ArtifactStore] = None,
         logger: Optional[logging.Logger] = None,
-        log_traces: bool = True,
+        log_traces: Optional[bool] = None,
     ) -> None:
         self.graph = graph
         self.llm = llm
         self.toolkit = toolkit
         self.logger = logger or logging.getLogger(__name__)
-        self.tracer = tracer
         self.log_traces = log_traces
         self.artifacts = artifact_store or ArtifactStore()
 
         # Manager uses same LLM by default
         self.manager = ManagerAgent(manager_llm or llm, config=manager_config)
+
+        # Tracing
+        self.tracer: Tracer = tracer or Tracer(
+            config= TracerConfig(log_steps=self.log_traces),
+            meta={
+                "agent_type": "generic_agent",
+                "agent_config": self.config,
+                "model": self.llm.model_name,
+                "toolkit": toolkit is not None,
+                "verbose": verbose,
+                "log_steps": self.log_traces,
+            },
+            logger_=logger,
+        )
+        
+        self._base_tracer: Tracer = tracer or NullTracer()
+        self._null_tracer: Tracer = NullTracer()
+        self._enable_tracing_default: bool = (
+            bool(enable_tracing) if enable_tracing is not None else True
+        )
 
         self._node_map: Dict[str, GraphNode] = self.graph.node_map()
         self._order = topo_sort(self.graph.nodes)
@@ -121,38 +140,53 @@ class GraphExecutor:
               "final": Dict[node_id, Any],  # raw_output for final nodes
             }
         """
+        tracer = self._get_tracer(trace)
+
         graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
-        nodes_results: Dict[str, NodeExecutionResult] = {}
+        results: Dict[str, NodeExecutionResult] = {}
         last_result: Optional[NodeExecutionResult] = None
 
-        for node_id in self._order:
-            node = self._node_map[node_id]
-            dep_results = {
-                dep_id: nodes_results[dep_id].raw_output for dep_id in node.depends_on
-            }
-            prev = last_result.raw_output if last_result else None
+        with tracer.span(
+            "graph.run",
+            {
+                "graph_name": self.graph.name,
+                "num_nodes": len(self.graph.nodes),
+            },
+        ):
+            for node_id in self._order:
+                node = self._node_map[node_id]
+                dep_results = {
+                    dep_id: results[dep_id].raw_output for dep_id in node.depends_on
+                }
+                prev = last_result.raw_output if last_result else None
 
-            node_result = self._run_node(
-                node=node,
-                graph_inputs=graph_inputs,
-                dependency_results=dep_results,
-                previous_result=prev,
-                manager_temperature=manager_temperature,
-                manager_max_new_tokens=manager_max_new_tokens,
-            )
-            nodes_results[node_id] = node_result
-            last_result = node_result
+                node_result = self._run_node(
+                    node=node,
+                    graph_inputs=graph_inputs,
+                    dependency_results=dep_results,
+                    previous_result=prev,
+                    tracer=tracer,
+                    manager_temperature=manager_temperature,
+                    manager_max_new_tokens=manager_max_new_tokens,
+                )
+                results[node_id] = node_result
+                last_result = node_result
 
-        final = self._select_final_outputs(nodes_results)
-        return GraphExecutionResult(
-            graph=self.graph,
-            nodes=nodes_results,
-            final=final,
-        )
+        final = self._select_final_outputs(results)
+        return {
+            "graph": self.graph,
+            "results": results,
+            "final": final,
+        }
+
 
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
+    def _get_tracer(self, trace: Optional[bool]) -> Tracer:
+        effective = self._enable_tracing_default if trace is None else bool(trace)
+        return self._base_tracer if effective else self._null_tracer
+
     def _validate_tools(self) -> None:
         """Ensure all YAML tool names exist in the master Toolkit."""
         if self.toolkit is None:
@@ -214,13 +248,10 @@ class GraphExecutor:
 
         agent_logger = logging.getLogger(f"neurosurfer.agent.{node.id}")
         agent = Agent(
-            id=node.id,
             llm=self.llm,
             toolkit=node_toolkit,
             config=node_config,
             logger=agent_logger,
-            tracer=self.tracer,
-            log_traces=self.log_traces,
             verbose=True,
         )
         self._agents[node.id] = agent
@@ -233,83 +264,101 @@ class GraphExecutor:
         graph_inputs: Dict[str, Any],
         dependency_results: Dict[str, Any],
         previous_result: Any,
+        tracer: Tracer,
         manager_temperature: float,
         manager_max_new_tokens: int,
     ) -> NodeExecutionResult:
         agent = self._get_agent_for_node(node)
-        user_prompt = self.manager.compose_user_prompt(
-            node=node,
-            graph_inputs=graph_inputs,
-            dependency_results=dependency_results,
-            previous_result=previous_result,
-            temperature=manager_temperature,
-            max_new_tokens=manager_max_new_tokens,
-        )
+
+        with tracer.span(
+            "graph.node.start",
+            {
+                "node_id": node.id,
+                "mode": node.mode,
+                "depends_on": node.depends_on,
+                "tools": node.tools,
+            },
+        ):
+            user_prompt = self.manager.compose_user_prompt(
+                node=node,
+                graph_inputs=graph_inputs,
+                dependency_results=dependency_results,
+                previous_result=previous_result,
+                temperature=manager_temperature,
+                max_new_tokens=manager_max_new_tokens,
+            )
         system_prompt = self._build_system_prompt(node, graph_inputs)
         output_schema = self._load_output_schema_if_needed(node)
 
         started_at = time.time()
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
 
-        try:
-            run_kwargs: Dict[str, Any] = {
-                "system_prompt": system_prompt,
-                "user_prompt": user_prompt,
-                "temperature": None,       # per-node AgentConfig handles defaults
-                "max_new_tokens": None,
-                "stream": False,
-                "context": {
-                    "graph_inputs": graph_inputs,
-                    "dependencies": dependency_results,
-                },
-            }
+        with tracer.span(
+            "graph.node.agent_run",
+            {
+                "node_id": node.id,
+                "mode": node.mode,
+                "has_schema": bool(output_schema),
+            },
+        ):
+            try:
+                run_kwargs: Dict[str, Any] = {
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": None,       # per-node AgentConfig handles defaults
+                    "max_new_tokens": None,
+                    "stream": False,
+                    "context": {
+                        "graph_inputs": graph_inputs,
+                        "dependencies": dependency_results,
+                    },
+                }
 
-            if output_schema is not None:
-                run_kwargs["output_schema"] = output_schema
+                if output_schema is not None:
+                    run_kwargs["output_schema"] = output_schema
 
-            # strict_tool_call field on node still takes precedence at call-time
-            if node.policy and node.policy.strict_tool_call is not None:
-                run_kwargs["strict_tool_call"] = node.policy.strict_tool_call
+                # strict_tool_call field on node still takes precedence at call-time
+                if node.policy and node.policy.strict_tool_call is not None:
+                    run_kwargs["strict_tool_call"] = node.policy.strict_tool_call
 
-            node_result = agent.run(**run_kwargs)
-            raw, structured, tool_call = self._normalize_agent_output(node_result.response)
-            duration_ms = int((time.time() - started_at) * 1000)
+                result = agent.run(**run_kwargs)
+                raw, structured, tool_call = self._normalize_agent_output(result)
+                duration_ms = int((time.time() - started_at) * 1000)
 
-            error_msg: Optional[str] = None
-            if timeout_s is not None and duration_ms > int(timeout_s * 1000):
-                error_msg = (
-                    f"Node '{node.id}' exceeded timeout_s={timeout_s}s "
-                    f"(took {duration_ms/1000:.3f}s)."
+                error_msg: Optional[str] = None
+                if timeout_s is not None and duration_ms > int(timeout_s * 1000):
+                    error_msg = (
+                        f"Node '{node.id}' exceeded timeout_s={timeout_s}s "
+                        f"(took {duration_ms/1000:.3f}s)."
+                    )
+                    self.logger.warning(error_msg)
+
+                ner = NodeExecutionResult(
+                    node_id=node.id,
+                    mode=node.mode,
+                    raw_output=raw,
+                    structured_output=structured,
+                    tool_call_output=tool_call,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                    error=error_msg,
                 )
-                self.logger.warning(error_msg)
+                self.artifacts.put(node.id, raw)
+                return ner
 
-            ner = NodeExecutionResult(
-                node_id=node.id,
-                mode=node.mode,
-                raw_output=raw,
-                structured_output=structured,
-                tool_call_output=tool_call,
-                started_at=started_at,
-                duration_ms=duration_ms,
-                error=error_msg,
-                traces=node_result.traces,
-            )
-            self.artifacts.put(node.id, raw)
-            return ner
-
-        except Exception as e:
-            duration_ms = int((time.time() - started_at) * 1000)
-            self.logger.exception("Node %s failed: %s", node.id, e)
-            return NodeExecutionResult(
-                node_id=node.id,
-                mode=node.mode,
-                raw_output=None,
-                structured_output=None,
-                tool_call_output=None,
-                started_at=started_at,
-                duration_ms=duration_ms,
-                error=str(e),
-            )
+            except Exception as e:
+                duration_ms = int((time.time() - started_at) * 1000)
+                self.logger.exception("Node %s failed: %s", node.id, e)
+                return NodeExecutionResult(
+                    node_id=node.id,
+                    mode=node.mode,
+                    raw_output=None,
+                    structured_output=None,
+                    tool_call_output=None,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                    error=str(e),
+                )
 
     def _build_system_prompt(
         self,
@@ -340,6 +389,7 @@ class GraphExecutor:
         purpose = tmpl(node.purpose or node.description or f"Node {node.id}")
         goal = tmpl(node.goal or "Follow the instructions in the user prompt.")
         expected = tmpl(node.expected_result or "A useful, correct, and concise answer.")
+
         return DEFAULT_NODE_SYSTEM_TEMPLATE.format(
             purpose=purpose,
             goal=goal,
@@ -381,6 +431,7 @@ class GraphExecutor:
         elif isinstance(result, ToolCallResponse):
             tool_call = result
             raw = result.returns
+
         return raw, structured, tool_call
 
     def _select_final_outputs(

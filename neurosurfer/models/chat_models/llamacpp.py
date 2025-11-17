@@ -7,11 +7,11 @@ from threading import RLock
 import threading
 from neurosurfer.runtime.checks import require
 
-from .base import BaseModel
+from .base import BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.config import config
 
-class LlamaCppModel(BaseModel):
+class LlamaCppModel(BaseChatModel):
     """
     llama.cpp model wrapper with Pydantic responses.
     

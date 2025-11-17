@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from ...models.chat_models.base import BaseModel
+from ...models.chat_models.base import BaseChatModel
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
 
@@ -34,7 +34,7 @@ class GeneralQueryAssistantTool(BaseTool):
 
     def __init__(
         self,
-        llm: BaseModel = None,
+        llm: BaseChatModel = None,
         stream: bool = True,
         logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):

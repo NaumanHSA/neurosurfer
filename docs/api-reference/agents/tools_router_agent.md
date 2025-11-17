@@ -22,7 +22,7 @@ Typical flow:
 ```python
 ToolsRouterAgent(
     toolkit: Toolkit,
-    llm: BaseModel,
+    llm: BaseChatModel,
     logger: logging.Logger = logging.getLogger(__name__),
     verbose: bool = False,
     specific_instructions: str = "",
@@ -33,7 +33,7 @@ ToolsRouterAgent(
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `toolkit` | [`Toolkit`](../tools/toolkit.md) | Registry containing tool instances and their `ToolSpec`s. |
-| `llm` | [`BaseModel`](../models/chat-models/base-model.md) | LLM used for routing and fallback answers. Must implement `ask(...)`. |
+| `llm` | [`BaseChatModel`](../models/chat-models/base-model.md) | LLM used for routing and fallback answers. Must implement `ask(...)`. |
 | `logger` | `logging.Logger` | Optional logger used when `verbose=True` and for error reporting. |
 | `verbose` | `bool` | Prints routing decisions, validation messages, and errors when `True`. |
 | `specific_instructions` | `str` | Extra system text appended to the router system prompt (domain policy). |

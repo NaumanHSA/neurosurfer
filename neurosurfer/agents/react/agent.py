@@ -6,7 +6,7 @@ from types import GeneratorType
 from rich import print as rprint
 
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.base_tool import ToolResponse
 from neurosurfer.config import config
@@ -44,7 +44,7 @@ class ReActAgent(BaseAgent):
     def __init__(
         self,
         toolkit: Toolkit,
-        llm: BaseModel,
+        llm: BaseChatModel,
         logger: logging.Logger = logging.getLogger(__name__),
         specific_instructions: str = "",
         config: Optional[ReActConfig] = None

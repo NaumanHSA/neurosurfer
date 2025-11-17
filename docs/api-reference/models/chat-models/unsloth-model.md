@@ -1,7 +1,7 @@
 # UnslothModel
 
 **Module:** `neurosurfer.models.chat_models.unsloth`  
-**Inherits:** [`BaseModel`](base-model.md)
+**Inherits:** [`BaseChatModel`](base-model.md)
 
 ## Overview
 

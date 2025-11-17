@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List, Any, Generator
 
-from ...models.chat_models.base import BaseModel
+from ...models.chat_models.base import BaseChatModel
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
 
@@ -45,7 +45,7 @@ class FinalAnswerFormatter(BaseTool):
 
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):
         self.llm = llm

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 
-from neurosurfer.models.chat_models.base import BaseModel as ChatBaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from .schema import GraphNode
 from .templates import MANAGER_SYSTEM_PROMPT
 
@@ -23,7 +23,7 @@ class ManagerAgent:
       - Previous node result
     """
 
-    def __init__(self, llm: ChatBaseModel, config: ManagerConfig = None):
+    def __init__(self, llm: BaseChatModel, config: ManagerConfig = None):
         self.llm = llm
         self.config = config or ManagerConfig()
 

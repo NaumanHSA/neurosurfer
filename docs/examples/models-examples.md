@@ -1,6 +1,6 @@
 # Models
 
-This page shows how to use Neurosurfer's **chat models** (OpenAI-compatible and local Transformers) and **embedders** with a small, practical API. All chat models share the same `BaseModel.ask(...)` interface and produce **OpenAI‑compatible** Pydantic responses, so you can swap backends without changing your app code.
+This page shows how to use Neurosurfer's **chat models** (OpenAI-compatible and local Transformers) and **embedders** with a small, practical API. All chat models share the same `BaseChatModel.ask(...)` interface and produce **OpenAI‑compatible** Pydantic responses, so you can swap backends without changing your app code.
 
 ---
 
@@ -20,7 +20,7 @@ print(res.choices[0].message.content)
 
 Neurosurfer unifies different backends behind a single abstract class:
 
-- **`BaseModel`** — defines the interface (non-stream + stream, stop/interrupt, stop‑words, thinking tag suppression)
+- **`BaseChatModel`** — defines the interface (non-stream + stream, stop/interrupt, stop‑words, thinking tag suppression)
 - **`OpenAIModel`** — uses OpenAI/compatible servers (OpenAI Cloud, LM Studio, vLLM, Ollama, etc.)
 - **`TransformersModel`** — runs local Hugging Face models with `transformers`, optional 4‑bit loading
 - **`UnslothModel`** — runs local and Hugging Face models with `unsloth`
@@ -108,7 +108,7 @@ model = OpenAIModel(
     stop_words=["\n\n", "<END>", "###"],
     # Strip/suppress internal chain-of-thought style tags if present
     # (e.g., <think>...</think>, <analysis>...</analysis>, etc.)
-    # To suppress: set enable_thinking=False via BaseModel init (configurable)
+    # To suppress: set enable_thinking=False via BaseChatModel init (configurable)
 )
 
 text = "Give me a step-by-step plan to brew coffee at home."
@@ -116,7 +116,7 @@ resp = model.ask(text, temperature=0.4, max_new_tokens=300)
 print(resp.choices[0].message.content)
 ```
 
-> Behind the scenes, `BaseModel` scans streamed text for the first matching stop token and truncates output. When thinking is disabled, recognized tags like `<think>...</think>` are removed from the stream.
+> Behind the scenes, `BaseChatModel` scans streamed text for the first matching stop token and truncates output. When thinking is disabled, recognized tags like `<think>...</think>` are removed from the stream.
 
 ---
 

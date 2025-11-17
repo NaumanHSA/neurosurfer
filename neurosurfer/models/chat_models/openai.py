@@ -7,14 +7,14 @@ from threading import Lock
 from typing import Any, Generator, List, Dict, Union, Tuple, Optional
 from datetime import datetime
 
-from .base import BaseModel
+from .base import BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.config import config
 
 
-class OpenAIModel(BaseModel):
+class OpenAIModel(BaseChatModel):
     """
-    An OpenAI/compatible chat client implementing BaseModel with Pydantic responses.
+    An OpenAI/compatible chat client implementing BaseChatModel with Pydantic responses.
     
     Works with:
       • OpenAI Cloud (leave base_url=None, set a real api_key)

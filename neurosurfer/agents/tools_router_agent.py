@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
 
-from ..models.chat_models.base import BaseModel as ChatBaseModel
+from ..models.chat_models.base import BaseChatModel as BaseChatModel
 from ..tools import Toolkit
 from ..tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.tools.tool_spec import ToolSpec, TOOL_TYPE_CAST
@@ -36,7 +36,7 @@ class ToolsRouterConfig:
     max_new_tokens: int = 4000
 
 # Tool and Input Response
-class ToolAndInputsModel(BaseModel):
+class ToolAndInputsModel(BaseChatModel):
     tool_name: str
     tool_inputs: Dict[str, Any]
 
@@ -53,7 +53,7 @@ class ToolsRouterAgent:
     def __init__(
         self,
         toolkit: Toolkit,
-        llm: ChatBaseModel,
+        llm: BaseChatModel,
         logger: logging.Logger = logging.getLogger(__name__),
         verbose: bool = False,
         specific_instructions: str = "",

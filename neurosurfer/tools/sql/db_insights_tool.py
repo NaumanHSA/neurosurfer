@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional, Union, Generator
 import logging
 
-from ...models.chat_models.base import BaseModel
+from ...models.chat_models.base import BaseChatModel
 from ...db.sql_schema_store import SQLSchemaStore
 from ..base_tool import BaseTool, ToolResponse
 from ..tool_spec import ToolSpec, ToolParam, ToolReturn
@@ -42,7 +42,7 @@ class DBInsightsTool(BaseTool):
    
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         sql_schema_store: SQLSchemaStore,
         logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):

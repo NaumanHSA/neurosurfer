@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, List, Any
 
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.db.sql_schema_store import SQLSchemaStore
 from neurosurfer.agents.rag import RAGAgent
 
@@ -46,7 +46,7 @@ class RelevantTableSchemaFinderLLM(BaseTool):
 
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         sql_schema_store: SQLSchemaStore,
         logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):

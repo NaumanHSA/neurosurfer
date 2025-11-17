@@ -4,7 +4,7 @@ import logging
 
 from .base_tool import BaseTool 
 from ..models.embedders.base import BaseEmbedder  
-from ..models.chat_models.base import BaseModel
+from ..models.chat_models.base import BaseChatModel
 from ..utils.prompts import MERMAID_DIAGRAM_GENERATION_PROMPT
 
 
@@ -16,7 +16,7 @@ class MermaidDiagramGenerator(BaseTool):
     
     def __init__(
         self,
-        llm: BaseModel,
+        llm: BaseChatModel,
         embedder: BaseEmbedder,
         logger: Optional[logging.Logger] = None,
     ):

@@ -1,11 +1,11 @@
-# BaseModel
+# BaseChatModel
 
 **Module:** `neurosurfer.models.chat_models.base`  
 **Type:** Abstract base class
 
 ## Overview
 
-`BaseModel` is the foundation for every chat model shipped with Neurosurfer. It standardises request handling, streaming, token accounting, and OpenAI-compatible responses so that downstream agents can work with any backend without branching.
+`BaseChatModel` is the foundation for every chat model shipped with Neurosurfer. It standardises request handling, streaming, token accounting, and OpenAI-compatible responses so that downstream agents can work with any backend without branching.
 
 ### Core capabilities
 
@@ -17,12 +17,12 @@
 
 ## Constructor
 
-### `BaseModel.__init__`
+### `BaseChatModel.__init__`
 
 ```python
 from neurosurfer.config import config
 
-BaseModel(
+BaseChatModel(
     *,
     max_seq_length: int = config.base_model.max_seq_length,
     verbose: bool = config.base_model.verbose,
@@ -94,7 +94,7 @@ Concrete implementations **must** provide the following methods:
 - `_stream(...) -> Generator[ChatCompletionChunk, None, None]`: yield partial chunks followed by a terminal stop chunk.
 - `stop_generation(self) -> None`: honour stop requests from callers.
 
-Optional helpers supplied by `BaseModel`:
+Optional helpers supplied by `BaseChatModel`:
 
 - `_delta_chunk(call_id, model, content)` – build incremental streaming chunks.
 - `_stop_chunk(call_id, model, finish_reason)` – emit the terminating streaming chunk.
@@ -104,10 +104,10 @@ Optional helpers supplied by `BaseModel`:
 ## Creating a custom model
 
 ```python
-from neurosurfer.models.chat_models.base import BaseModel
+from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionResponse
 
-class CustomModel(BaseModel):
+class CustomModel(BaseChatModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.init_model()

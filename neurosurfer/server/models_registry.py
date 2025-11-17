@@ -36,10 +36,9 @@ Example:
     >>> all_models = registry.all()
 """
 from typing import Dict
-from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Union
 from .schemas.model_registry import ModelCard
-from neurosurfer.models.chat_models import BaseModel as BaseChatModel
+from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
 from dataclasses import dataclass
 
 @dataclass

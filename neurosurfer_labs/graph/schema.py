@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
+from neurosurfer.tracing import TraceResult
+
 
 class NodeMode(str, Enum):
     AUTO = "auto"
@@ -20,7 +22,7 @@ class NodeExecutionResult(BaseModel):
     started_at: float
     duration_ms: int
     error: Optional[str] = None
-
+    traces: Optional[TraceResult] = None
 
 # ---------------------------
 # Graph-level input spec
@@ -224,7 +226,6 @@ class GraphSpec(BaseModel):
             else:
                 # Already in normalized or near-normalized form
                 normalized.append(item)
-
         return normalized
 
     @field_validator("inputs")
@@ -238,3 +239,10 @@ class GraphSpec(BaseModel):
 
     def node_map(self) -> dict[str, GraphNode]:
         return {n.id: n for n in self.nodes}
+
+
+class GraphExecutionResult(BaseModel):
+    graph: GraphSpec
+    nodes: Dict[str, NodeExecutionResult]
+    final: Dict[str, Any]
+    

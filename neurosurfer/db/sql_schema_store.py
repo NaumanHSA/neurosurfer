@@ -4,7 +4,7 @@ import re
 import logging
 from typing import Dict, Optional, Generator, Any
 from tqdm import tqdm
-from ..models.chat_models.base import BaseModel
+from ..models.chat_models.base import BaseChatModel
 from .sql_database import SQLDatabase
 
 SCHEMA_SUMMARIZATION_PROMPT = {
@@ -32,7 +32,7 @@ class SQLSchemaStore:
     def __init__(
         self,
         db_uri: str,
-        llm: Optional[BaseModel] = None,
+        llm: Optional[BaseChatModel] = None,
         sample_rows_in_table_info: int = 3,
         storage_path: Optional[str] = None,
         logger: Optional[logging.Logger] = logging.getLogger(),

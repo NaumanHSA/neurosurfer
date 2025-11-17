@@ -22,4 +22,4 @@ class StructuredResponse:
 @dataclass
 class AgentResponse:
     response: Union[str, Generator[str, None, None], StructuredResponse, ToolCallResponse]
-    traces: TraceResult
+    traces: Optional[TraceResult] = None

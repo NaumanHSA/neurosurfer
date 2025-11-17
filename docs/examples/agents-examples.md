@@ -6,7 +6,7 @@ Practical, copy‑pasteable examples for Neurosurfer’s agents:
 - **SQLAgent** — database Q&A (schema → query → execution → NL format)
 - **ToolsRouterAgent** — lightweight, single‑step tool picker
 
-Each example uses the same BaseModel interface shown in [model examples](models-examples.md).
+Each example uses the same BaseChatModel interface shown in [model examples](models-examples.md).
 
 ---
 

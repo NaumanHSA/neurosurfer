@@ -107,7 +107,7 @@ def _format_validation_error(e: ValidationError) -> str:
     return "\n".join(parts)
 
 
-def _pydantic_from_dict(model: type[BaseModel], data: Dict[str, Any]) -> BaseModel:
+def _pydantic_from_dict(model: type[BaseChatModel], data: Dict[str, Any]) -> BaseChatModel:
     """
     Wrapper around Pydantic model construction with version compatibility.
     """
