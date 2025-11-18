@@ -63,8 +63,9 @@ from typing import (
     Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple, Union
 )
 
-from ..models.embedders import BaseEmbedder
-from ..vectorstores.base import BaseVectorDB, Doc
+from neurosurfer.models.embedders import BaseEmbedder
+from neurosurfer.vectorstores.base import BaseVectorDB, Doc
+
 from .filereader import FileReader
 from .chunker import Chunker
 from .constants import supported_file_types, exclude_dirs_in_code
@@ -113,7 +114,7 @@ class RAGIngestor:
     Example:
         >>> ingestor = RAGIngestor(
         ...     embedder=embedder,
-        ...     vector_store=vectorstore,
+        ...     vectorstore=vectorstore,
         ...     batch_size=64,
         ...     progress_cb=lambda p: print(f"Progress: {p['percent']:.1f}%")
         ... )
@@ -131,7 +132,7 @@ class RAGIngestor:
         self,
         *,
         embedder: BaseEmbedder,
-        vector_store: BaseVectorDB,
+        vectorstore: BaseVectorDB,
         file_reader: Optional[FileReader] = None,
         chunker: Optional[Chunker] = None,
         logger: Optional[logging.Logger] = None,
@@ -145,7 +146,7 @@ class RAGIngestor:
         tmp_dir: Optional[str] = None,
     ):
         self.embedder = embedder
-        self.vs = vector_store
+        self.vs = vectorstore
         self.reader = file_reader or FileReader()
         self.chunker = chunker or Chunker()
         self.log = logger or logging.getLogger(__name__)
@@ -308,6 +309,214 @@ class RAGIngestor:
                 extra_metadata=md,
             )
         return self
+
+    def ingest(
+        self,
+        sources: Optional[Union[str, Path, Iterable[Union[str, Path, str]]]] = None,
+        *,
+        url_fetcher: Optional[Callable[[str], Optional[str]]] = None,
+        include_exts: Optional[set[str]] = supported_file_types,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+        reset_state: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Unified high-level ingestion wrapper.
+
+        This method accepts a mix of paths, URLs, and raw text, routes them to the
+        appropriate add_* methods, and then runs the full pipeline via `build()`.
+
+        Supported source forms:
+            - File path (string or Path)
+            - Directory path (string or Path)
+            - .zip archive (string or Path)
+            - Git repo folder (directory containing a .git subfolder)
+            - URL string (starting with http:// or https://)
+            - Raw text string (everything else)
+
+        Parameters
+        ----------
+        sources:
+            A single source or iterable of sources. Each element can be:
+            - str
+            - pathlib.Path
+        url_fetcher:
+            Optional callable used by `add_urls`. Signature: (url: str) -> Optional[str].
+        include_exts:
+            Allowed file extensions for file/directory/zip ingestion. Defaults to
+            `supported_file_types`.
+        extra_metadata:
+            Extra metadata merged into each queued document's metadata.
+        reset_state:
+            If True, clears previous queue and seen-hash set before processing.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A summary dictionary, typically the result of `build()`. On error, returns:
+                {
+                    "status": "error",
+                    "error": "<message>",
+                    "unsupported": [...optional list of unsupported items...]
+                }
+        """
+        # Normalize and guard: allow ingest() to just run build() on previously-queued data.
+        if reset_state:
+            self._queue.clear()
+            self._seen_hashes.clear()
+
+        if sources is None:
+            if not self._queue:
+                msg = "No sources provided and ingestion queue is empty."
+                self.log.warning(msg)
+                return {"status": "error", "error": msg}
+            try:
+                return self.build()
+            except Exception as e:
+                self.log.exception("Ingestion run failed")
+                return {"status": "error", "error": str(e)}
+
+        # Normalize sources into a flat list
+        if isinstance(sources, (str, Path)):
+            raw_items: List[Union[str, Path]] = [sources]
+        elif isinstance(sources, Iterable):
+            raw_items = list(sources)
+        else:
+            msg = (
+                f"Unsupported 'sources' type: {type(sources)!r}. "
+                "Expected str, Path, or an iterable of those."
+            )
+            self.log.error(msg)
+            return {"status": "error", "error": msg}
+
+        extra_metadata = extra_metadata or {}
+        include_exts = {e.lower() for e in (include_exts or set())}
+
+        url_fetcher = url_fetcher or (lambda _: None)
+
+        unsupported: List[Any] = []
+        accepted_count = 0
+
+        for src in raw_items:
+            # ----------------------
+            # Path-like handling
+            # ----------------------
+            if isinstance(src, Path):
+                path = src
+                is_path = True
+            elif isinstance(src, str):
+                stripped = src.strip()
+                if not stripped:
+                    # Empty string → ignore silently
+                    continue
+
+                # URL detection
+                if stripped.startswith("http://") or stripped.startswith("https://"):
+                    self.add_urls([stripped], fetcher=url_fetcher, extra_metadata=extra_metadata)
+                    accepted_count += 1
+                    continue
+                
+                try:
+                    path = Path(stripped)
+                    is_path = path.exists()
+                except Exception:
+                    is_path = False   # Treat as raw text
+                
+                if not is_path:
+                    # Treat as raw text
+                    self.add_texts(
+                        [stripped],
+                        base_id="text",
+                        metadatas=[{**extra_metadata}],
+                    )
+                    accepted_count += 1
+                    continue
+            else:
+                unsupported.append(src)
+                continue
+
+            # ----------------------
+            # Existing path routing
+            # ----------------------
+            try:
+                if path.is_dir():
+                    # Git repo detection
+                    if (path / ".git").is_dir():
+                        self.add_git_folder(
+                            path,
+                            include_exts=include_exts,
+                            extra_metadata=extra_metadata,
+                        )
+                    else:
+                        self.add_directory(
+                            path,
+                            include_exts=include_exts,
+                            extra_metadata=extra_metadata,
+                        )
+                    accepted_count += 1
+
+                elif path.is_file():
+                    # Zip archive
+                    if path.suffix.lower() == ".zip":
+                        self.add_zipfile(
+                            path,
+                            include_exts=include_exts,
+                            extra_metadata=extra_metadata,
+                        )
+                    else:
+                        self.add_files(
+                            [path],
+                            include_exts=include_exts,
+                            extra_metadata=extra_metadata,
+                        )
+                    accepted_count += 1
+
+                else:
+                    # Path object that is neither file nor dir (very rare)
+                    unsupported.append(src)
+
+            except Exception as e:
+                self.log.exception(f"Failed to enqueue source {src!r}: {e}")
+                unsupported.append(src)
+
+        # ----------------------
+        # Post-validation
+        # ----------------------
+        if not self._queue:
+            msg = (
+                "No content was queued for ingestion. "
+                "All inputs were either empty, filtered out, or unsupported."
+            )
+            if unsupported:
+                msg += f" Unsupported items: {unsupported!r}"
+            self.log.error(msg)
+            return {
+                "status": "error",
+                "error": msg,
+                "unsupported": [str(u) for u in unsupported],
+            }
+
+        if unsupported:
+            self.log.warning(
+                "Some sources were skipped as unsupported: %r", unsupported
+            )
+
+        # ----------------------
+        # Execute pipeline
+        # ----------------------
+        try:
+            summary = self.build()
+        except Exception as e:
+            self.log.exception("Ingestion run failed")
+            return {"status": "error", "error": str(e)}
+
+        # Attach wrapper-level info
+        summary.setdefault("status", "ok")
+        summary["accepted_sources"] = accepted_count
+        if unsupported:
+            summary["unsupported"] = [str(u) for u in unsupported]
+        summary["total_docs_in_collection"] = self.vs.count()
+        return summary
+
 
     # ----------------------
     # Build / ingest

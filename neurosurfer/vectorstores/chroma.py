@@ -9,11 +9,13 @@ def DefaultEmbeddingFunction():
     return None  # Replace with your actual embedding function if needed
 
 class ChromaVectorStore(BaseVectorDB):
-    def __init__(self, collection_name: str, persist_directory: str = "chroma_storage"):
+    def __init__(self, collection_name: str, clear_collection: bool = False, persist_directory: str = "chroma_storage"):
         os.makedirs(persist_directory, exist_ok=True)
         self.client = chromadb.PersistentClient(path=persist_directory)
         self.collection_name = collection_name
         self.collection = self.client.get_or_create_collection(name=collection_name)
+        if clear_collection:
+            self.clear_collection()
         print(f"[Init] ChromaVectorStore initialized with collection: {collection_name}")
 
     def add_documents(self, docs: List[Doc]):
@@ -56,11 +58,7 @@ class ChromaVectorStore(BaseVectorDB):
         docs  = res.get("documents", [[]])[0]
         metas = res.get("metadatas", [[]])[0]
         dists = res.get("distances", [[]])[0]
-
-        if similarity_threshold is not None:
-            max_dist = 1.0 - similarity_threshold  # distance = 1 - cosine_sim
-        else:
-            max_dist = None
+        max_dist = 1.0 - similarity_threshold if similarity_threshold else None  # distance = 1 - cosine_sim
 
         out: List[Tuple[Doc, float]] = []
         seen = set()
@@ -68,6 +66,7 @@ class ChromaVectorStore(BaseVectorDB):
             if max_dist is not None and dist > max_dist:
                 continue
             if rid in seen:
+                # print(f"\n\nrid: {rid} already seen - {txt}\n\n")
                 continue
             seen.add(rid)
             out.append((Doc(id=rid, text=txt, metadata=meta, embedding=None), 1.0 - dist))  # return cosine sim

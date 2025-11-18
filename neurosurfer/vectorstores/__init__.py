@@ -1,1 +1,1 @@
-from .base import BaseVectorDB
+from .base import BaseVectorDB, Doc

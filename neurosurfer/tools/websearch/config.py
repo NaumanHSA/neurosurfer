@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional, Sequence
 from pydantic import BaseModel
 from typing import Literal
 
-
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 # Content limit strategy.
@@ -50,6 +49,11 @@ class WebSearchConfig(BaseModel):
     # LLM configuration
     summarize: bool = False                                  # Whether to summarize the results with an LLM
     stream_summary: bool = False                             # Whether to stream the LLM summary internally
+
+    # RAG configuration
+    enable_rag: bool = True                                  # Whether to enable RAG-style refinement of web search results
+    embedding_model: str = "intfloat/e5-small-v2"            # Embedding model to use for RAG
+    top_k: int = 10                                          # Number of chunks to return from vectorstore
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

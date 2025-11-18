@@ -5,10 +5,10 @@ import re
 from typing import Any, Mapping, Sequence, List, Dict
 import logging
 
-from .schema import GraphNode, GraphSpec, GraphInputSpec
+from .schema import GraphNode, Graph, GraphInput
 from .errors import GraphConfigurationError
 
-logger = logging.getLogger("neurosurfer.graph.utils")
+logger = logging.getLogger("neurosurfer.agents.graph.utils")
 _TMPL_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 
 
@@ -99,7 +99,7 @@ def import_string(path: str) -> Any:
 
 
 # Normalize and Validate Graph Inputs
-def normalize_and_validate_graph_inputs(graph: GraphSpec, inputs: Any) -> Dict[str, Any]:
+def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> Dict[str, Any]:
     """
     Enforce graph-level input spec if declared.
 
@@ -110,7 +110,7 @@ def normalize_and_validate_graph_inputs(graph: GraphSpec, inputs: Any) -> Dict[s
         - inputs must be a dict
         - missing required keys -> GraphConfigurationError
         - extra keys -> warned and ignored
-        - values are cast according to GraphInputSpec.type
+        - values are cast according to GraphInput.type
     """
     specs = graph.inputs
 
@@ -158,9 +158,9 @@ def normalize_and_validate_graph_inputs(graph: GraphSpec, inputs: Any) -> Dict[s
             ) from e
     return normalized
 
-def _cast_input_value(spec: GraphInputSpec, value: Any) -> Any:
+def _cast_input_value(spec: GraphInput, value: Any) -> Any:
     """
-    Cast a raw input value to the type declared in GraphInputSpec.
+    Cast a raw input value to the type declared in GraphInput.
 
     Types:
         - string
@@ -219,3 +219,15 @@ def _cast_input_value(spec: GraphInputSpec, value: Any) -> Any:
 
     # unknown / custom type => pass through
     return value
+
+# Internal helper to print messages
+def rprint(msg: str, color: str = "cyan", rich: bool = True):
+    try:
+        if rich:
+            from rich.console import Console
+            console = Console(force_jupyter=False, force_terminal=True)
+            console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
+        else:
+            print(msg)
+    except NameError:
+        print(msg)

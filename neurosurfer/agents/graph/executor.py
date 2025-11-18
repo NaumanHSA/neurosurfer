@@ -12,9 +12,9 @@ from neurosurfer.tools import Toolkit
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
 from .manager import ManagerAgent, ManagerConfig
-from .schema import GraphSpec, GraphNode, NodeExecutionResult, GraphExecutionResult
+from .schema import Graph, GraphNode, NodeExecutionResult, GraphExecutionResult
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
-from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs
+from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs, rprint
 from neurosurfer.tracing import Tracer, TracerConfig
 from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
 from neurosurfer.agents import Agent, AgentConfig
@@ -22,13 +22,13 @@ from neurosurfer.agents import Agent, AgentConfig
 
 class GraphExecutor:
     """
-    Execute a `GraphSpec` DAG using:
+    Execute a `Graph` DAG using:
       - A single shared `llm` (BaseChatModel) for all nodes by default.
       - A single shared `Toolkit` (all tools), with per-node subsets based on YAML.
       - A `ManagerAgent` (by default using the same `llm`) to compose inter-node prompts.
 
     Users only need:
-      - YAML flow (GraphSpec)
+      - YAML flow (Graph)
       - `llm` instance
       - `toolkit` instance
 
@@ -38,7 +38,7 @@ class GraphExecutor:
           * retries: override AgentConfig.retry.max_route_retries
           * timeout_s: soft node-level timeout flag
           * toggles: allow_input_pruning, repair_with_llm, strict_tool_call, etc.
-      - Top-level graph inputs (`GraphSpec.inputs`) that:
+      - Top-level graph inputs (`Graph.inputs`) that:
           * validate runtime `inputs`
           * cast values to expected types
           * can be interpolated into node prompts via `{input_name}`.
@@ -46,7 +46,7 @@ class GraphExecutor:
 
     def __init__(
         self,
-        graph: GraphSpec,
+        graph: Graph,
         *,
         llm: BaseChatModel,
         toolkit: Optional[Toolkit] = None,
@@ -85,10 +85,9 @@ class GraphExecutor:
         self,
         inputs: Any,
         *,
-        trace: Optional[bool] = None,
         manager_temperature: float = None,
         manager_max_new_tokens: int = None,
-    ) -> Dict[str, Any]:
+    ) -> GraphExecutionResult:
         """
         Execute the entire graph once.
 
@@ -99,14 +98,12 @@ class GraphExecutor:
 
             If the graph declares `inputs` in YAML:
               - Must be a mapping (dict)
-              - Validated and cast according to GraphInputSpec
+              - Validated and cast according to GraphInput
               - Extra keys are warned and ignored
 
             If the graph does NOT declare `inputs`:
               - If `inputs` is a dict, it's used as-is
               - Otherwise, it's wrapped as: {"query": inputs}
-        trace:
-            Optional per-call override to enable/disable tracing.
         manager_temperature:
             Temperature used for ManagerAgent when composing prompts.
         manager_max_new_tokens:
@@ -114,35 +111,34 @@ class GraphExecutor:
 
         Returns
         -------
-        Dict[str, Any]
-            {
-              "graph": GraphSpec,
-              "results": Dict[node_id, NodeExecutionResult],
-              "final": Dict[node_id, Any],  # raw_output for final nodes
-            }
+        GraphExecutionResult
+            Contains the graph spec, all node results, and the final outputs.
         """
         graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
         nodes_results: Dict[str, NodeExecutionResult] = {}
         last_result: Optional[NodeExecutionResult] = None
+        try:
+            for node_id in self._order:
+                node = self._node_map[node_id]
+                dep_results = {
+                    dep_id: nodes_results[dep_id].raw_output for dep_id in node.depends_on
+                }
+                prev = last_result.raw_output if last_result else None
 
-        for node_id in self._order:
-            node = self._node_map[node_id]
-            dep_results = {
-                dep_id: nodes_results[dep_id].raw_output for dep_id in node.depends_on
-            }
-            prev = last_result.raw_output if last_result else None
-
-            node_result = self._run_node(
-                node=node,
-                graph_inputs=graph_inputs,
-                dependency_results=dep_results,
-                previous_result=prev,
-                manager_temperature=manager_temperature,
-                manager_max_new_tokens=manager_max_new_tokens,
-            )
-            nodes_results[node_id] = node_result
-            last_result = node_result
-
+                node_result = self._run_node(
+                    node=node,
+                    graph_inputs=graph_inputs,
+                    dependency_results=dep_results,
+                    previous_result=prev,
+                    manager_temperature=manager_temperature,
+                    manager_max_new_tokens=manager_max_new_tokens,
+                )
+                nodes_results[node_id] = node_result
+                last_result = node_result
+        except Exception as e:
+            rprint(f"Error executing node {node_id}: {e}", color="red")
+            rprint("Returning partial results from executed nodes...", color="yellow")
+            
         final = self._select_final_outputs(nodes_results)
         return GraphExecutionResult(
             graph=self.graph,

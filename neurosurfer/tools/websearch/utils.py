@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Sequence, List, Literal
 import requests
 import logging
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 from .engines.base import EngineResult
 from .extractor import get_domain, html_to_text
 from .config import WebSearchConfig, LimitStrategy
+from .templates import SUMMARIZE_SYSTEM_PROMPT, SUMMARIZE_USER_PROMPT
 from neurosurfer.models.chat_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
@@ -277,53 +279,20 @@ def summarize_with_llm(
     llm: BaseChatModel,
     *,
     results_dict: Dict[str, Any],
-    stream: bool,
 ) -> str:
     """
     Use the configured LLM to produce a long, detailed summary of the search results.
     """
-    import json
+    if "rag_content" in results_dict: 
+        results_dict.pop("results")
 
-    system_prompt = (
-        "You are a helpful research assistant. "
-        "Given the following web search results (including page content), "
-        "write a clear, detailed, well-structured answer for the user."
+    user_prompt = SUMMARIZE_USER_PROMPT.format(
+        query=results_dict['query'],
+        json=json.dumps(results_dict, ensure_ascii=False, indent=2)
     )
-
-    user_prompt = (
-        "Here are the search results as JSON. "
-        "Use them to answer the user's query.\n\n"
-        f"User query:\n{results_dict['query']}\n\n"
-        "Search results JSON:\n"
-        f"{json.dumps(results_dict['results'], ensure_ascii=False, indent=2)}"
-    )
-
-    if not stream:
-        # Non-streaming: assume .ask returns a full string or a structured object
-        out = llm.ask(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            stream=False,
-        )
-        if isinstance(out, str):
-            return out
-        # Fallback if the model returns a more complex object
-        return str(out)
-
     # Streaming mode: accumulate chunks into a single string
-    stream_response = llm.ask(
-        system_prompt=system_prompt,
+    return llm.ask(
+        system_prompt=SUMMARIZE_SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        stream=True,
-    )
-
-    parts: List[str] = []
-    for chunk in stream_response:
-        # Assuming OpenAI-style delta; adjust if your BaseModel differs
-        try:
-            delta = getattr(chunk.choices[0], "delta", None)
-            content = getattr(delta, "content", None) or ""
-        except Exception:
-            content = str(chunk)
-        parts.append(content)
-    return "".join(parts)
+        stream=False,
+    ).choices[0].message.content

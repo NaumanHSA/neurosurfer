@@ -8,11 +8,11 @@ from typing import Any, Dict, Union
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from .schema import GraphSpec, GraphNode
+from .schema import Graph, GraphNode
 from .errors import GraphConfigurationError
 from .utils import topo_sort  # uses same error type for cycles / unknown deps
 
-logger = logging.getLogger("neurosurfer.graph.loader")
+logger = logging.getLogger("neurosurfer.agents.graph.loader")
 
 
 def _get_model_fields(model: type[BaseModel]) -> set[str]:
@@ -28,7 +28,7 @@ def _get_model_fields(model: type[BaseModel]) -> set[str]:
 
 def _sanitize_graph_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Remove unknown keys from the raw dict for GraphSpec / GraphNode and
+    Remove unknown keys from the raw dict for Graph / GraphNode and
     emit warnings describing what was ignored.
 
     This makes the loader more forgiving: extra keys in YAML won't crash
@@ -39,8 +39,8 @@ def _sanitize_graph_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
     cleaned: Dict[str, Any] = dict(raw)
 
-    # --- Top-level GraphSpec fields ---
-    graph_fields = _get_model_fields(GraphSpec)
+    # --- Top-level Graph fields ---
+    graph_fields = _get_model_fields(Graph)
     extra_graph_keys = set(cleaned.keys()) - graph_fields
     if extra_graph_keys:
         logger.warning(
@@ -117,9 +117,9 @@ def _pydantic_from_dict(model: type[BaseChatModel], data: Dict[str, Any]) -> Bas
     return model.parse_obj(data)  # type: ignore[call-arg]
 
 
-def _validate_graph_spec(spec: GraphSpec) -> None:
+def _validate_graph_spec(spec: Graph) -> None:
     """
-    Perform semantic validation of a GraphSpec:
+    Perform semantic validation of a Graph:
 
     - Ensure at least one node exists.
     - Ensure all `outputs` refer to existing node IDs.
@@ -186,9 +186,9 @@ def _validate_graph_spec(spec: GraphSpec) -> None:
         ) from e
 
 
-def load_graph_from_dict(data: Dict[str, Any]) -> GraphSpec:
+def load_graph_from_dict(data: Dict[str, Any]) -> Graph:
     """
-    Load a GraphSpec from a raw dict, with:
+    Load a Graph from a raw dict, with:
       - Unknown keys warned and ignored
       - Detailed error messages on schema violations
       - Semantic validation of outputs / depends_on / DAG structure
@@ -197,11 +197,9 @@ def load_graph_from_dict(data: Dict[str, Any]) -> GraphSpec:
         raise GraphConfigurationError(
             f"Graph spec must be a mapping at the top level, got {type(data).__name__!r}."
         )
-
     cleaned = _sanitize_graph_dict(data)
-
     try:
-        spec = _pydantic_from_dict(GraphSpec, cleaned)  # type: ignore[return-value]
+        spec = _pydantic_from_dict(Graph, cleaned)  # type: ignore[return-value]
     except ValidationError as e:
         msg = _format_validation_error(e)
         raise GraphConfigurationError(msg) from e
@@ -211,9 +209,9 @@ def load_graph_from_dict(data: Dict[str, Any]) -> GraphSpec:
     return spec
 
 
-def load_graph(path: Union[str, Path]) -> GraphSpec:
+def load_graph(path: Union[str, Path]) -> Graph:
     """
-    Load a GraphSpec from a YAML or JSON file.
+    Load a Graph from a YAML or JSON file.
 
     Features:
       - YAML/JSON parse errors are reported with filename and cause.

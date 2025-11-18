@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, Callable, Generator
 import logging
 
-from neurosurfer.vectorstores.base import Doc, BaseVectorDB
-from neurosurfer.models.chat_models.base import BaseChatModel
-from neurosurfer.models.embedders.base import BaseEmbedder
+from neurosurfer.vectorstores import Doc, BaseVectorDB
+from neurosurfer.models.chat_models.base import BaseChatModel, LLM_RESPONSE_TYPE
+from neurosurfer.models.embedders import BaseEmbedder
+from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
+from neurosurfer.vectorstores.chroma import ChromaVectorStore
 
-from .config import RAGAgentConfig, RetrieveResult
+from .config import RAGAgentConfig, RetrieveResult, RAGIngestorConfig
 from .token_utils import TokenCounter
 from .context_builder import ContextBuilder
+from .filereader import FileReader
+from .chunker import Chunker
+from .ingestor import RAGIngestor
+from .constants import supported_file_types
+from .templates import RAG_AGENT_SYSTEM_PROMPT, RAG_USER_PROMPT
 
 
 @dataclass
@@ -32,19 +40,44 @@ class RAGAgent:
 
     def __init__(
         self,
-        llm: BaseChatModel,
-        vectorstore: BaseVectorDB = None,
-        embedder: BaseEmbedder = None,
+        llm: Optional[BaseChatModel] = None,
+        vectorstore: Optional[BaseVectorDB] = None,
+        embedder: Optional[Union[BaseEmbedder, str]] = None,
+        file_reader: Optional[FileReader] = None,
+        chunker: Optional[Chunker] = None,
         *,
         config: Optional[RAGAgentConfig] = None,
+        ingestor_config: Optional[RAGIngestorConfig] = None,
         logger: Optional[logging.Logger] = None,
         make_source=None,
     ):
-        self.llm = llm
-        self.vector_db = vectorstore
-        self.embedder = embedder
-        self.cfg = config or RAGAgentConfig()
         self.logger = logger or logging.getLogger(__name__)
+        self.llm = llm
+        self.cfg = config or RAGAgentConfig()
+        self.ingestor_cfg = ingestor_config or RAGIngestorConfig()
+
+        self.vectorstore = vectorstore
+        if not self.vectorstore:
+            self.logger.warning("No vectorstore provided to RAGAgent, using default ChromaVectorStore. Initializing collection `neurosurfer-rag-agent`")
+            self.vectorstore = ChromaVectorStore(
+                collection_name=self.cfg.collection_name,
+                clear_collection=self.cfg.clear_collection_on_init,
+                persist_directory=self.cfg.persist_directory,
+            )
+
+        self.embedder = embedder
+        if not self.embedder:
+            if not self.cfg.embedding_model:
+                raise ValueError("embedder or embedding_model must be provided to RAGAgent config")
+            self.logger.warning("No embedder provided to RAGAgent, using default SentenceTransformerEmbedder")
+            self.logger.info("Initializing Embedding model. This may take a moment...")
+            self.embedder = SentenceTransformerEmbedder(self.cfg.embedding_model)
+        if isinstance(self.embedder, str):
+            self.embedder = SentenceTransformerEmbedder(self.embedder)
+
+        self.file_reader = file_reader or FileReader()
+        self.chunker = chunker or Chunker()
+
         self.tokens = TokenCounter(llm, chars_per_token=self.cfg.approx_chars_per_token)
         self.ctx = ContextBuilder(
             include_metadata_in_context=self.cfg.include_metadata_in_context,
@@ -52,33 +85,109 @@ class RAGAgent:
             context_item_header_fmt=self.cfg.context_item_header_fmt,
             make_source=make_source,
         )
+        self.ingestor = RAGIngestor(
+            embedder=self.embedder,
+            vectorstore=self.vectorstore,
+            file_reader=self.file_reader,
+            chunker=self.chunker,
+            logger=self.logger,
+            batch_size=self.ingestor_cfg.batch_size,
+            max_workers=self.ingestor_cfg.max_workers,
+            deduplicate=self.ingestor_cfg.deduplicate,
+            normalize_embeddings=self.ingestor_cfg.normalize_embeddings,
+            default_metadata=self.ingestor_cfg.default_metadata,
+            tmp_dir=self.ingestor_cfg.tmp_dir,
+        )
 
     # ---------- Public API ----------
+    def ingest(
+        self,
+        sources: Optional[Union[str, Path, Iterable[Union[str, Path, str]]]] = None,
+        *,
+        url_fetcher: Optional[Callable[[str], Optional[str]]] = None,
+        include_exts: Optional[set[str]] = supported_file_types,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+        reset_state: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Unified high-level ingestion wrapper.
+
+        This method accepts a mix of paths, URLs, and raw text, routes them to the
+        appropriate add_* methods, and then runs the full pipeline via `build()`.
+
+        Supported source forms:
+            - File path (string or Path)
+            - Directory path (string or Path)
+            - .zip archive (string or Path)
+            - Git repo folder (directory containing a .git subfolder)
+            - URL string (starting with http:// or https://)
+            - Raw text string (everything else)
+
+        Parameters
+        ----------
+        sources:
+            A single source or iterable of sources. Each element can be:
+            - str
+            - pathlib.Path
+        url_fetcher:
+            Optional callable used by `add_urls`. Signature: (url: str) -> Optional[str].
+        include_exts:
+            Allowed file extensions for file/directory/zip ingestion. Defaults to
+            `supported_file_types`.
+        extra_metadata:
+            Extra metadata merged into each queued document's metadata.
+        reset_state:
+            If True, clears previous queue and seen-hash set before processing.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A summary dictionary, typically the result of `build()`. On error, returns:
+                {
+                    "status": "error",
+                    "error": "<message>",
+                    "unsupported": [...optional list of unsupported items...]
+                }
+        """
+        return self.ingestor.ingest(
+            sources=sources,
+            url_fetcher=url_fetcher,
+            include_exts=include_exts,
+            extra_metadata=extra_metadata,
+            reset_state=reset_state,
+        )
 
     def retrieve(
         self,
         user_query: str,
-        base_system_prompt: str = "",
-        base_user_prompt: str = "",
-        chat_history: Optional[List[Dict[str, str]]] = None,
         *,
         top_k: Optional[int] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
         similarity_threshold: Optional[float] = None,
     ) -> RetrieveResult:
         """
-        1) embed -> similarity_search
-        2) build context
-        3) trim to fit -> compute final max_new_tokens
+        Public interface for retrieving documents from the vectorstore.
+        
+        Args:
+            user_query: The user's query string.
+            top_k: Optional number of documents to retrieve.
+            metadata_filter: Optional metadata filter for the search.
+            similarity_threshold: Optional similarity threshold for the search.
+        
+        Returns:
+            RetrieveResult: The result of the retrieval process.
         """
-        if not self.vector_db or not self.embedder:
+        if not self.vectorstore or not self.embedder:
             raise ValueError("VectorDB and embedder must be provided to RAGAgent")
+
         # 1) Embed
         query_vec = self.embedder.embed(
-            query=[user_query], normalize_embeddings=self.cfg.normalize_embeddings
+            query=[user_query],
+            normalize_embeddings=self.cfg.normalize_embeddings,
         )[0]
+
         # 2) Retrieve
-        raw = self.vector_db.similarity_search(
+        raw = self.vectorstore.similarity_search(
             query_embedding=query_vec,
             top_k=top_k or self.cfg.top_k,
             metadata_filter=metadata_filter,
@@ -87,21 +196,16 @@ class RAGAgent:
         docs, distances = self._unpack_results(raw)
         self.logger.info(f"[RAGRetriever] Retrieved {len(docs)} chunks")
 
-        # 3) Build + trim
+        # 3) Build + trim (only context, using a buffer for prompts/history)
         untrimmed_context = self.ctx.build(docs)
         trim = self._trim_context_by_token_limit(
-            system_prompt=base_system_prompt,
-            user_prompt=base_user_prompt,
-            chat_history=chat_history or [],
             db_context=untrimmed_context,
+            reserved_prompt_tokens=getattr(self.cfg, "prompt_token_buffer", 500),
         )
-
         return RetrieveResult(
-            base_system_prompt=base_system_prompt,
-            base_user_prompt=base_user_prompt,
             context=trim.trimmed_context,
             max_new_tokens=trim.final_max_new_tokens,
-            base_tokens=trim.base_tokens,
+            base_tokens=trim.base_tokens,  # now: reserved prompt/history tokens
             context_tokens_used=trim.context_tokens_used,
             token_budget=int(getattr(self.llm, "max_seq_length", 8192)),
             generation_budget=trim.generation_budget,
@@ -111,97 +215,100 @@ class RAGAgent:
                 "available_for_context": trim.available_for_context,
                 "initial_max_new_tokens": trim.initial_max_new_tokens,
                 "safety_margin_tokens": self.cfg.safety_margin_tokens,
+                "prompt_token_buffer": getattr(self.cfg, "prompt_token_buffer", 500),
             },
         )
 
     def run(
         self,
         user_query: str,
-        base_system_prompt: str = "",
-        base_user_prompt: str = "You are helpful.\n\nContext:\n{context}\n\nQuestion: {query}",
+        system_prompt: Optional[str] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
         *,
-        stream: bool = True,
         top_k: Optional[int] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
         similarity_threshold: Optional[float] = None,
         temperature: Optional[float] = None,
-        max_new_tokens: Optional[int] = None,
+        stream: bool = False,
         **llm_kwargs: Any,
-    ):
+    ) -> LLM_RESPONSE_TYPE:
         """
-        Convenience method: perform retrieve and call the LLM with the filled prompt.
-        When stream=True, yields chunks from llm.ask(…, stream=True). Otherwise returns the full response text.
+        Public interface for running the RAG pipeline.
+        
+        Args:
+            user_query: The user's query string.
+            system_prompt: Optional system prompt for the LLM.
+            chat_history: Optional chat history for the LLM.
+            stream: Whether to stream the response.
+            top_k: Optional number of documents to retrieve.
+            metadata_filter: Optional metadata filter for the search.
+            similarity_threshold: Optional similarity threshold for the search.
+            temperature: Optional temperature for the LLM.
+            **llm_kwargs: Additional keyword arguments for the LLM.
+        Returns:
+            LLM_RESPONSE_TYPE:
+                - If stream=False: Returns ChatCompletionResponse (Pydantic model)
+                - If stream=True: Returns Generator yielding ChatCompletionChunk objects
+        Raises:
+            ValueError: If vectorstore or embedder is not provided.
+            ValueError: If LLM is not provided.
         """
-        rr = self.retrieve(
+        if not self.vectorstore or not self.embedder:
+            raise ValueError("VectorDB and embedder must be provided to RAGAgent")
+        if not self.llm:
+            raise ValueError("LLM must be provided to RAGAgent. Please reinitialize the agent with a valid LLM instance.")
+        
+        retrieved: RetrieveResult = self.retrieve(
             user_query=user_query,
-            base_system_prompt=base_system_prompt,
-            base_user_prompt=base_user_prompt,
             chat_history=chat_history or [],
-            top_k=top_k,
+            top_k=top_k or self.cfg.top_k,
             metadata_filter=metadata_filter,
             similarity_threshold=similarity_threshold,
         )
-
-        filled_user_prompt = rr.base_user_prompt.format(
-            context=rr.context, query=user_query
-        )
+        sys_prompt = system_prompt or RAG_AGENT_SYSTEM_PROMPT
+        user_prompt = RAG_USER_PROMPT.format(context=retrieved.context, query=user_query)
 
         # Choose final generation cap
-        final_max_new = max_new_tokens if (max_new_tokens is not None) else rr.max_new_tokens
-        temp = temperature if (temperature is not None) else 0.3
-
-        if stream:
-            gen = self.llm.ask(
-                user_prompt=filled_user_prompt,
-                system_prompt=rr.base_system_prompt,
-                chat_history=chat_history or [],
-                temperature=temp,
-                max_new_tokens=final_max_new,
-                stream=True,
-                **llm_kwargs,
-            )
-            for chunk in gen:
-                # forward through (assumes OpenAI-like delta.content)
-                yield chunk.choices[0].delta.content or ""
-            return
-        else:
-            resp = self.llm.ask(
-                user_prompt=filled_user_prompt,
-                system_prompt=rr.base_system_prompt,
-                chat_history=chat_history or [],
-                temperature=temp,
-                max_new_tokens=final_max_new,
-                stream=False,
-                **llm_kwargs,
-            )
-            return resp.choices[0].message.content
+        return self.llm.ask(
+            user_prompt=user_prompt,
+            system_prompt=sys_prompt,
+            chat_history=chat_history or [],
+            temperature=temperature or self.cfg.temperature,
+            max_new_tokens=retrieved.max_new_tokens,
+            stream=stream,
+            **llm_kwargs,
+        )
 
     # ---------- Internals ----------
     def _trim_context_by_token_limit(
         self,
-        system_prompt: str,
-        user_prompt: str,
         db_context: str,
-        chat_history: Optional[List[Dict[str, str]]] = None,
+        *,
+        reserved_prompt_tokens: Optional[int] = None,
     ) -> _TrimResult:
         """
-        Ensure: tokens(system + history + user + trimmed_context) + max_new_tokens
-                <= max_seq_length - safety_margin
+        Trim only the DB context using a fixed token buffer for prompts/history.
+
+        We assume:
+            reserved_prompt_tokens ≈ tokens(system + history + user)
+        
+        Ensure:
+            reserved_prompt_tokens
+            + tokens(trimmed_context)
+            + max_new_tokens
+            <= max_seq_length - safety_margin
         """
         max_seq = int(getattr(self.llm, "max_seq_length", 8192))
         max_ctx = max_seq - int(self.cfg.safety_margin_tokens)
 
-        # Build base chat without context
-        base_messages = []
-        if system_prompt:
-            base_messages.append({"role": "system", "content": system_prompt})
-        base_messages.extend(chat_history or [])
-        base_messages.append({"role": "user", "content": user_prompt.rstrip() + "\n\n"})
-
-        base_prompt = self.tokens.apply_chat_template(base_messages)
-        base_tokens = self.tokens.count(base_prompt)
-
+        # How many tokens to reserve for system + user + history
+        prompt_buffer = int(reserved_prompt_tokens or self.cfg.prompt_token_buffer)
+        # Clamp buffer so we still have some room for output
+        min_output_tokens = int(self.cfg.min_output_tokens)
+        if prompt_buffer + min_output_tokens > max_ctx:
+            # Just guarantee at least min_output_tokens for generation
+            prompt_buffer = max(0, max_ctx - min_output_tokens)
+        base_tokens = prompt_buffer  # tokens already "spent" on prompts/history
         # A) initial target for output tokens
         if self.cfg.fixed_max_new_tokens is not None:
             initial_max_new_tokens = int(self.cfg.fixed_max_new_tokens)
@@ -209,30 +316,26 @@ class RAGAgent:
             remaining = max(max_ctx - base_tokens, 0)
             initial_max_new_tokens = max(
                 int(remaining * self.cfg.auto_output_ratio),
-                int(self.cfg.min_output_tokens),
+                min_output_tokens,
             )
-
         # B) budget left for context
         available_for_context = max(max_ctx - base_tokens - initial_max_new_tokens, 0)
-
         # C) trim context to budget
         trimmed_context, context_tokens_used = self.tokens.trim_to_tokens(
             db_context, available_for_context
         )
-
         # D) recompute final output cap with actual context usage
         final_max_new_tokens = self._calculate_final_max_new_tokens(
             fixed_max_new_tokens=self.cfg.fixed_max_new_tokens,
-            min_output_tokens=self.cfg.min_output_tokens,
+            min_output_tokens=min_output_tokens,
             base_tokens=base_tokens,
             context_tokens_used=context_tokens_used,
             max_ctx=max_ctx,
         )
-
         generation_budget = max(max_ctx - base_tokens - context_tokens_used, 0)
         return _TrimResult(
             trimmed_context=trimmed_context,
-            base_tokens=base_tokens,
+            base_tokens=base_tokens,  # now: reserved prompt/history tokens
             context_tokens_used=context_tokens_used,
             available_for_context=available_for_context,
             initial_max_new_tokens=initial_max_new_tokens,

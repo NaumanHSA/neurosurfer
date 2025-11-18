@@ -6,6 +6,7 @@ import logging
 from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from neurosurfer.tracing import Tracer, TracerConfig
 from .schema import GraphNode
+from .utils import rprint
 from .templates import MANAGER_SYSTEM_PROMPT, COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE
 
 @dataclass
@@ -105,17 +106,5 @@ class ManagerAgent:
             t.outputs(output=next_agent_user_prompt)
 
         if self.log_traces:
-            self._print(f"\\[{self.id}] Tracing End!\n")  
+            rprint(f"\\[{self.id}] Tracing End!\n")  
         return next_agent_user_prompt
-
-    # Internal helper to print messages
-    def _print(self, msg: str, color: str = "cyan", rich: bool = True):
-        try:
-            if rich:
-                from rich.console import Console
-                console = Console(force_jupyter=False, force_terminal=True)
-                console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
-            else:
-                print(msg)
-        except NameError:
-            print(msg)

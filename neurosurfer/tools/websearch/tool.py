@@ -14,6 +14,7 @@ except ImportError:
 from neurosurfer.tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.tools.tool_spec import ToolSpec, ToolParam, ToolReturn
 from neurosurfer.models.chat_models import BaseChatModel
+from neurosurfer.agents.rag import RAGAgent, RAGAgentConfig, RAGIngestorConfig
 
 from .engines.base import EngineResult, EngineSearchMeta, SearchEngine
 from .engines.serpapi import SerpApiEngine
@@ -119,8 +120,14 @@ class WebSearchTool(BaseTool):
         # Preferred domains: by default, all known domain configs
         if self.config.preferred_domains is None:
             self.config.preferred_domains = tuple(self.config.domain_content_config.keys())
-        # ---------------- LLM ----------------
+
+        # ---------------- LLM and RAG ----------------
         self.llm = llm
+        self.rag_agent = RAGAgent(
+            llm=self.llm,
+            embedder=self.config.embedding_model,
+            config=RAGAgentConfig(top_k=self.config.top_k, clear_collection_on_init=True),
+        ) if self.config.enable_rag else None
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -213,18 +220,28 @@ class WebSearchTool(BaseTool):
             "elapsed_ms": int((time.time() - t0) * 1000),
         }
 
+        # ingest the retrieved content and retrieve only relevant chunks
+        if self.config.enable_rag:
+            ingestion_summary = self.rag_agent.ingest(sources=[r.content for r in normalized_results])
+            rag_results = self.rag_agent.retrieve(user_query=query)
+            results_dict["rag_content"] = rag_results.context
+
         # 4) Optional LLM summarization
         if self.config.summarize and self.llm is not None:
+            logger.info("Summarizing results with LLM...")
             llm_summary = summarize_with_llm(
                 llm=self.llm,
                 results_dict=results_dict,
-                stream=self.config.stream_summary,
             )
             results_dict["llm_summary"] = llm_summary
 
         extras: Dict[str, Any] = {}
         if self.config.include_raw:
             extras[f"raw_{meta.provider or self.engine.name}"] = raw
+
+        # drop original results
+        if ("rag_content" in results_dict or "llm_summary" in results_dict) and "results" in results_dict:
+            results_dict.pop("results")
 
         return ToolResponse(
             final_answer=False,

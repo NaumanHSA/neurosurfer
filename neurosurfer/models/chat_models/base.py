@@ -43,6 +43,8 @@ from neurosurfer.server.schemas import (
 from neurosurfer.config import config
 from transformers import TextIteratorStreamer
 
+LLM_RESPONSE_TYPE = Union[ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]
+
 
 class BaseChatModel(ABC):
     """
@@ -136,7 +138,7 @@ class BaseChatModel(ABC):
         max_new_tokens: int = config.base_model.max_new_tokens,
         stream: bool = False,
         **kwargs: Any,
-    ) -> Union[ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]:
+    ) -> LLM_RESPONSE_TYPE:
         """
         Main entry point for generating model responses.
         
@@ -157,7 +159,7 @@ class BaseChatModel(ABC):
             **kwargs: Additional model-specific generation parameters
         
         Returns:
-            Union[ChatCompletionResponse, Generator[ChatCompletionChunk, None, None]]:
+            LLM_RESPONSE_TYPE:
                 - If stream=False: Returns ChatCompletionResponse (Pydantic model)
                 - If stream=True: Returns Generator yielding ChatCompletionChunk objects
         

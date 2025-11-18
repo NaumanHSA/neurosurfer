@@ -18,6 +18,7 @@ nodes:
       A compact, structured summary with sections for 'key_points',
       'sources', and 'risks_or_caveats'.
     tools: ["web_search"]
+    export: true
 
   - id: outline
     depends_on: ["research"]
@@ -30,10 +31,11 @@ nodes:
       headings and bullet points.
     tools: []
     mode: structured
+    export: true
 
   - id: draft
     depends_on: ["outline", "research"]
-    purpose: "Write the first full draft of the article of about 5000 words including every detail."
+    purpose: "Write the first full draft of the article of about 3000 words including every detail."
     goal: >
       Use the outline and research to produce a readable, coherent blog draft
       with clear headings, examples, and smooth transitions.
@@ -45,6 +47,7 @@ nodes:
       max_new_tokens: 16000
       temperature: 0.7
       repair_with_llm: true
+    export: true
 
   - id: review
     depends_on: ["draft", "research"]
@@ -56,6 +59,7 @@ nodes:
       A structured review with strengths, issues, and concrete suggestions.
     tools: []
     mode: structured
+    export: true
     policy:
       max_new_tokens: 16000
       temperature: 0.7

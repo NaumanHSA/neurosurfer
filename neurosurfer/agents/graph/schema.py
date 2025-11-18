@@ -12,21 +12,10 @@ class NodeMode(str, Enum):
     STRUCTURED = "structured"
     TOOL = "tool"
 
-class NodeExecutionResult(BaseModel):
-    node_id: str
-    mode: NodeMode
-    raw_output: object
-    structured_output: Optional[object] = None
-    tool_call_output: Optional[object] = None
-    started_at: float
-    duration_ms: int
-    error: Optional[str] = None
-    traces: Optional[TraceResult] = None
-
 # ---------------------------
 # Graph-level input spec
 # ---------------------------
-class GraphInputSpec(BaseModel):
+class GraphInput(BaseModel):
     """
     Specification for a top-level graph input.
 
@@ -133,6 +122,9 @@ class GraphNode(BaseModel):
         default=None,
         description="Optional per-node AgentConfig/policy overrides.",
     )
+    # save node's output as files
+    export: Optional[bool] = Field(default=False, description="Whether to export the node's output as files.")
+    export_path: Optional[str] = Field(default=None, description="Optional custom path for exporting the node's output.")
 
     @field_validator("id")
     def _id_not_empty(cls, v: str) -> str:
@@ -142,11 +134,11 @@ class GraphNode(BaseModel):
         return v
 
 
-class GraphSpec(BaseModel):
+class Graph(BaseModel):
     name: str
     description: Optional[str] = None
 
-    inputs: list[GraphInputSpec] = Field(
+    inputs: list[GraphInput] = Field(
         default_factory=list,
         description="Optional declared graph inputs that runtime 'inputs' must satisfy.",
     )
@@ -166,7 +158,7 @@ class GraphSpec(BaseModel):
     @classmethod
     def _normalize_inputs(cls, v):
         """
-        Accept flexible YAML forms and normalize to a list[GraphInputSpec]-compatible dicts.
+        Accept flexible YAML forms and normalize to a list[GraphInput]-compatible dicts.
 
         Supported:
 
@@ -229,7 +221,7 @@ class GraphSpec(BaseModel):
 
     @field_validator("inputs")
     @classmethod
-    def _unique_input_names(cls, v: List[GraphInputSpec]) -> List[GraphInputSpec]:
+    def _unique_input_names(cls, v: List[GraphInput]) -> List[GraphInput]:
         names = [f.name for f in v]
         if len(names) != len(set(names)):
             dupes = {n for n in names if names.count(n) > 1}
@@ -240,7 +232,18 @@ class GraphSpec(BaseModel):
         return {n.id: n for n in self.nodes}
 
 
+class NodeExecutionResult(BaseModel):
+    node_id: str
+    mode: NodeMode
+    raw_output: object
+    structured_output: Optional[object] = None
+    tool_call_output: Optional[object] = None
+    started_at: float
+    duration_ms: int
+    error: Optional[str] = None
+    traces: Optional[TraceResult] = None
+
 class GraphExecutionResult(BaseModel):
-    graph: GraphSpec
+    graph: Graph
     nodes: Dict[str, NodeExecutionResult]
     final: Dict[str, Any]
