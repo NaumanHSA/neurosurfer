@@ -39,12 +39,13 @@ Example:
     >>> GET /chats/1/messages
     >>> # Returns: [{"id": 1, "role": "user", "content": "Hello", ...}]
 """
+import os
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from ..security import get_db, get_current_user
-from ..db.models import User, ChatThread, Message
+from ..db.models import User, ChatThread, Message, NMFile
 from ..schemas import Chat, ChatMessage
 from ..schemas import Chat, ChatMessage, ChatMessageOut 
 
@@ -263,9 +264,14 @@ def delete_thread(chat_id: int, db: Session = Depends(get_db), user: User = Depe
     if not th:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+    # first delete all files stored for this thread
+    for file in th.files:
+        if os.path.exists(file.stored_path):
+            os.remove(file.stored_path)
+
     db.delete(th)
     db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)  # ✅ no body, no JSON header
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # endpoint to update chat thread title
 @router.put("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)

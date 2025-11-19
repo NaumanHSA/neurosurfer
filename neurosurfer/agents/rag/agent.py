@@ -217,9 +217,9 @@ class RAGAgent:
 
         # 1) Embed
         query_vec = self.embedder.embed(
-            query=[user_query],
+            query=user_query,
             normalize_embeddings=self.cfg.normalize_embeddings,
-        )[0]
+        )
 
         # 2) Retrieve
         raw = self.vectorstore.similarity_search(
@@ -228,12 +228,7 @@ class RAGAgent:
             metadata_filter=metadata_filter,
             similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
         )
-        self.logger.info(f"[RAGRetriever] Query: {user_query}")
-        self.logger.info(f"[RAGRetriever] Raw results from collection {self.vectorstore.collection_name}: {len(raw)}")
-        self.logger.info(f"[RAGRetriever] params: top_k={top_k}, metadata_filter={metadata_filter}, similarity_threshold={similarity_threshold}")
-
         docs, distances = self._unpack_results(raw)
-        self.logger.info(f"[RAGRetriever] Retrieved {len(docs)} chunks")
 
         # 3) Build + trim (only context, using a buffer for prompts/history)
         untrimmed_context = self.ctx.build(docs)

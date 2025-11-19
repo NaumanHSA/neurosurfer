@@ -22,6 +22,7 @@ class GateDecision:
     """
     rag: bool
     related_files: List[str]
+    optimized_query: Optional[str] = None
     raw_response: Optional[str] = None
     reason: Optional[str] = None
 
@@ -30,6 +31,7 @@ class GateDecision:
         return cls(
             rag=bool(data.get("rag", False)),
             related_files=list(data.get("related_files") or []),
+            optimized_query=data.get("optimized_query"),
             raw_response=data.get("raw_response"),
             reason=data.get("reason"),
         )

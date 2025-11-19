@@ -49,10 +49,6 @@ class RAGOrchestrator:
     ) -> None:
         self.logger = logger or LOGGER
         self.verbose = verbose
-
-        # REMOVE THIS IN PRODUCTION
-        self._reset_db()
-
         self.persist_directory = os.path.join(APP_DATA_PATH, "rag-storage")
         os.makedirs(self.persist_directory, exist_ok=True)
         # Core RAG agent (no LLM here; main LLM lives in chat handler)
@@ -64,12 +60,14 @@ class RAGOrchestrator:
             persist_directory=self.persist_directory,
         )
         self.rag_agent = RAGAgent(
-            llm=None,
+            llm=gate_llm,
             embedder=embedder,
             config=self.rag_config,
             ingestor_config=RAGIngestorConfig(),
             logger=self.logger,
         )
+        # REMOVE THIS IN PRODUCTION
+        self._reset_db()
 
         # Sub-services
         upload_root = os.path.join(self.persist_directory, "uploads")
@@ -96,11 +94,15 @@ class RAGOrchestrator:
         db.query(NMFile).delete()
         db.commit()
 
+        # reset vector db
+        self.rag_agent.vectorstore.clear_collection()
+
         # check if there are any users left
         self.logger.info(f"Number of users left: {db.query(User).count()}")
         self.logger.info(f"Number of files left: {db.query(NMFile).count()}")
         self.logger.info(f"Number of threads left: {db.query(ChatThread).count()}")
         self.logger.info(f"Number of messages left: {db.query(Message).count()}")
+        self.logger.info(f"Number of documents left: {self.rag_agent.vectorstore.count()}")
         db.close()
 
 
@@ -174,10 +176,9 @@ class RAGOrchestrator:
         if not decision.rag:
             return RAGResult(
                 used=False,
-                augmented_query=user_query,
+                augmented_query=decision.optimized_query,
                 meta={"used": False, "reason": decision.reason or "gate_false"},
             )
-
         metadata_filter = build_metadata_filter_from_related_files(
             db,
             user_id=actor_id,
@@ -186,11 +187,13 @@ class RAGOrchestrator:
             related_files=decision.related_files,
         )
         if self.verbose:
+            self.logger.info(f"Related files for thread {actor_id}/{thread_id}: {decision.related_files}")
             self.logger.info(f"Metadata filter: {metadata_filter}")
+            self.logger.info(f"Optimized query: {decision.optimized_query}")
 
         # Retrieve context
         retrieved = self.rag_agent.retrieve(
-            user_query=user_query,
+            user_query=decision.optimized_query,
             top_k=self.top_k,
             metadata_filter=metadata_filter,
             similarity_threshold=None,
@@ -198,7 +201,7 @@ class RAGOrchestrator:
         ctx_text = (retrieved.context or "").strip()
         if self.verbose:
             self.logger.info("User Query: ")
-            self.logger.info(user_query)
+            self.logger.info(decision.optimized_query)
             self.logger.info(f"Documents in collection: {self.rag_agent._get_collection_docs_count()}")
             self.logger.info("Retrieved context: ")
             self.logger.info(ctx_text)
@@ -206,14 +209,14 @@ class RAGOrchestrator:
         if not ctx_text:
             return RAGResult(
                 used=False,
-                augmented_query=user_query,
+                augmented_query=decision.optimized_query,
                 meta={
                     "used": False,
                     "reason": "empty_context",
                     "gate": decision.__dict__,
                 },
             )
-        augmented = f"{user_query}\n\n[CONTEXT]\n{ctx_text}\n[/CONTEXT]"
+        augmented = f"{decision.optimized_query}\n\n[CONTEXT]\n{ctx_text}\n[/CONTEXT]"
         db.close()
         return RAGResult(
             used=True,

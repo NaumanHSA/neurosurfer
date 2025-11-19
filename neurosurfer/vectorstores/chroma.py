@@ -58,16 +58,7 @@ class ChromaVectorStore(BaseVectorDB):
         metas = res.get("metadatas", [[]])[0]
         dists = res.get("distances", [[]])[0]
         
-        print(f"[ChromaVectorStore] query_embedding: {query_embedding}")
-        print(f"[ChromaVectorStore] count: {self.count()}")
-        print(f"[ChromaVectorStore] similarity_search: {len(ids)}")
-        print(f"[ChromaVectorStore] similarity_search: {len(docs)}")
-        print(f"[ChromaVectorStore] similarity_search: {len(metas)}")
-        print(f"[ChromaVectorStore] similarity_search: {len(dists)}")
-
-
         max_dist = 1.0 - similarity_threshold if similarity_threshold else None  # distance = 1 - cosine_sim
-
         out: List[Tuple[Doc, float]] = []
         seen = set()
         for rid, txt, meta, dist in zip(ids, docs, metas, dists):

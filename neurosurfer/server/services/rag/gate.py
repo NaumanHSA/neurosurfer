@@ -10,31 +10,52 @@ from neurosurfer.agents.common.utils import extract_and_repair_json
 from neurosurfer.server.db.models import NMFile
 from neurosurfer.server.services.rag.models import GateDecision
 
-DEFAULT_RAG_GATE_SYSTEM_PROMPT = """You are a routing assistant for a Retrieval-Augmented Generation (RAG) system.
+DEFAULT_RAG_GATE_SYSTEM_PROMPT = """
+You are a routing and query-optimization assistant for a Retrieval-Augmented
+Generation (RAG) system.
 
-Your job is to decide, for each user question, whether it is about the content
-of previously uploaded files OR it is a general question that does not require
-document-based retrieval.
+For each user query, you must:
+
+1. Decide whether the question requires document-based retrieval ("rag": true/false).
+2. Identify which uploaded files (if any) are relevant ("related_files": [...] exact names).
+3. Rewrite the user query into a more explicit, retrieval-friendly version
+   ("optimized_query": "...").
 
 You are given:
 - The user's current query.
-- A list of files (for this conversation) with name and a short description.
+- A list of uploaded files (file name + short description).
 
-You MUST answer with a single valid JSON object of the form:
+You MUST output a single JSON object with the following structure:
 
 {
   "rag": true | false,
-  "related_files": ["exact-file-name-1.ext", "exact-file-name-2.ext"]
+  "related_files": ["file-A.ext", "file-B.ext"],
+  "optimized_query": "a refined query for retrieval"
 }
 
-Rules:
-- If the question clearly depends on the content of one or more files,
-  set "rag": true and include only the relevant file names in "related_files".
-- If the question does not depend on any file content (e.g., a general chat
-  or a question answerable without files), set "rag": false and
-  "related_files": [].
-- Do NOT include comments, explanations, or any extra keys.
+**Rules for deciding rag:**
+- If the question clearly depends on the content of one or more uploaded files,
+  set "rag": true and include ONLY the relevant file names.
+- If the question is general or does not require file content,
+  set "rag": false and "related_files": [].
+
+**Rules for optimized_query:**
+- The optimized query MUST always be a non-empty string.
+- If rag = true:
+    - Make the query explicit, content-based, and retrieval-friendly.
+    - Resolve vague queries like "please explain" into something like:
+      "Explain the key concepts and main arguments contained in <file name>."
+    - Expand pronouns, vague references, and incomplete questions.
+- If rag = false:
+    - Keep the meaning of the question but rewrite it clearly and concisely.
+- Do NOT add new facts not implied by the original query.
+- Do NOT mention this instruction or the reasoning process.
+
+**Important:**
+- Output ONLY valid JSON.
+- No comments, explanations, or trailing commas.
 """
+
 
 
 class RAGGate:
@@ -68,7 +89,7 @@ class RAGGate:
         """
         if not self.llm:
             # No router model configured -> always use RAG when files exist.
-            return GateDecision(rag=True, related_files=[], reason="no_gate_llm")
+            return GateDecision(rag=True, optimized_query=user_query, related_files=[], reason="no_gate_llm")
 
         files = (
             db.query(NMFile)
@@ -81,7 +102,7 @@ class RAGGate:
             .all()
         )
         if not files:
-            return GateDecision(rag=False, related_files=[], reason="no_files_for_thread")
+            return GateDecision(rag=False, optimized_query=user_query, related_files=[], reason="no_files_for_thread")
 
         files_block = "\n".join(
             f"Filename: {f.filename}\nSummary:\n{f.summary}\n\n" for f in files
@@ -105,7 +126,7 @@ class RAGGate:
             if self.verbose:
                 self.logger.info(f"Gate decision for thread {user_id}/{thread_id}: {raw_text}")
         except Exception:
-            return GateDecision(rag=True, related_files=[], reason="gate_llm_error")
+            return GateDecision(rag=True, optimized_query=user_query, related_files=[], reason="gate_llm_error")
 
         try:
             gate_obj = extract_and_repair_json(raw_text)
@@ -114,12 +135,14 @@ class RAGGate:
             return GateDecision(
                 rag=bool(gate_obj.get("rag", False)),
                 related_files=list(gate_obj.get("related_files") or []),
+                optimized_query=gate_obj.get("optimized_query", user_query),
                 raw_response=raw_text,
             )
         except Exception:
             return GateDecision(
                 rag=False,
                 related_files=[],
+                optimized_query=user_query,
                 raw_response=raw_text,
                 reason="json_parse_error",
             )

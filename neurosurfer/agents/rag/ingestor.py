@@ -186,7 +186,7 @@ class RAGIngestor:
             if not text: 
                 continue
             rel = str(Path(p).relative_to(root)) if root and Path(p).is_relative_to(root) else str(p)
-            md = {**self.default_md, **extra_metadata, "filename": rel, "source_type": "file"}
+            md = {**self.default_md, **extra_metadata, "file_path": rel, "source_type": "file"}
             self._enqueue(source_id=rel, text=text, metadata=md)
         return self
 
@@ -213,7 +213,7 @@ class RAGIngestor:
                 if not text:
                     continue
                 rel = str(path.relative_to(directory))
-                md = {**self.default_md, **extra_metadata, "filename": rel, "source_type": "file"}
+                md = {**self.default_md, **extra_metadata, "file_path": rel, "source_type": "file"}
                 self._enqueue(source_id=rel, text=text, metadata=md)
         return self
 
