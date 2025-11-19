@@ -27,7 +27,6 @@ class ChromaVectorStore(BaseVectorDB):
             texts.append(d.text)
             embeddings.append(d.embedding)
             metadatas.append(d.metadata)
-
         if hasattr(self.collection, "upsert"):
             self.collection.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
         else:
@@ -58,6 +57,15 @@ class ChromaVectorStore(BaseVectorDB):
         docs  = res.get("documents", [[]])[0]
         metas = res.get("metadatas", [[]])[0]
         dists = res.get("distances", [[]])[0]
+        
+        print(f"[ChromaVectorStore] query_embedding: {query_embedding}")
+        print(f"[ChromaVectorStore] count: {self.count()}")
+        print(f"[ChromaVectorStore] similarity_search: {len(ids)}")
+        print(f"[ChromaVectorStore] similarity_search: {len(docs)}")
+        print(f"[ChromaVectorStore] similarity_search: {len(metas)}")
+        print(f"[ChromaVectorStore] similarity_search: {len(dists)}")
+
+
         max_dist = 1.0 - similarity_threshold if similarity_threshold else None  # distance = 1 - cosine_sim
 
         out: List[Tuple[Doc, float]] = []

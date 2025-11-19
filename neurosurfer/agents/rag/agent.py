@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, Callable, Generator
 import logging
+from functools import lru_cache
 
 from neurosurfer.vectorstores import Doc, BaseVectorDB
 from neurosurfer.models.chat_models.base import BaseChatModel, LLM_RESPONSE_TYPE
@@ -58,12 +59,8 @@ class RAGAgent:
 
         self.vectorstore = vectorstore
         if not self.vectorstore:
-            self.logger.warning("No vectorstore provided to RAGAgent, using default ChromaVectorStore. Initializing collection `neurosurfer-rag-agent`")
-            self.vectorstore = ChromaVectorStore(
-                collection_name=self.cfg.collection_name,
-                clear_collection=self.cfg.clear_collection_on_init,
-                persist_directory=self.cfg.persist_directory,
-            )
+            self.logger.warning("No vectorstore provided to RAGAgent, using default ChromaVectorStore. Initializing default collection `neurosurfer-rag-agent`")
+            self.vectorstore = self._vs(self.cfg.collection_name, self.cfg.clear_collection_on_init)
 
         self.embedder = embedder
         if not self.embedder:
@@ -99,7 +96,45 @@ class RAGAgent:
             tmp_dir=self.ingestor_cfg.tmp_dir,
         )
 
+    @lru_cache(maxsize=512)
+    def _vs(self, collection_name: str, clear_collection_on_init: bool = False) -> ChromaVectorStore:
+        """
+        Get or create vector store for collection (cached).
+        Uses LRU cache to reuse vector store instances for performance.
+        Args:
+            collection_name (str): Collection name
+            clear_collection_on_init (bool): Whether to clear the collection on initialization
+        Returns:
+            ChromaVectorStore: Vector store instance
+        """
+        return ChromaVectorStore(
+            collection_name=collection_name,
+            clear_collection=clear_collection_on_init,
+            persist_directory=self.cfg.persist_directory,
+        )
+
+    def _collection_has_docs(self) -> bool:
+        """Check if collection has any documents. Returns True if collection has documents, False otherwise"""
+        try:
+            return self.vectorstore.count() > 0
+        except Exception:
+            return False
+    
+    def _get_collection_docs_count(self) -> int:
+        """Get all documents in the collection"""
+        return self.vectorstore.count()
+
     # ---------- Public API ----------
+    def set_collection(self, collection_name: str, clear_collection_on_init: bool = False) -> None:
+        """Call this method to set a new collection for ingesting and retrieving documents."""
+        # self.vectorstore = self._vs(collection_name, clear_collection_on_init)
+        self.vectorstore = ChromaVectorStore(
+            collection_name=collection_name,
+            clear_collection=clear_collection_on_init,
+            persist_directory=self.cfg.persist_directory,
+        )
+        self.ingestor.set_vectorstore(self.vectorstore)
+
     def ingest(
         self,
         sources: Optional[Union[str, Path, Iterable[Union[str, Path, str]]]] = None,
@@ -193,6 +228,10 @@ class RAGAgent:
             metadata_filter=metadata_filter,
             similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
         )
+        self.logger.info(f"[RAGRetriever] Query: {user_query}")
+        self.logger.info(f"[RAGRetriever] Raw results from collection {self.vectorstore.collection_name}: {len(raw)}")
+        self.logger.info(f"[RAGRetriever] params: top_k={top_k}, metadata_filter={metadata_filter}, similarity_threshold={similarity_threshold}")
+
         docs, distances = self._unpack_results(raw)
         self.logger.info(f"[RAGRetriever] Retrieved {len(docs)} chunks")
 

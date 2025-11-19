@@ -46,7 +46,7 @@ from typing import List
 from ..security import get_db, get_current_user
 from ..db.models import User, ChatThread, Message
 from ..schemas import Chat, ChatMessage
-from ..schemas import Chat, ChatMessage, ChatMessageOut  # 👈 add ChatMessageOut
+from ..schemas import Chat, ChatMessage, ChatMessageOut 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -223,9 +223,7 @@ def list_messages(chat_id: int, db: Session = Depends(get_db), user: User = Depe
 def append_message(chat_id: int, body: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """
     Add a message to a chat thread.
-    
     Automatically generates thread title from first user message if not set.
-    
     Args:
         chat_id (int): Chat thread ID
         body (ChatMessage): Message data (role and content)
@@ -246,7 +244,7 @@ def append_message(chat_id: int, body: ChatMessage, db: Session = Depends(get_db
     th = db.query(ChatThread).filter(ChatThread.id == chat_id, ChatThread.user_id == user.id).first()
     if not th: raise HTTPException(status_code=404, detail="Chat not found")
 
-    # ✅ Auto-title on first user message
+    # Auto-title on first user message
     if (th.title or "New Chat") == "New Chat" and body.role == "user":
         first_line = (body.content or "").strip().splitlines()[0][:60]
         if first_line:
@@ -280,3 +278,5 @@ def update_thread(chat_id: int, data: dict, db: Session = Depends(get_db), user:
     th.updated_at = func.now()
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+

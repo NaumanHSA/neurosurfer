@@ -1,5 +1,6 @@
-from typing import Generator, Union, Any, Dict
+from typing import Generator, Union, Any, Dict, Optional
 from ...server.schemas import ChatCompletionChunk, ChatCompletionResponse
+from json_repair import repair_json
 
 def stream_text_from_response(resp: Generator) -> Generator[str, None, None]:
     for chunk in resp:
@@ -25,3 +26,21 @@ def normalize_response(results: Union[str, Generator, ChatCompletionResponse, Ch
     if isinstance(results, Dict): return results
     try: return str(results)
     except: raise ValueError(f"Unsupported results type: {type(results)}")
+
+
+def extract_and_repair_json(text: str, return_dict: bool = True) -> Optional[Union[str, Dict[str, Any]]]:
+    """
+    Extract and parse the first valid JSON object from arbitrary text (e.g., LLM output).
+    
+    Handles:
+    - Markdown code fences (```json ... ```)
+    - Extraneous text before/after JSON
+    - Nested braces {...}
+    - Incomplete or malformed chunks (best-effort parsing)
+
+    Returns:
+        dict if successful, otherwise None.
+    """
+    if not text or not isinstance(text, str):
+        return None
+    return repair_json(text, return_objects=return_dict)

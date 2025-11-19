@@ -163,6 +163,9 @@ class RAGIngestor:
         self._queue: List[Tuple[str, str, Dict[str, Any]]] = []  # (source_id, text, metadata)
         self._seen_hashes: set[str] = set()
 
+    def set_vectorstore(self, vectorstore: BaseVectorDB) -> None:
+        self.vs = vectorstore
+
     # ----------------------
     # Queueing inputs
     # ----------------------
@@ -420,7 +423,6 @@ class RAGIngestor:
                     is_path = path.exists()
                 except Exception:
                     is_path = False   # Treat as raw text
-                
                 if not is_path:
                     # Treat as raw text
                     self.add_texts(
@@ -469,7 +471,6 @@ class RAGIngestor:
                             extra_metadata=extra_metadata,
                         )
                     accepted_count += 1
-
                 else:
                     # Path object that is neither file nor dir (very rare)
                     unsupported.append(src)

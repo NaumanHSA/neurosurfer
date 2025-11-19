@@ -50,5 +50,10 @@ COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "Lax").capitalize()     # Lax/Non
 # CORS
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
+# Default Application Data Directory
+from neurosurfer import CACHE_DIR
+APP_DATA_PATH = os.path.join(CACHE_DIR, "app-storage")
+os.makedirs(APP_DATA_PATH, exist_ok=True)
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///" + APP_DATA_PATH + "/app.db")
 

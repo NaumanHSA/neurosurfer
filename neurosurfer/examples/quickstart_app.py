@@ -41,13 +41,13 @@ import os, shutil, logging
 
 from neurosurfer.models.embedders.base import BaseEmbedder
 from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
-from neurosurfer.rag.chunker import Chunker
-from neurosurfer.rag.filereader import FileReader
+from neurosurfer.agents.rag.chunker import Chunker
+from neurosurfer.agents.rag.filereader import FileReader
 
 from neurosurfer.server.app import NeurosurferApp
 from neurosurfer.server.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.server.runtime import RequestContext
-from neurosurfer.server.services.rag_orchestrator import RAGOrchestrator
+from neurosurfer.server.services.rag import RAGOrchestrator
 
 from neurosurfer.config import config
 from neurosurfer import CACHE_DIR
@@ -73,9 +73,6 @@ Global Application State
 These variables hold the core components of the Neurosurfer application that are
 initialized during startup and used throughout the application's lifecycle.
 """
-BASE_DIR = os.path.join(CACHE_DIR, "code_sessions")
-os.makedirs(BASE_DIR, exist_ok=True)
-
 LLM: BaseChatModel = None
 EMBEDDER_MODEL: BaseEmbedder = None
 LOGGER: logging.Logger = None
@@ -147,14 +144,9 @@ async def load_model():
     )
     RAG = RAGOrchestrator(
         embedder=EMBEDDER_MODEL,
-        chunker=Chunker(),
-        file_reader=FileReader(),
-        persist_dir=config.app.database_path,
-        max_context_tokens=2000,
-        top_k=15,
-        min_top_sim_default=0.35,
-        min_top_sim_when_explicit=0.15,
-        min_sim_to_keep=0.20,
+        gate_llm=LLM,
+        top_k=10,
+        verbose=True,
         logger=LOGGER,
     )
     # Warmup
@@ -163,30 +155,8 @@ async def load_model():
 
 @ns.on_shutdown
 def cleanup():
-    """
-    Clean up temporary files and directories on application shutdown.
-
-    This function removes the temporary directory used for code sessions and
-    file processing to ensure a clean shutdown and prevent accumulation of
-    temporary files across application restarts.
-
-    Cleanup Targets:
-        BASE_DIR: The "./tmp/code_sessions" directory containing:
-            - Uploaded files for RAG processing
-            - Temporary processing artifacts
-            - Session-specific data
-
-    Error Handling:
-        - Uses ignore_errors=True to prevent shutdown failures
-        - Logs any cleanup issues without stopping the shutdown process
-        - Graceful handling of missing directories
-
-    Note:
-        - This function runs automatically during FastAPI app shutdown
-        - Essential for maintaining clean file system state
-        - Should not be called manually during normal operation
-    """
-    shutil.rmtree(BASE_DIR, ignore_errors=True)
+    """Clean up temporary files and directories on application shutdown."""
+    pass
 
 @ns.chat()
 def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompletionResponse | Generator[ChatCompletionChunk, None, None]:
@@ -258,17 +228,12 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
     max_tokens = request.max_tokens if (request.max_tokens and request.max_tokens > 512) else config.base_model.max_new_tokens
     kwargs = {"temperature": temperature, "max_new_tokens": max_tokens}
 
-    # # ⬇️ RAG: single call; class handles ingest + relevance + context
-    # LOGGER.info(f"System prompt:\n{system_prompt}")
-    # LOGGER.info(f"User query:\n{user_query}")
-    # LOGGER.info(f"Chat history:\n{chat_history}")
-    
-    if RAG and request.files and thread_id is not None:
+    if RAG and thread_id is not None:
         rag_res = RAG.apply(
             actor_id=actor_id,
             thread_id=thread_id,
             user_query=user_query,
-            files=[f.model_dump() for f in (request.files or [])],  # Pydantic models -> dicts
+            files=[f.model_dump() for f in (request.files or [])] if request.files else None,
         )
         user_query = rag_res.augmented_query
         if rag_res.used:

@@ -231,7 +231,6 @@ class NeurosurferApp:
             - If API key is configured, it takes precedence over user authentication
         """
         # 1) API key allowed if configured
-        print("API key:", self.api_key)
         if self.api_key:
             auth = req.headers.get("authorization", "")
             if auth.startswith("Bearer ") and auth.split(" ", 1)[1] == self.api_key:

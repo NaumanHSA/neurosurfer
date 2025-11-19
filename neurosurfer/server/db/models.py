@@ -201,6 +201,7 @@ class NMFile(Base):
     thread_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_threads.id"), index=True, nullable=False)
 
     filename: Mapped[str] = mapped_column(String, nullable=False)
+    summary: Mapped[str | None] = mapped_column(String, nullable=True)
     stored_path: Mapped[str] = mapped_column(String, nullable=False)   # may be removed after ingest
     mime: Mapped[str | None] = mapped_column(String, nullable=True)
     size: Mapped[int | None] = mapped_column(Integer, nullable=True)

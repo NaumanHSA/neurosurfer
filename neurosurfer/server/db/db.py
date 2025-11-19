@@ -31,7 +31,10 @@ Example:
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+import logging
 from ..config import DATABASE_URL
+
+logger = logging.getLogger("neurosurfer")
 
 # Ensure SQLite directory exists
 if DATABASE_URL.startswith("sqlite:///"):
@@ -60,5 +63,5 @@ def init_db():
     # from .models import Base as _Base
     # _Base.metadata.create_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    print("Database initialized successfully...")
+    logger.info("Database initialized successfully in %s", DATABASE_URL)
 
