@@ -18,19 +18,18 @@ For each user query, you must:
 
 1. Decide whether the question requires document-based retrieval ("rag": true/false).
 2. Identify which uploaded files (if any) are relevant ("related_files": [...] exact names).
-3. Rewrite the user query into a more explicit, retrieval-friendly version
-   ("optimized_query": "...").
+4. Decide the retrieval scope ("retrieval_scope": "small" | "medium" | "wide" | "full").
 
 You are given:
 - The user's current query.
-- A list of uploaded files (file name + short description).
+- A list of uploaded files (file name + short description/summary).
 
 You MUST output a single JSON object with the following structure:
 
 {
   "rag": true | false,
   "related_files": ["file-A.ext", "file-B.ext"],
-  "optimized_query": "a refined query for retrieval"
+  "retrieval_scope": "small" | "medium" | "wide" | "full"
 }
 
 **Rules for deciding rag:**
@@ -39,17 +38,11 @@ You MUST output a single JSON object with the following structure:
 - If the question is general or does not require file content,
   set "rag": false and "related_files": [].
 
-**Rules for optimized_query:**
-- The optimized query MUST always be a non-empty string.
-- If rag = true:
-    - Make the query explicit, content-based, and retrieval-friendly.
-    - Resolve vague queries like "please explain" into something like:
-      "Explain the key concepts and main arguments contained in <file name>."
-    - Expand pronouns, vague references, and incomplete questions.
-- If rag = false:
-    - Keep the meaning of the question but rewrite it clearly and concisely.
-- Do NOT add new facts not implied by the original query.
-- Do NOT mention this instruction or the reasoning process.
+**Rules for retrieval_scope:**
+- small: the question concerns a specific fact, formula, definition, or short section.
+- medium: the question spans multiple concepts or sections but not the entire file.
+- wide: the question requires broad coverage, comparisons, or multiple far-apart sections.
+- full: the question requires full-file understanding, full summary, or complete content.
 
 **Important:**
 - Output ONLY valid JSON.
@@ -89,7 +82,7 @@ class RAGGate:
         """
         if not self.llm:
             # No router model configured -> always use RAG when files exist.
-            return GateDecision(rag=True, optimized_query=user_query, related_files=[], reason="no_gate_llm")
+            return GateDecision(rag=True, optimized_query=user_query, related_files=[], retrieval_scope="medium", reason="no_gate_llm")
 
         files = (
             db.query(NMFile)
@@ -102,13 +95,13 @@ class RAGGate:
             .all()
         )
         if not files:
-            return GateDecision(rag=False, optimized_query=user_query, related_files=[], reason="no_files_for_thread")
+            return GateDecision(rag=False, optimized_query=user_query, related_files=[], retrieval_scope="medium", reason="no_files_for_thread")
 
         files_block = "\n".join(
             f"Filename: {f.filename}\nSummary:\n{f.summary}\n\n" for f in files
         )
-        if self.verbose:
-            self.logger.info(f"Files for thread {user_id}/{thread_id}:\n{files_block}")
+        self.logger.info(f"\n\nUSERQUERY: {user_query}\n\nFILES_BLOCK:\n{files_block}\n\n")
+
         user_prompt = (
             "# User query:\n"
             f"{user_query}\n\n"
@@ -123,19 +116,17 @@ class RAGGate:
                 max_new_tokens=self.max_new_tokens,
                 stream=False,
             ).choices[0].message.content
-            if self.verbose:
-                self.logger.info(f"Gate decision for thread {user_id}/{thread_id}: {raw_text}")
         except Exception:
-            return GateDecision(rag=True, optimized_query=user_query, related_files=[], reason="gate_llm_error")
+            return GateDecision(rag=True, optimized_query=user_query, related_files=[], retrieval_scope="medium", reason="gate_llm_error")
 
         try:
             gate_obj = extract_and_repair_json(raw_text)
-            if self.verbose:
-                self.logger.info(f"Gate decision for thread {user_id}/{thread_id}: {gate_obj}")
+            self.logger.info(f"GATE DECISION -------------- {gate_obj}")
             return GateDecision(
                 rag=bool(gate_obj.get("rag", False)),
                 related_files=list(gate_obj.get("related_files") or []),
-                optimized_query=gate_obj.get("optimized_query", user_query),
+                optimized_query=user_query,
+                retrieval_scope=gate_obj.get("retrieval_scope", "medium"),
                 raw_response=raw_text,
             )
         except Exception:
@@ -143,6 +134,7 @@ class RAGGate:
                 rag=False,
                 related_files=[],
                 optimized_query=user_query,
+                retrieval_scope="medium",
                 raw_response=raw_text,
                 reason="json_parse_error",
             )

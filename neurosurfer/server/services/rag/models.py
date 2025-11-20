@@ -23,6 +23,7 @@ class GateDecision:
     rag: bool
     related_files: List[str]
     optimized_query: Optional[str] = None
+    retrieval_scope: Optional[str] = None
     raw_response: Optional[str] = None
     reason: Optional[str] = None
 
@@ -32,6 +33,7 @@ class GateDecision:
             rag=bool(data.get("rag", False)),
             related_files=list(data.get("related_files") or []),
             optimized_query=data.get("optimized_query"),
+            retrieval_scope=data.get("retrieval_scope"),
             raw_response=data.get("raw_response"),
             reason=data.get("reason"),
         )

@@ -124,7 +124,8 @@ async def load_model():
     from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
 
     LLM = TransformersModel(
-        model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
+        # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
+        model_name="/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit",
         max_seq_length=config.base_model.max_seq_length,
         load_in_4bit=config.base_model.load_in_4bit,
         enable_thinking=config.base_model.enable_thinking,
@@ -210,8 +211,9 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
     global LLM, RAG
 
     # Resolve actor/thread ids (thread id is part of JSON now)
-    actor_id = (getattr(ctx, "meta", {}) or {}).get("actor_id", 0)
+    user_id = ctx.user_id
     thread_id = request.thread_id
+    has_files_message = request.files is not None
 
     # Prepare inputs
     user_msgs: List[str] = [m["content"] for m in request.messages if m["role"] == "user"]
@@ -230,10 +232,10 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
 
     if RAG and thread_id is not None:
         rag_res = RAG.apply(
-            actor_id=actor_id,
+            user_id=user_id,
             thread_id=thread_id,
             user_query=user_query,
-            files=[f.model_dump() for f in (request.files or [])] if request.files else None,
+            has_files_message=has_files_message,
         )
         user_query = rag_res.augmented_query
         if rag_res.used:

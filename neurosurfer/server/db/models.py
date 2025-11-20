@@ -34,7 +34,7 @@ Example:
 """
 from datetime import datetime
 from sqlalchemy.orm import relationship, Mapped, mapped_column
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, func, Index, Column
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, func, Index, Boolean
 from .db import Base
 
 class User(Base):
@@ -152,6 +152,7 @@ class Message(Base):
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     thread: Mapped["ChatThread"] = relationship("ChatThread", back_populates="messages")
+    files: Mapped[list["NMFile"]] = relationship("NMFile", back_populates="message", order_by="NMFile.created_at")
 
     __table_args__ = (
         Index("ix_message_thread_created", "thread_id", "created_at"),
@@ -199,13 +200,16 @@ class NMFile(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     thread_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_threads.id"), index=True, nullable=False)
+    message_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("messages.id"), index=True, nullable=True)
 
     filename: Mapped[str] = mapped_column(String, nullable=False)
     summary: Mapped[str | None] = mapped_column(String, nullable=True)
     stored_path: Mapped[str] = mapped_column(String, nullable=False)   # may be removed after ingest
     mime: Mapped[str | None] = mapped_column(String, nullable=True)
     size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ingested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     collection: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     thread: Mapped["ChatThread"] = relationship("ChatThread", back_populates="files")
+    message: Mapped["Message | None"] = relationship("Message", back_populates="files")

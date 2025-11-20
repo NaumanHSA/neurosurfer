@@ -41,12 +41,14 @@ Example:
     ... }
     >>> # Returns: {"token": "...", "user": {...}}
 """
+import os
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from ..schemas import LoginResponse, User as UserSchema
 from ..security import get_db, hash_password, verify_password, create_access_token, set_login_cookie, clear_login_cookie, get_current_user
 from ..db.models import User, ChatThread, Message
+from neurosurfer.server.config import APP_DATA_PATH
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -64,6 +66,10 @@ class LoginBody(BaseModel):
 class DeleteBody(BaseModel):
     """Request body for account deletion (requires password confirmation)."""
     password: str
+
+def create_path(user_id: int) -> None:
+    path = os.path.join(APP_DATA_PATH, user_id)
+    os.makedirs(path, exist_ok=True)
 
 def user_to_schema(u: User) -> UserSchema:
     """
@@ -111,6 +117,7 @@ def register(body: RegisterBody, response: Response, db: Session = Depends(get_d
     db.commit()
     db.refresh(user)
     token = create_access_token({"sub": user.id})
+    create_path(user.id)     # create user path if it doesn't exist
     # set_login_cookie(response, token)
     return user_to_schema(user)
 
@@ -144,6 +151,7 @@ def login(body: LoginBody, response: Response, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     token = create_access_token({"sub": user.id})
     set_login_cookie(response, token)
+    create_path(user.id)        # create default user path if it doesn't exist
     return LoginResponse(token=token, user=user_to_schema(user))
 
 @router.post("/logout")

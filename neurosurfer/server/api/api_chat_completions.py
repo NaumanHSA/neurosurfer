@@ -195,11 +195,11 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
         ctx: RequestContext = op_manager.create()
         ctx.headers = dict(req.headers)
         ctx.meta = getattr(ctx, "meta", {}) or {}
+        ctx.user_id = user.id if user else None
         
         actor_id = resolve_actor_id(req, user)
         ctx.meta["actor_id"] = actor_id
         ctx.meta["thread_id"] = body.thread_id or None
-        # ctx.user = user
 
         # ============ Non-Streaming Mode ============
         if not body.stream:

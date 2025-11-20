@@ -1,9 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from neurosurfer.vectorstores.base import Doc
 import os
-
 
 @dataclass
 class RetrieveResult:
@@ -16,6 +15,32 @@ class RetrieveResult:
     docs: List[Doc] = field(default_factory=list)
     distances: List[Optional[float]] = field(default_factory=list)
     meta: Dict[str, Any] = field(default_factory=dict)  # debug/trace info
+
+
+RetrievalScope = Literal["small", "medium", "wide", "full"]
+RetrievalMode = Literal["classic", "smart"]
+RetrievalScopeToTopK: Dict[str, int] = {
+    "small": 5,
+    "medium": 10,
+    "wide": 20,
+    "full": 40,
+}
+
+@dataclass
+class RetrievalPlan:
+    """
+    Plan for how much to retrieve and how to shape the context.
+
+    This is intentionally simple and can be created by:
+      - RAGGate (UI layer) or
+      - RAGAgent itself via an internal LLM call.
+    """
+    mode: RetrievalMode = "classic"
+    scope: Optional[RetrievalScope] = None
+    top_k: Optional[int] = None
+    neighbor_hops: int = 0
+    notes: Optional[str] = None
+    extra: Dict[str, Any] = None
 
 @dataclass
 class RAGIngestorConfig:

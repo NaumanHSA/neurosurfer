@@ -12,11 +12,25 @@ from neurosurfer.agents.rag.agent import RAGAgent
 
 LOGGER = logging.getLogger(__name__)
 
-FILE_SUMMARY_SYSTEM_PROMPT = """You summarize files for a Retrieval-Augmented Generation (RAG) system.
+FILE_SUMMARY_SYSTEM_PROMPT = """
+You summarize files for a Retrieval-Augmented Generation (RAG) system.
 
-Your goal is to describe WHAT the file is about and its main topics in plain language.
-Do not copy large chunks of text. Be concise and informative."""
+Your goals:
+- Explain clearly what the file is about.
+- Describe its purpose and the main concepts, sections, or ideas inside.
+- Keep the summary factual, concise, and in plain language.
+- Do NOT mention the filename or say things like "here is a summary".
+- Do NOT invent content not present in the excerpt.
+- The summary must start with: "This file is about..."
+- The summary must be a single paragraph of no longer than 6 lines, in plain language.
+- After the summary, extract useful retrieval keywords in a single line (max 6).
+- Output format:
 
+<One Paragraph Summary>
+This file is about ...
+
+Keywords: keyword1, keyword2, keyword3, ... (single line, max 6)
+"""
 
 class FileSummarizer:
     """
@@ -58,14 +72,12 @@ class FileSummarizer:
         if not self.llm:
             return self._fallback_excerpt(basename, excerpt, is_zip_member=is_zip_member)
 
-        style = (
-            "two concise sentences"
-            if is_zip_member
-            else "one short paragraph of 3-4 sentences"
-        )
+        style = "of two concise sentences" if is_zip_member else "under 6 lines"
         user_prompt = (
-            f"Summarize the following file content in {style}. "
-            "Focus on what the file is about and its main topics.\n\n"
+            f"User has uploaded a file named `{basename}`.\n"
+            f"Summarize the following file content. Begin with 'This file is about...' and keep the summary {style}. "
+            "Take the filename into account when summarizing. Focus only on the file's purpose and its main topics and "
+            "then extract important keywords for retrieval in a single line (max 6).\n\n"
             "CONTENT START\n"
             f"{excerpt}\n"
             "CONTENT END"
@@ -83,7 +95,7 @@ class FileSummarizer:
             # Log outside if needed
             pass
         return self._fallback_excerpt(basename, excerpt, is_zip_member=is_zip_member)
-
+       
     # -------- internals --------
     def _read_text(self, path: str) -> str:
         try:

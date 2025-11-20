@@ -50,8 +50,13 @@ class RAGOrchestrator:
         self.logger = logger or LOGGER
         self.verbose = verbose
         self.persist_directory = os.path.join(APP_DATA_PATH, "rag-storage")
+
+        # REMOVE THIS IN PRODUCTION
+        self._reset_db()
+
         os.makedirs(self.persist_directory, exist_ok=True)
         # Core RAG agent (no LLM here; main LLM lives in chat handler)
+
         self.rag_config = RAGAgentConfig(
             top_k=top_k,
             similarity_threshold=similarity_threshold,
@@ -66,8 +71,7 @@ class RAGOrchestrator:
             ingestor_config=RAGIngestorConfig(),
             logger=self.logger,
         )
-        # REMOVE THIS IN PRODUCTION
-        self._reset_db()
+        self.logger.info(f"Number of documents left: {self.rag_agent.vectorstore.count()}")
 
         # Sub-services
         upload_root = os.path.join(self.persist_directory, "uploads")
@@ -95,70 +99,84 @@ class RAGOrchestrator:
         db.commit()
 
         # reset vector db
-        self.rag_agent.vectorstore.clear_collection()
+        if os.path.exists(self.persist_directory):
+            import shutil
+            shutil.rmtree(self.persist_directory)
 
         # check if there are any users left
         self.logger.info(f"Number of users left: {db.query(User).count()}")
         self.logger.info(f"Number of files left: {db.query(NMFile).count()}")
         self.logger.info(f"Number of threads left: {db.query(ChatThread).count()}")
         self.logger.info(f"Number of messages left: {db.query(Message).count()}")
-        self.logger.info(f"Number of documents left: {self.rag_agent.vectorstore.count()}")
         db.close()
-
 
     # -------- public API --------
     def apply(
         self,
         *,
-        actor_id: int,
+        user_id: int,
         thread_id: int,
         user_query: str,
-        files: Optional[List[Dict[str, Any]]] = None,
+        message_id: int,
+        has_files_message: bool = False,
     ) -> RAGResult:
         """
         Main entry point.
-        - actor_id, thread_id: scope for both SQL and vectorstore collection
+        - user_id, thread_id: scope for both SQL and vectorstore collection
         - user_query: latest user message text
         - files: base64-encoded upload metadata from request (if any)
         """
-        collection_name = self._collection_for(actor_id, thread_id)
+        # switch the path to the user's thread
+        self._set_path(user_id, thread_id)
+        collection_name = self._collection_for(user_id, thread_id)
         self.rag_agent.set_collection(collection_name)
 
         # db: SQLAlchemy Session (injected from FastAPI)
         db = SessionLocal()
         # Ingest files if provided
-        if files:
-            if self.verbose:
-                self.logger.info(f"Ingesting files for thread {actor_id}/{thread_id}, num files: {len(files)}")
-
-            summaries = self.ingestion.ingest_files(
-                db,
-                user_id=actor_id,
-                thread_id=thread_id,
-                collection_name=collection_name,
-                files=files,
+        if has_files_message:
+            files = (
+                db.query(NMFile)
+                .filter(
+                    NMFile.user_id == user_id,
+                    NMFile.thread_id == thread_id,
+                    NMFile.message_id == message_id,
+                    NMFile.collection == collection_name,
+                    NMFile.ingested == False,
+                )
+                .all()
             )
-            if self.verbose:
-                self.logger.info(f"Ingested files for thread {actor_id}/{thread_id}")
-                if summaries:
-                    self.logger.info(f"Ingested files summaries:")
-                    for summary in summaries:
-                        self.logger.info(summary)
+            if files:
+                if self.verbose:
+                    self.logger.info(f"Ingesting files for thread {user_id}/{thread_id}, num files: {len(files)}")
+
+                summaries = self.ingestion.ingest_files(
+                    db,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    collection_name=collection_name,
+                    files=files,
+                )
+                if self.verbose:
+                    self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
+                    if summaries:
+                        self.logger.info(f"Ingested files summaries:")
+                        for summary in summaries:
+                            self.logger.info(summary)
 
         # Check if this thread has files
-        has_files = (
+        has_files_thread = (
             db.query(NMFile)
             .filter(
-                NMFile.user_id == actor_id,
+                NMFile.user_id == user_id,
                 NMFile.thread_id == thread_id,
                 NMFile.collection == collection_name,
+                NMFile.ingested == True,
             )
             .count()
             > 0
         )
-        if self.verbose:
-            self.logger.info(f"Thread {actor_id}/{thread_id} has files: {has_files}")
-        if not has_files:
+        if not has_files_thread:
             return RAGResult(
                 used=False,
                 augmented_query=user_query,
@@ -168,7 +186,7 @@ class RAGOrchestrator:
         # Gate: decide if query is about files & which ones
         decision = self.gate.decide(
             db,
-            user_id=actor_id,
+            user_id=user_id,
             thread_id=thread_id,
             collection=collection_name,
             user_query=user_query,
@@ -181,15 +199,16 @@ class RAGOrchestrator:
             )
         metadata_filter = build_metadata_filter_from_related_files(
             db,
-            user_id=actor_id,
+            user_id=user_id,
             thread_id=thread_id,
             collection=collection_name,
             related_files=decision.related_files,
         )
         if self.verbose:
-            self.logger.info(f"Related files for thread {actor_id}/{thread_id}: {decision.related_files}")
+            self.logger.info(f"Related files for thread {user_id}/{thread_id}: {decision.related_files}")
             self.logger.info(f"Metadata filter: {metadata_filter}")
             self.logger.info(f"Optimized query: {decision.optimized_query}")
+            self.logger.info(f"Retrieval scope: {decision.retrieval_scope}")
 
         # Retrieve context
         retrieved = self.rag_agent.retrieve(
@@ -197,14 +216,15 @@ class RAGOrchestrator:
             top_k=self.top_k,
             metadata_filter=metadata_filter,
             similarity_threshold=None,
+            retrieval_mode="smart",
+            retrieval_scope=decision.retrieval_scope,
         )
         ctx_text = (retrieved.context or "").strip()
+
         if self.verbose:
-            self.logger.info("User Query: ")
-            self.logger.info(decision.optimized_query)
+            self.logger.info(f"User Query: {decision.optimized_query}")
             self.logger.info(f"Documents in collection: {self.rag_agent._get_collection_docs_count()}")
-            self.logger.info("Retrieved context: ")
-            self.logger.info(ctx_text)
+            self.logger.info(f"Retrieved context: {len(ctx_text)}")
 
         if not ctx_text:
             return RAGResult(
@@ -217,6 +237,7 @@ class RAGOrchestrator:
                 },
             )
         augmented = f"{decision.optimized_query}\n\n[CONTEXT]\n{ctx_text}\n[/CONTEXT]"
+        # self.logger.info(f"\n\nFINAL USER PROMPT:\n{augmented}\n\n")
         db.close()
         return RAGResult(
             used=True,
@@ -229,6 +250,11 @@ class RAGOrchestrator:
         )
 
     # -------- internals --------
+    def _set_path(self, user_id: int, thread_id: int) -> None:
+        path = os.path.join(APP_DATA_PATH, user_id, thread_id, "rag-storage")
+        os.makedirs(path, exist_ok=True)
+        self.rag_agent.cfg.persist_directory = path
+
     def _collection_for(self, user_id: int, thread_id: int) -> str:
         return self._safe_collection_name(f"nm_u{user_id}_t{thread_id}")
 

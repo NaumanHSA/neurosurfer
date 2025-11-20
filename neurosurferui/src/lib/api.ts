@@ -1,12 +1,11 @@
 // api.ts
 import { TITLE_SYSTEM_PROMPT } from './constants'
-import { ChatMessage, ModelInfo } from './types'
-import type { ChatCompletionChunk } from './types'
+import type { ChatCompletionChunk, ChatMessageWire, UploadedFileIn, ModelInfo } from './types'
 
 // You can set VITE_BACKEND_API_URL to "http://localhost:8081"
 // const API_BASE = import.meta.env.VITE_BACKEND_API_URL ?? ''
 const API_BASE = import.meta.env.VITE_BACKEND_URL || `${window.location.protocol}//${window.location.hostname}:8081`;
-  
+
 // -------------------------------------------------------------
 // Auth strategy
 // - Primary: HttpOnly cookie (set by /auth/login or /auth/register)
@@ -80,10 +79,10 @@ export async function register(name: string, email: string, password: string): P
   return req<UserSummary>(
     '/v1/auth/register',
     {
-    method: 'POST',
-    body: JSON.stringify({ full_name: name, email, password }),
-  },
-)
+      method: 'POST',
+      body: JSON.stringify({ full_name: name, email, password }),
+    },
+  )
 }
 
 export async function login(email: string, password: string): Promise<{ token: string; user: UserSummary }> {
@@ -141,7 +140,6 @@ export async function fetchModels(): Promise<ModelInfo[]> {
 export type ChatThreadWire = {
   id: string; title: string; createdAt: number; updatedAt: number; messagesCount: number
 }
-export type ChatMessageWire = { id: number; role: string; content: string; createdAt: number }
 
 export async function listChats(): Promise<ChatThreadWire[]> {
   return req('/v1/chats')
@@ -149,16 +147,20 @@ export async function listChats(): Promise<ChatThreadWire[]> {
 export async function createChat(title = 'New Chat'): Promise<ChatThreadWire> {
   return req('/v1/chats', { method: 'POST', body: JSON.stringify({ title }) })
 }
-export async function listChatMessages(chatId: string|number): Promise<ChatMessageWire[]> {
+export async function listChatMessages(chatId: string | number): Promise<ChatMessageWire[]> {
   return req(`/v1/chats/${chatId}/messages`)
 }
-export async function appendChatMessage(chatId: string|number, msg: { role: string; content: string }) {
-  return req(`/v1/chats/${chatId}/messages`, { method: 'POST', body: JSON.stringify(msg) })
+
+export async function appendChatMessage(chatId: string | number, msg: { role: string; content: string; files?: UploadedFileIn[]; }): Promise<ChatMessageWire> {
+  return req<ChatMessageWire>(`/v1/chats/${chatId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(msg),
+  })
 }
-export async function deleteChat(chatId: string|number): Promise<void> {
+export async function deleteChat(chatId: string | number): Promise<void> {
   await req(`/v1/chats/${chatId}`, { method: 'DELETE' })
 }
-export async function updateChatTitle(chatId: string|number, title: string): Promise<void> {
+export async function updateChatTitle(chatId: string | number, title: string): Promise<void> {
   await req(`/v1/chats/${chatId}`, { method: 'PUT', body: JSON.stringify({ title }) })
 }
 
@@ -176,10 +178,10 @@ export async function fetchInfo(): Promise<{ conversations: { id: string; title:
         updatedAt: new Date((c.createdAt || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
       })),
     }
-  } catch {}
+  } catch { }
   try {
     return await req('/v1/info')
-  } catch {}
+  } catch { }
   return { conversations: [] }
 }
 
@@ -198,99 +200,157 @@ export type StreamOpts = {
   threadId?: string | number | null
 }
 
-// robust base64 using FileReader -> data URL, then strip the header
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const r = new FileReader()
-    r.onerror = () => reject(r.error)
-    r.onload = () => {
-      const res = String(r.result || '')
-      const comma = res.indexOf(',')
-      resolve(comma >= 0 ? res.slice(comma + 1) : res) // strip "data:...;base64,"
-    }
-    r.readAsDataURL(file)
-  })
-}
-
 // -------------------------------------------------------------
 // Streaming completions (SSE text/event-stream compatible)
 // JSON-only; if opts.file is provided, we embed it as base64 in body.files[]
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// Streaming completions (SSE text/event-stream compatible)
+// JSON-only; NO file upload here anymore.
+// The caller is responsible for putting thread_id, message_id, has_files
+// into the body.
+// -------------------------------------------------------------
 export async function* streamCompletions(
   body: any,
-  controller: AbortController,
-  opts: StreamOpts = {}
+  controller: AbortController
 ): AsyncGenerator<ChatCompletionChunk> {
-  const { file = null, threadId = null } = opts
-  // put thread id into the JSON body (backend expects this now)
-  if (threadId != null) body.thread_id = Number(threadId)
-
-  // if a file is present, convert -> base64 and attach to body.files (JSON)
-  if (file) {
-    try {
-      const b64 = await fileToBase64(file)
-      const fileEntry = {
-        name: file.name,
-        content: b64,          // base64 payload
-        type: file.type || undefined,
-      }
-      // preserve any existing files[] caller added; else create it
-      if (Array.isArray(body.files)) body.files.push(fileEntry)
-      else body.files = [fileEntry]
-    } catch (e) {
-      console.warn('Failed to base64-encode file, sending without files[]:', e)
-    }
-  }
-
   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',
     credentials: 'include',
     headers: {
-      ...baseHeaders(true, {}), // IMPORTANT: JSON headers
+      ...baseHeaders(true, {}), // JSON headers
     },
     body: JSON.stringify(body),
     signal: controller.signal,
-  })
-  if (!res.ok) throw new Error(await res.text())
+  });
 
-  const reader = res.body!.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buf = ''
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buf = '';
 
   for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
 
-    const lines = buf.split('\n')
+    const lines = buf.split('\n');
     for (let i = 0; i < lines.length - 1; i++) {
-      const line = lines[i].trim()
-      if (!line.startsWith('data:')) continue
-      const payload = line.slice(5).trim()
+      const line = lines[i].trim();
+      if (!line.startsWith('data:')) continue;
+
+      const payload = line.slice(5).trim();
       if (payload === '[DONE]') {
-        yield { finish_reason: 'stop' }
-        continue
+        yield { finish_reason: 'stop' };
+        continue;
       }
+
       try {
-        const json = JSON.parse(payload)
+        const json = JSON.parse(payload);
+
+        // OpenAI-style streaming
         if (Array.isArray(json?.choices)) {
-          const ch0 = json.choices[0] || {}
-          const d = ch0?.delta?.content || ''
-          const fr = ch0?.finish_reason
-          if (d)  yield { delta: d }
-          if (fr) yield { finish_reason: fr }
-        } else if (json?.delta || json?.finish_reason) {
-          yield json
-        } else if (typeof json === 'string') {
-          yield { delta: json }
+          const ch0 = json.choices[0] || {};
+          const d = ch0?.delta?.content || '';
+          const fr = ch0?.finish_reason;
+          if (d) yield { delta: d };
+          if (fr) yield { finish_reason: fr };
+        }
+        // Or our own lightweight delta format { delta, finish_reason }
+        else if (json?.delta || json?.finish_reason) {
+          yield json;
+        }
+        // Or raw string
+        else if (typeof json === 'string') {
+          yield { delta: json };
         }
       } catch {
         // ignore malformed line
       }
     }
-    buf = lines[lines.length - 1]
+    buf = lines[lines.length - 1];
   }
 }
+
+
+// export async function* streamCompletions(
+//   body: any,
+//   controller: AbortController,
+//   opts: StreamOpts = {}
+// ): AsyncGenerator<ChatCompletionChunk> {
+//   const { file = null, threadId = null } = opts
+//   // put thread id into the JSON body (backend expects this now)
+//   if (threadId != null) body.thread_id = Number(threadId)
+
+//   // if a file is present, convert -> base64 and attach to body.files (JSON)
+//   if (file) {
+//     try {
+//       const b64 = await fileToBase64(file)
+//       const fileEntry = {
+//         name: file.name,
+//         content: b64,          // base64 payload
+//         type: file.type || undefined,
+//       }
+//       // preserve any existing files[] caller added; else create it
+//       if (Array.isArray(body.files)) body.files.push(fileEntry)
+//       else body.files = [fileEntry]
+//     } catch (e) {
+//       console.warn('Failed to base64-encode file, sending without files[]:', e)
+//     }
+//   }
+
+//   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
+//     method: 'POST',
+//     credentials: 'include',
+//     headers: {
+//       ...baseHeaders(true, {}), // IMPORTANT: JSON headers
+//     },
+//     body: JSON.stringify(body),
+//     signal: controller.signal,
+//   })
+//   if (!res.ok) throw new Error(await res.text())
+
+//   const reader = res.body!.getReader()
+//   const decoder = new TextDecoder('utf-8')
+//   let buf = ''
+
+//   for (; ;) {
+//     const { done, value } = await reader.read()
+//     if (done) break
+//     buf += decoder.decode(value, { stream: true })
+
+//     const lines = buf.split('\n')
+//     for (let i = 0; i < lines.length - 1; i++) {
+//       const line = lines[i].trim()
+//       if (!line.startsWith('data:')) continue
+//       const payload = line.slice(5).trim()
+//       if (payload === '[DONE]') {
+//         yield { finish_reason: 'stop' }
+//         continue
+//       }
+//       try {
+//         const json = JSON.parse(payload)
+//         if (Array.isArray(json?.choices)) {
+//           const ch0 = json.choices[0] || {}
+//           const d = ch0?.delta?.content || ''
+//           const fr = ch0?.finish_reason
+//           if (d) yield { delta: d }
+//           if (fr) yield { finish_reason: fr }
+//         } else if (json?.delta || json?.finish_reason) {
+//           yield json
+//         } else if (typeof json === 'string') {
+//           yield { delta: json }
+//         }
+//       } catch {
+//         // ignore malformed line
+//       }
+//     }
+//     buf = lines[lines.length - 1]
+//   }
+// }
 
 // -------------------------------------------------------------
 // Stop (compat with both /stop and /stop/{op_id})
@@ -299,7 +359,7 @@ export async function stopGenerationAPICall(): Promise<void> {
   try {
     await req('/v1/stop', { method: 'POST' })
     return
-  } catch {}
+  } catch { }
 }
 
 // -------------------------------------------------------------
@@ -315,7 +375,7 @@ export async function fetchFollowups(model: string, messages: { role: string; co
         temperature: 0.7,
         // messages: [{ role: "system", content: FOLLOWUPS_SYSTEM_PROMPT }, ...messages],
         messages: messages,
-        metadata: {"follow_up_questions": true}
+        metadata: { "follow_up_questions": true }
       }),
     })
     const content = data?.choices?.[0]?.message?.content || ""

@@ -62,8 +62,10 @@ class RequestContext:
         ...     return "Operation cancelled"
     """
     op_id: str
+    user_id: Optional[str]
     stop_event: threading.Event
     headers: dict
+    meta: dict
 
 class OperationManager:
     """
@@ -112,7 +114,7 @@ class OperationManager:
         op_id = f"op_{uuid.uuid4().hex[:12]}"
         ev = threading.Event()
         self._ops[op_id] = ev
-        return RequestContext(op_id=op_id, stop_event=ev, headers={})
+        return RequestContext(op_id=op_id, stop_event=ev, headers={}, meta={})
 
     def stop(self, op_id: str) -> bool:
         """

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, Callable, Generator
+from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, Callable, Generator, get_args
 import logging
 from functools import lru_cache
 
@@ -11,15 +12,24 @@ from neurosurfer.models.chat_models.base import BaseChatModel, LLM_RESPONSE_TYPE
 from neurosurfer.models.embedders import BaseEmbedder
 from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
 from neurosurfer.vectorstores.chroma import ChromaVectorStore
+from neurosurfer.agents.common.utils import extract_and_repair_json
 
-from .config import RAGAgentConfig, RetrieveResult, RAGIngestorConfig
+from .config import (
+    RAGAgentConfig, 
+    RetrieveResult, 
+    RAGIngestorConfig, 
+    RetrievalPlan, 
+    RetrievalScope, 
+    RetrievalMode, 
+    RetrievalScopeToTopK
+)
 from .token_utils import TokenCounter
 from .context_builder import ContextBuilder
 from .filereader import FileReader
 from .chunker import Chunker
 from .ingestor import RAGIngestor
 from .constants import supported_file_types
-from .templates import RAG_AGENT_SYSTEM_PROMPT, RAG_USER_PROMPT
+from .templates import RAG_AGENT_SYSTEM_PROMPT, RAG_USER_PROMPT, RETRIEVAL_PLANNER_SYSTEM_PROMPT
 
 
 @dataclass
@@ -51,9 +61,11 @@ class RAGAgent:
         ingestor_config: Optional[RAGIngestorConfig] = None,
         logger: Optional[logging.Logger] = None,
         make_source=None,
+        router_llm: Optional[BaseChatModel] = None, 
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.llm = llm
+        self.router_llm = router_llm or llm
         self.cfg = config or RAGAgentConfig()
         self.ingestor_cfg = ingestor_config or RAGIngestorConfig()
 
@@ -127,12 +139,7 @@ class RAGAgent:
     # ---------- Public API ----------
     def set_collection(self, collection_name: str, clear_collection_on_init: bool = False) -> None:
         """Call this method to set a new collection for ingesting and retrieving documents."""
-        # self.vectorstore = self._vs(collection_name, clear_collection_on_init)
-        self.vectorstore = ChromaVectorStore(
-            collection_name=collection_name,
-            clear_collection=clear_collection_on_init,
-            persist_directory=self.cfg.persist_directory,
-        )
+        self.vectorstore = self._vs(collection_name, clear_collection_on_init)
         self.ingestor.set_vectorstore(self.vectorstore)
 
     def ingest(
@@ -199,6 +206,9 @@ class RAGAgent:
         top_k: Optional[int] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
         similarity_threshold: Optional[float] = None,
+        retrieval_mode: RetrievalMode = "classic",       
+        retrieval_scope: Optional[RetrievalScope] = None,
+        retrieval_plan: Optional[RetrievalPlan] = None,  
     ) -> RetrieveResult:
         """
         Public interface for retrieving documents from the vectorstore.
@@ -214,23 +224,53 @@ class RAGAgent:
         """
         if not self.vectorstore or not self.embedder:
             raise ValueError("VectorDB and embedder must be provided to RAGAgent")
+        
+        if retrieval_mode is not None and retrieval_mode not in get_args(RetrievalMode):
+            raise ValueError(f"Retrieval mode must be one of: {get_args(RetrievalMode)}")
+        
+        if retrieval_scope is not None and retrieval_scope not in get_args(RetrievalScope):
+            raise ValueError(f"Retrieval scope must be one of: {get_args(RetrievalScope)}")
+        
+        if retrieval_plan is not None and not isinstance(retrieval_plan, RetrievalPlan):
+            raise ValueError("Retrieval plan must be an instance of RetrievalPlan")
 
-        # 1) Embed
-        query_vec = self.embedder.embed(
-            query=user_query,
-            normalize_embeddings=self.cfg.normalize_embeddings,
-        )
+        # --- Decide the plan ---
+        if retrieval_plan is not None:
+            plan = retrieval_plan
+        elif retrieval_mode == "classic":
+            plan = RetrievalPlan(
+                mode="classic",
+                scope=None,
+                top_k=top_k or self.cfg.top_k,
+                neighbor_hops=0,
+            )
+        else:
+            # smart mode
+            if retrieval_scope is not None:
+                # map scope -> default top_k if caller didn't provide one
+                default_k = RetrievalScopeToTopK.get(retrieval_scope, top_k or self.cfg.top_k)
+                plan = RetrievalPlan(
+                    mode="smart",
+                    scope=retrieval_scope,
+                    top_k=default_k,
+                    neighbor_hops=1 if retrieval_scope in ("medium", "wide") else 0,
+                )
+            else:
+                # let the agent plan using router_llm
+                plan = self._plan_retrieval(user_query)
 
-        # 2) Retrieve
+        print("------------------", plan)
+        # Embed the query and retrieve documents based on the plan
+        query_vec = self.embedder.embed(query=user_query, normalize_embeddings=self.cfg.normalize_embeddings)
         raw = self.vectorstore.similarity_search(
             query_embedding=query_vec,
-            top_k=top_k or self.cfg.top_k,
+            top_k=plan.top_k or self.cfg.top_k,
             metadata_filter=metadata_filter,
             similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
         )
         docs, distances = self._unpack_results(raw)
 
-        # 3) Build + trim (only context, using a buffer for prompts/history)
+        # Build + trim (only context, using a buffer for prompts/history)
         untrimmed_context = self.ctx.build(docs)
         trim = self._trim_context_by_token_limit(
             db_context=untrimmed_context,
@@ -312,6 +352,56 @@ class RAGAgent:
             stream=stream,
             **llm_kwargs,
         )
+
+    def _plan_retrieval(
+        self,
+        user_query: str,
+    ) -> RetrievalPlan:
+        """
+        Use router_llm to decide retrieval scope and top_k when in 'smart' mode.
+        """
+        if self.router_llm is None:
+            # Fallback: simple heuristic
+            return RetrievalPlan(
+                mode="smart",
+                scope="medium",
+                top_k=self.cfg.top_k,
+                neighbor_hops=0,
+            )
+        user_prompt = (
+            f"User query:\n{user_query}\n"
+            "Decide the retrieval scope and top_k for this question."
+            "Remember: respond ONLY with a JSON object."
+        )
+        try:
+            content = self.router_llm.ask(
+                system_prompt=RETRIEVAL_PLANNER_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_new_tokens=256,
+                temperature=0.2,
+                stream=False,
+            ).choices[0].message.content
+            obj = extract_and_repair_json(content, return_dict=True)
+            scope = obj.get("scope", "medium")
+            top_k = obj.get("top_k") or self.cfg.top_k
+            neighbor_hops = int(obj.get("neighbor_hops", 0))
+
+            return RetrievalPlan(
+                mode="smart",
+                scope=scope,
+                top_k=int(top_k),
+                neighbor_hops=neighbor_hops,
+                extra=obj,
+            )
+        except Exception:
+            # Be robust: fall back to something sane
+            self.logger.exception("RAGAgent._plan_retrieval failed; using default plan.")
+            return RetrievalPlan(
+                mode="smart",
+                scope="medium",
+                top_k=self.cfg.top_k,
+                neighbor_hops=0,
+            )
 
     # ---------- Internals ----------
     def _trim_context_by_token_limit(

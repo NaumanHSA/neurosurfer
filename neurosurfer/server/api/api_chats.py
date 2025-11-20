@@ -39,17 +39,33 @@ Example:
     >>> GET /chats/1/messages
     >>> # Returns: [{"id": 1, "role": "user", "content": "Hello", ...}]
 """
+from base64 import b64decode
+from pathlib import Path
+import io
 import os
+import shutil
+import uuid
+import zipfile
 from fastapi import APIRouter, Depends, HTTPException, status, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from typing import List
+
+from neurosurfer.agents.rag.constants import supported_file_types
+
 from ..security import get_db, get_current_user
 from ..db.models import User, ChatThread, Message, NMFile
-from ..schemas import Chat, ChatMessage
-from ..schemas import Chat, ChatMessage, ChatMessageOut 
+from ..schemas import Chat, ChatMessageIn, ChatMessageOut, ChatFileOut
+from ..config import APP_DATA_PATH
 
+FILES_UPLOAD_PATH: Path | None = None
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+def create_path(user_id: int, thread_id: int) -> None:
+    path = os.path.join(APP_DATA_PATH, user_id, thread_id, "files")
+    os.makedirs(path, exist_ok=True)
+    global FILES_UPLOAD_PATH
+    FILES_UPLOAD_PATH = Path(path)
 
 def thread_to_chat(th: ChatThread) -> Chat:
     """
@@ -150,6 +166,7 @@ def create_thread(data: dict, db: Session = Depends(get_db), user: User = Depend
     db.add(th)
     db.commit()
     db.refresh(th)
+    create_path(user.id, th.id)     # create thread path if it doesn't exist
     return thread_to_chat(th)
 
 # This endpoint is used to get a chat thread
@@ -201,49 +218,53 @@ def list_messages(chat_id: int, db: Session = Depends(get_db), user: User = Depe
         >>> # Returns: [{"id": 1, "role": "user", "content": "Hi", ...}]
     """
     th = db.query(ChatThread).filter(ChatThread.id == chat_id, ChatThread.user_id == user.id).first()
-    if not th: raise HTTPException(status_code=404, detail="Chat not found")
+    if not th:
+        raise HTTPException(status_code=404, detail="Chat not found")
 
     rows = (
         db.query(Message)
+        .options(joinedload(Message.files))
         .filter(Message.thread_id == th.id)
-        .order_by(Message.created_at.asc())  # ✅ oldest → newest
+        .order_by(Message.created_at.asc())
         .all()
     )
+
+    def _file_to_schema(f: NMFile) -> ChatFileOut:
+        return ChatFileOut(
+            id=f.id,
+            filename=f.filename,
+            mime=f.mime,
+            size=f.size,
+            downloadUrl=f"/files/{f.id}",
+        )
+
     return [
         ChatMessageOut(
             id=m.id,
             role=m.role,
             content=m.content,
             createdAt=int(m.created_at.timestamp()),
+            files=[_file_to_schema(f) for f in m.files],
         )
         for m in rows
     ]
 
 # This endpoint is used to append a message to a chat thread
-@router.post("/{chat_id}/messages", response_model=ChatMessage, status_code=status.HTTP_201_CREATED)
-def append_message(chat_id: int, body: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """
-    Add a message to a chat thread.
-    Automatically generates thread title from first user message if not set.
-    Args:
-        chat_id (int): Chat thread ID
-        body (ChatMessage): Message data (role and content)
-        db (Session): Database session
-        user (User): Current authenticated user
-    
-    Returns:
-        ChatMessage: Created message
-    
-    Raises:
-        HTTPException: 404 if chat not found or doesn't belong to user
-    
-    Example:
-        >>> POST /chats/1/messages
-        >>> {"role": "user", "content": "Hello, how are you?"}
-        >>> # Returns: {"role": "user", "content": "Hello, how are you?"}
-    """
-    th = db.query(ChatThread).filter(ChatThread.id == chat_id, ChatThread.user_id == user.id).first()
-    if not th: raise HTTPException(status_code=404, detail="Chat not found")
+@router.post("/{chat_id}/messages", response_model=ChatMessageOut, status_code=status.HTTP_201_CREATED)
+def append_message(
+    chat_id: int,
+    body: ChatMessageIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    global FILES_UPLOAD_PATH
+    th = (
+        db.query(ChatThread)
+        .filter(ChatThread.id == chat_id, ChatThread.user_id == user.id)
+        .first()
+    )
+    if not th:
+        raise HTTPException(status_code=404, detail="Chat not found")
 
     # Auto-title on first user message
     if (th.title or "New Chat") == "New Chat" and body.role == "user":
@@ -251,11 +272,88 @@ def append_message(chat_id: int, body: ChatMessage, db: Session = Depends(get_db
         if first_line:
             th.title = first_line
 
-    msg = Message(thread_id=th.id, role=body.role, content=body.content)
+    msg = Message(
+        thread_id=th.id,
+        role=body.role,
+        content=body.content,
+    )
     db.add(msg)
+    db.flush()  # get msg.id
+
+    collection_name = f"nm_u{user.id}_t{th.id}"
+    files_out: List[ChatFileOut] = []
+    thread_root = FILES_UPLOAD_PATH
+
+    # ---- store files ----
+    for f in body.files:
+        raw_bytes = b64decode(f.base64)
+        name = f.name or "upload.bin"
+        mime = f.mime
+        size = f.size
+
+        # Check if this is a zip upload
+        is_zip = (
+            name.lower().endswith(".zip")
+            or (mime and "zip" in mime)
+        )
+
+        if is_zip:
+            # We do NOT store the zip as-is for RAG;
+            # instead, we expand it and create NMFile rows per inner file.
+            _store_zip_contents_as_nmfiles(
+                db=db,
+                user_id=user.id,
+                thread_id=th.id,
+                message_id=msg.id,
+                collection_name=collection_name,
+                zip_bytes=raw_bytes,
+                zip_display_name=name,
+                thread_root=thread_root,
+                files_out=files_out,
+            )
+        else:
+            # Normal file
+            file_id = f"file_{uuid.uuid4().hex}"
+            ext = Path(name).suffix
+            stored_name = f"{file_id}{ext}"
+            stored_path = thread_root / stored_name
+            stored_path.write_bytes(raw_bytes)
+
+            nm = NMFile(
+                id=file_id,
+                user_id=user.id,
+                thread_id=th.id,
+                message_id=msg.id,
+                filename=name,
+                summary=None,
+                stored_path=str(stored_path),
+                mime=mime,
+                size=size if size is not None else len(raw_bytes),
+                collection=collection_name,
+                ingested=False,
+            )
+            db.add(nm)
+
+            files_out.append(
+                ChatFileOut(
+                    id=file_id,
+                    filename=name,
+                    mime=mime,
+                    size=nm.size,
+                    downloadUrl=f"/files/{file_id}",
+                )
+            )
+
     db.commit()
     db.refresh(msg)
-    return ChatMessage(role=msg.role, content=msg.content)
+    return ChatMessageOut(
+        id=msg.id,
+        role=msg.role,
+        content=msg.content,
+        createdAt=int(msg.created_at.timestamp()),
+        files=files_out,
+    )
+
 
 # This endpoint is used to delete a chat thread
 @router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -286,3 +384,73 @@ def update_thread(chat_id: int, data: dict, db: Session = Depends(get_db), user:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _store_zip_contents_as_nmfiles(
+    *,
+    db: Session,
+    user_id: int,
+    thread_id: int,
+    message_id: int,
+    collection_name: str,
+    zip_bytes: bytes,
+    zip_display_name: str,
+    thread_root: Path,
+    files_out: List[ChatFileOut],
+) -> None:
+    """
+    Expand a zip upload into separate NMFile rows, all attached to the same message.
+    Only supported_file_types are stored.
+    """
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except Exception:
+        # fallback: ignore broken zip
+        return
+
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+
+        inner_name = info.filename
+        ext = os.path.splitext(inner_name)[1].lower()
+        if supported_file_types and ext not in supported_file_types:
+            continue
+
+        # Make safe local path
+        # e.g. uploads/user_1/thread_10/msg_5/<zipname_without_ext>/<inner_path>
+        safe_inner = inner_name.replace("\\", "/")
+        zip_base = Path(zip_display_name).stem
+        target_path = thread_root / zip_base / safe_inner
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with zf.open(info, "r") as src, open(target_path, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+        file_id = f"file_{uuid.uuid4().hex}"
+        file_size = os.path.getsize(target_path)
+
+        # For UI: show something like "<zipname>/<inner_path>"
+        display_name = f"{zip_display_name}/{safe_inner}"
+        nm = NMFile(
+            id=file_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            message_id=message_id,
+            filename=display_name,
+            summary=None,
+            stored_path=str(target_path),
+            mime=None,  # could infer from ext if you like
+            size=file_size,
+            collection=collection_name,
+            ingested=False,
+        )
+        db.add(nm)
+
+        files_out.append(
+            ChatFileOut(
+                id=file_id,
+                filename=display_name,
+                mime=None,
+                size=file_size,
+                downloadUrl=f"/files/{file_id}",
+            )
+        )

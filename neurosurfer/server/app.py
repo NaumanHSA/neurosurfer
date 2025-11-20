@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from .schemas.model_registry import ModelList
 from .security import get_current_user, get_db
 from .models_registry import ModelRegistry
-from .api import _auth_router, _chats_router, chat_completion_router
+from .api import _auth_router, _chats_router, chat_completion_router, _files_router
 from .config import CORS_ORIGINS, SECRET_KEY
 
 # ---------- Neurosurfer app builder ----------
@@ -536,6 +536,7 @@ class NeurosurferApp:
         self.app.include_router(_auth_router, prefix="/v1")   # no auth required
         self.app.include_router(_chats_router, prefix="/v1", dependencies=[Depends(self.require_auth)])
         self.app.include_router(_chat_comp_router, prefix="/v1")
+        self.app.include_router(_files_router, prefix="/v1")
     
     def run(
         self,
