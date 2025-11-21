@@ -1,6 +1,7 @@
 import React from 'react'
 import { Download, FileText } from 'lucide-react'
 import type { ChatFile } from '../lib/types'
+import { downloadFile } from '../lib/api'
 
 function isImage(file: ChatFile): boolean {
   const t = file.type || ''
@@ -25,6 +26,7 @@ export default function FileAttachmentList({ files }: { files: ChatFile[] }) {
   return (
     <div className="mt-2 space-y-2">
       {files.map(file => {
+        const fileId = file.id
         const href = file.url || file.previewUrl
         return (
           <div
@@ -52,16 +54,14 @@ export default function FileAttachmentList({ files }: { files: ChatFile[] }) {
                 </div>
               )}
             </div>
-            {href && (
-              <a
-                href={href}
-                download={file.name}
-                className="inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-1 text-muted-foreground hover:bg-background/60"
-              >
-                <Download className="h-3 w-3" />
-                <span>Download</span>
-              </a>
-            )}
+            {fileId && <button
+              onClick={() => downloadFile(fileId)}
+              className="inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-1 text-muted-foreground hover:bg-background/60"
+            >
+              <Download className="h-3 w-3" />
+              <span>Download</span>
+            </button>
+            }
           </div>
         )
       })}

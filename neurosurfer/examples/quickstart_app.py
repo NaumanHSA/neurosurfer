@@ -213,7 +213,8 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
     # Resolve actor/thread ids (thread id is part of JSON now)
     user_id = ctx.user_id
     thread_id = request.thread_id
-    has_files_message = request.files is not None
+    message_id = request.message_id
+    has_files_message = request.has_files
 
     # Prepare inputs
     user_msgs: List[str] = [m["content"] for m in request.messages if m["role"] == "user"]
@@ -235,6 +236,7 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
             user_id=user_id,
             thread_id=thread_id,
             user_query=user_query,
+            message_id=message_id,
             has_files_message=has_files_message,
         )
         user_query = rag_res.augmented_query

@@ -8,13 +8,13 @@ Models:
     - User: User accounts with authentication
     - ChatThread: Conversation threads belonging to users
     - Message: Individual messages within chat threads
-    - NMFile: File attachments associated with threads
+    - NSFile: File attachments associated with threads
 
 Relationships:
     - User -> ChatThread (one-to-many)
     - ChatThread -> Message (one-to-many)
-    - ChatThread -> NMFile (one-to-many)
-    - User -> NMFile (one-to-many)
+    - ChatThread -> NSFile (one-to-many)
+    - User -> NSFile (one-to-many)
 
 All models include automatic timestamps and proper indexing for performance.
 Cascade deletes ensure data integrity when users or threads are removed.
@@ -87,7 +87,7 @@ class ChatThread(Base):
         updated_at (datetime): Last update timestamp (auto-updated)
         user (User): Thread owner
         messages (list[Message]): Messages in this thread (cascade delete, ordered by created_at)
-        files (list[NMFile]): Files attached to this thread (cascade delete)
+        files (list[NSFile]): Files attached to this thread (cascade delete)
     
     Indexes:
         - id (primary key)
@@ -109,7 +109,7 @@ class ChatThread(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="threads")
     messages: Mapped[list["Message"]] = relationship("Message", back_populates="thread", cascade="all,delete", order_by="Message.created_at")
-    files: Mapped[list["NMFile"]] = relationship("NMFile", back_populates="thread", cascade="all,delete", order_by="NMFile.created_at")
+    files: Mapped[list["NSFile"]] = relationship("NSFile", back_populates="thread", cascade="all,delete", order_by="NSFile.created_at")
 
     __table_args__ = (
         Index("ix_thread_user_created", "user_id", "created_at"),
@@ -152,7 +152,7 @@ class Message(Base):
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     thread: Mapped["ChatThread"] = relationship("ChatThread", back_populates="messages")
-    files: Mapped[list["NMFile"]] = relationship("NMFile", back_populates="message", order_by="NMFile.created_at")
+    files: Mapped[list["NSFile"]] = relationship("NSFile", back_populates="message", order_by="NSFile.created_at")
 
     __table_args__ = (
         Index("ix_message_thread_created", "thread_id", "created_at"),
@@ -160,7 +160,7 @@ class Message(Base):
 
 
 # ---------- NEW ----------
-class NMFile(Base):
+class NSFile(Base):
     """
     File attachment model.
     
@@ -185,7 +185,7 @@ class NMFile(Base):
         - thread_id
     
     Example:
-        >>> file = NMFile(
+        >>> file = NSFile(
         ...     id="file_abc123",
         ...     user_id=1,
         ...     thread_id=1,

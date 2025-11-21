@@ -54,18 +54,13 @@ from typing import List
 from neurosurfer.agents.rag.constants import supported_file_types
 
 from ..security import get_db, get_current_user
-from ..db.models import User, ChatThread, Message, NMFile
+from ..db.models import User, ChatThread, Message, NSFile
 from ..schemas import Chat, ChatMessageIn, ChatMessageOut, ChatFileOut
 from ..config import APP_DATA_PATH
+from ..utils import ApplicationPaths
 
-FILES_UPLOAD_PATH: Path | None = None
 router = APIRouter(prefix="/chats", tags=["chats"])
 
-def create_path(user_id: int, thread_id: int) -> None:
-    path = os.path.join(APP_DATA_PATH, user_id, thread_id, "files")
-    os.makedirs(path, exist_ok=True)
-    global FILES_UPLOAD_PATH
-    FILES_UPLOAD_PATH = Path(path)
 
 def thread_to_chat(th: ChatThread) -> Chat:
     """
@@ -166,7 +161,7 @@ def create_thread(data: dict, db: Session = Depends(get_db), user: User = Depend
     db.add(th)
     db.commit()
     db.refresh(th)
-    create_path(user.id, th.id)     # create thread path if it doesn't exist
+    thread_path = ApplicationPaths.thread_storage_path(user.id, th.id)
     return thread_to_chat(th)
 
 # This endpoint is used to get a chat thread
@@ -229,13 +224,13 @@ def list_messages(chat_id: int, db: Session = Depends(get_db), user: User = Depe
         .all()
     )
 
-    def _file_to_schema(f: NMFile) -> ChatFileOut:
+    def _file_to_schema(f: NSFile) -> ChatFileOut:
         return ChatFileOut(
             id=f.id,
             filename=f.filename,
             mime=f.mime,
             size=f.size,
-            downloadUrl=f"/files/{f.id}",
+            downloadUrl=f"/v1/api/files/{f.id}",
         )
 
     return [
@@ -257,7 +252,6 @@ def append_message(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    global FILES_UPLOAD_PATH
     th = (
         db.query(ChatThread)
         .filter(ChatThread.id == chat_id, ChatThread.user_id == user.id)
@@ -265,6 +259,7 @@ def append_message(
     )
     if not th:
         raise HTTPException(status_code=404, detail="Chat not found")
+    thread_files_root = ApplicationPaths.thread_files_storage_path(user.id, th.id)
 
     # Auto-title on first user message
     if (th.title or "New Chat") == "New Chat" and body.role == "user":
@@ -280,9 +275,8 @@ def append_message(
     db.add(msg)
     db.flush()  # get msg.id
 
-    collection_name = f"nm_u{user.id}_t{th.id}"
+    collection_name = f"ns_vdb_u{user.id}_t{th.id}"
     files_out: List[ChatFileOut] = []
-    thread_root = FILES_UPLOAD_PATH
 
     # ---- store files ----
     for f in body.files:
@@ -299,8 +293,8 @@ def append_message(
 
         if is_zip:
             # We do NOT store the zip as-is for RAG;
-            # instead, we expand it and create NMFile rows per inner file.
-            _store_zip_contents_as_nmfiles(
+            # instead, we expand it and create NSFile rows per inner file.
+            _store_zip_contents_as_nsfiles(
                 db=db,
                 user_id=user.id,
                 thread_id=th.id,
@@ -308,7 +302,7 @@ def append_message(
                 collection_name=collection_name,
                 zip_bytes=raw_bytes,
                 zip_display_name=name,
-                thread_root=thread_root,
+                thread_root=thread_files_root,
                 files_out=files_out,
             )
         else:
@@ -316,10 +310,10 @@ def append_message(
             file_id = f"file_{uuid.uuid4().hex}"
             ext = Path(name).suffix
             stored_name = f"{file_id}{ext}"
-            stored_path = thread_root / stored_name
+            stored_path = thread_files_root / stored_name
             stored_path.write_bytes(raw_bytes)
 
-            nm = NMFile(
+            nsfile = NSFile(
                 id=file_id,
                 user_id=user.id,
                 thread_id=th.id,
@@ -332,14 +326,13 @@ def append_message(
                 collection=collection_name,
                 ingested=False,
             )
-            db.add(nm)
-
+            db.add(nsfile)
             files_out.append(
                 ChatFileOut(
                     id=file_id,
                     filename=name,
                     mime=mime,
-                    size=nm.size,
+                    size=nsfile.size,
                     downloadUrl=f"/files/{file_id}",
                 )
             )
@@ -353,7 +346,6 @@ def append_message(
         createdAt=int(msg.created_at.timestamp()),
         files=files_out,
     )
-
 
 # This endpoint is used to delete a chat thread
 @router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -384,7 +376,7 @@ def update_thread(chat_id: int, data: dict, db: Session = Depends(get_db), user:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _store_zip_contents_as_nmfiles(
+def _store_zip_contents_as_nsfiles(
     *,
     db: Session,
     user_id: int,
@@ -397,7 +389,7 @@ def _store_zip_contents_as_nmfiles(
     files_out: List[ChatFileOut],
 ) -> None:
     """
-    Expand a zip upload into separate NMFile rows, all attached to the same message.
+    Expand a zip upload into separate NSFile rows, all attached to the same message.
     Only supported_file_types are stored.
     """
     try:
@@ -430,7 +422,7 @@ def _store_zip_contents_as_nmfiles(
 
         # For UI: show something like "<zipname>/<inner_path>"
         display_name = f"{zip_display_name}/{safe_inner}"
-        nm = NMFile(
+        nm = NSFile(
             id=file_id,
             user_id=user_id,
             thread_id=thread_id,

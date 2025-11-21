@@ -15,7 +15,7 @@ from neurosurfer.server.services.rag.models import RAGResult
 from neurosurfer.server.services.rag.summarizer import FileSummarizer
 from neurosurfer.server.services.rag.ingestor import FileIngestor
 from neurosurfer.server.services.rag.gate import RAGGate
-from neurosurfer.server.db.models import ChatThread, Message, NMFile, User
+from neurosurfer.server.db.models import ChatThread, Message, NSFile, User
 from neurosurfer.server.db.db import SessionLocal
 from neurosurfer.server.services.rag.metadata_filter import build_metadata_filter_from_related_files
 from neurosurfer.server.config import APP_DATA_PATH
@@ -52,7 +52,7 @@ class RAGOrchestrator:
         self.persist_directory = os.path.join(APP_DATA_PATH, "rag-storage")
 
         # REMOVE THIS IN PRODUCTION
-        self._reset_db()
+        # self._reset_db()
 
         os.makedirs(self.persist_directory, exist_ok=True)
         # Core RAG agent (no LLM here; main LLM lives in chat handler)
@@ -74,12 +74,11 @@ class RAGOrchestrator:
         self.logger.info(f"Number of documents left: {self.rag_agent.vectorstore.count()}")
 
         # Sub-services
-        upload_root = os.path.join(self.persist_directory, "uploads")
+        # upload_root = os.path.join(self.persist_directory, "uploads")
         summarizer = FileSummarizer(rag_agent=self.rag_agent, llm=gate_llm, verbose=verbose)
         self.ingestion = FileIngestor(
             rag_agent=self.rag_agent,
             summarizer=summarizer,
-            upload_root=upload_root,
             verbose=verbose,
         )
         self.gate = RAGGate(
@@ -93,9 +92,20 @@ class RAGOrchestrator:
     def _reset_db(self):
         """Clear all chats and threads from the database. Only leave Users Information."""
         db = SessionLocal()
+
+        # Drop tables
+        NSFile.__table__.drop(db.bind, checkfirst=True)
+        Message.__table__.drop(db.bind, checkfirst=True)
+        ChatThread.__table__.drop(db.bind, checkfirst=True)
+
+        # Recreate tables
+        NSFile.__table__.create(db.bind, checkfirst=True)
+        Message.__table__.create(db.bind, checkfirst=True)
+        ChatThread.__table__.create(db.bind, checkfirst=True)
+        
         db.query(ChatThread).delete()
         db.query(Message).delete()
-        db.query(NMFile).delete()
+        db.query(NSFile).delete()
         db.commit()
 
         # reset vector db
@@ -105,9 +115,9 @@ class RAGOrchestrator:
 
         # check if there are any users left
         self.logger.info(f"Number of users left: {db.query(User).count()}")
-        self.logger.info(f"Number of files left: {db.query(NMFile).count()}")
         self.logger.info(f"Number of threads left: {db.query(ChatThread).count()}")
         self.logger.info(f"Number of messages left: {db.query(Message).count()}")
+        self.logger.info(f"Number of files left: {db.query(NSFile).count()}")
         db.close()
 
     # -------- public API --------
@@ -136,13 +146,13 @@ class RAGOrchestrator:
         # Ingest files if provided
         if has_files_message:
             files = (
-                db.query(NMFile)
+                db.query(NSFile)
                 .filter(
-                    NMFile.user_id == user_id,
-                    NMFile.thread_id == thread_id,
-                    NMFile.message_id == message_id,
-                    NMFile.collection == collection_name,
-                    NMFile.ingested == False,
+                    NSFile.user_id == user_id,
+                    NSFile.thread_id == thread_id,
+                    NSFile.message_id == message_id,
+                    NSFile.collection == collection_name,
+                    NSFile.ingested == False,
                 )
                 .all()
             )
@@ -166,12 +176,12 @@ class RAGOrchestrator:
 
         # Check if this thread has files
         has_files_thread = (
-            db.query(NMFile)
+            db.query(NSFile)
             .filter(
-                NMFile.user_id == user_id,
-                NMFile.thread_id == thread_id,
-                NMFile.collection == collection_name,
-                NMFile.ingested == True,
+                NSFile.user_id == user_id,
+                NSFile.thread_id == thread_id,
+                NSFile.collection == collection_name,
+                NSFile.ingested == True,
             )
             .count()
             > 0
@@ -190,6 +200,7 @@ class RAGOrchestrator:
             thread_id=thread_id,
             collection=collection_name,
             user_query=user_query,
+            message_files=files if has_files_message else [],
         )
         if not decision.rag:
             return RAGResult(
@@ -251,13 +262,12 @@ class RAGOrchestrator:
 
     # -------- internals --------
     def _set_path(self, user_id: int, thread_id: int) -> None:
-        path = os.path.join(APP_DATA_PATH, user_id, thread_id, "rag-storage")
-        os.makedirs(path, exist_ok=True)
-        self.rag_agent.cfg.persist_directory = path
+        from neurosurfer.server.utils import ApplicationPaths
+        self.rag_agent.cfg.persist_directory = str(ApplicationPaths.rag_storage_path(user_id, thread_id))
 
     def _collection_for(self, user_id: int, thread_id: int) -> str:
-        return self._safe_collection_name(f"nm_u{user_id}_t{thread_id}")
+        return self._safe_collection_name(f"ns_vdb_u{user_id}_t{thread_id}")
 
     def _safe_collection_name(self, s: str) -> str:
         s = self._ALLOWED_NAME.sub("_", s).strip("._-")
-        return s or "nm_default"
+        return s or "ns_vdb_default"

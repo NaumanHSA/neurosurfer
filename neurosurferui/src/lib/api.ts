@@ -88,44 +88,31 @@ export async function register(name: string, email: string, password: string): P
 export async function login(email: string, password: string): Promise<{ token: string; user: UserSummary }> {
   // Backend returns { token, user } AND sets HttpOnly cookie.
   // You do NOT need to store token on the frontend (cookie is enough).
-  return req('/v1/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  })
+  return req('/v1/auth/login', {method: 'POST', body: JSON.stringify({ email, password })})
 }
-
 export async function logout(): Promise<void> {
   await req('/v1/auth/logout', { method: 'POST' })
   // If you were using API key override, clear it if desired:
   // _apiKey = null
 }
-
 export async function me(): Promise<UserSummary> {
   return req('/v1/auth/me')
 }
-
 export async function deleteAccount(password: string): Promise<void> {
   // Backend can map this to your preferred route.
   // Suggested FastAPI endpoint: POST /v1/auth/delete_account { password }
-  await req('/v1/auth/delete_account', {
-    method: 'POST',
-    body: JSON.stringify({ password }),
-  })
+  await req('/v1/auth/delete_account', {method: 'POST', body: JSON.stringify({ password })})
 }
-
 // lib/api.ts
 export async function health(): Promise<boolean> {
   // Ask nicely for text but accept JSON too
   const res = await req<any>('/health', { headers: { Accept: 'text/plain,application/json' } }, { timeoutMs: 2500 })
-
   // If server returned JSON (rare), treat existence as healthy
   if (res && typeof res === 'object') return true
-
   // If server returned text, consider common “OK” shapes
   const s = String(res || '').trim().toLowerCase()
   return s === 'ok' || s === 'healthy' || s.includes('ok') || s.includes('alive') || s.includes('ready')
 }
-
 // -------------------------------------------------------------
 // Models / Info / Files
 // -------------------------------------------------------------
@@ -133,14 +120,12 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   const data = await req<any>('/v1/models')
   return Array.isArray(data) ? data : (data.data ?? [])
 }
-
 // -------------------------------------------------------------
 // Chat threads
 // -------------------------------------------------------------
 export type ChatThreadWire = {
   id: string; title: string; createdAt: number; updatedAt: number; messagesCount: number
 }
-
 export async function listChats(): Promise<ChatThreadWire[]> {
   return req('/v1/chats')
 }
@@ -150,18 +135,59 @@ export async function createChat(title = 'New Chat'): Promise<ChatThreadWire> {
 export async function listChatMessages(chatId: string | number): Promise<ChatMessageWire[]> {
   return req(`/v1/chats/${chatId}/messages`)
 }
-
 export async function appendChatMessage(chatId: string | number, msg: { role: string; content: string; files?: UploadedFileIn[]; }): Promise<ChatMessageWire> {
-  return req<ChatMessageWire>(`/v1/chats/${chatId}/messages`, {
-    method: 'POST',
-    body: JSON.stringify(msg),
-  })
+  return req<ChatMessageWire>(`/v1/chats/${chatId}/messages`, { method: 'POST', body: JSON.stringify(msg) })
 }
 export async function deleteChat(chatId: string | number): Promise<void> {
   await req(`/v1/chats/${chatId}`, { method: 'DELETE' })
 }
 export async function updateChatTitle(chatId: string | number, title: string): Promise<void> {
   await req(`/v1/chats/${chatId}`, { method: 'PUT', body: JSON.stringify({ title }) })
+}
+// Files
+function getFilenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  // Simple parser for: attachment; filename="foo.pdf"
+  const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(header);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1].replace(/\"/g, ''));
+  } catch {
+    return match[1].replace(/\"/g, '');
+  }
+}
+
+export async function downloadFile(
+  fileId: string | number,
+  fallbackName?: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/v1/files/${fileId}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+
+  // Try to get filename from headers, else use fallback, else "download"
+  const cd = res.headers.get('Content-Disposition');
+  const headerName = getFilenameFromContentDisposition(cd);
+  const filename = headerName || fallbackName || 'download';
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  URL.revokeObjectURL(url);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -210,10 +236,7 @@ export type StreamOpts = {
 // The caller is responsible for putting thread_id, message_id, has_files
 // into the body.
 // -------------------------------------------------------------
-export async function* streamCompletions(
-  body: any,
-  controller: AbortController
-): AsyncGenerator<ChatCompletionChunk> {
+export async function* streamCompletions(body: any, controller: AbortController): AsyncGenerator<ChatCompletionChunk> {
   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',
     credentials: 'include',

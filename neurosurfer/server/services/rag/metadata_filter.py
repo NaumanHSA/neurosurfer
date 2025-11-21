@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
-from neurosurfer.server.db.models import NMFile
+from neurosurfer.server.db.models import NSFile
 
 
 def build_metadata_filter_from_related_files(
@@ -16,19 +16,19 @@ def build_metadata_filter_from_related_files(
     related_files: List[str],
 ) -> Optional[Dict[str, Any]]:
     """
-    Map gate LLM's related_files (filenames) to NMFile IDs,
+    Map gate LLM's related_files (filenames) to NSFile IDs,
     then build a metadata_filter suitable for the vectorstore.
     """
     if not related_files:
         return None
 
     rows = (
-        db.query(NMFile)
+        db.query(NSFile)
         .filter(
-            NMFile.user_id == user_id,
-            NMFile.thread_id == thread_id,
-            NMFile.collection == collection,
-            NMFile.filename.in_(related_files),
+            NSFile.user_id == user_id,
+            NSFile.thread_id == thread_id,
+            NSFile.collection == collection,
+            NSFile.filename.in_(related_files),
         )
         .all()
     )

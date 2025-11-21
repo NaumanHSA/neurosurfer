@@ -35,7 +35,7 @@ Keywords: keyword1, keyword2, keyword3, ... (single line, max 6)
 class FileSummarizer:
     """
     Responsible for turning file content into a short textual summary,
-    used by the routing LLM (gate) and stored in NMFile.summary.
+    used by the routing LLM (gate) and stored in NSFile.summary.
     """
 
     def __init__(

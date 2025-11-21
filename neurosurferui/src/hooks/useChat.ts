@@ -6,7 +6,8 @@ import {
     appendChatMessage,
     streamCompletions,
     stopGenerationAPICall,
-    fetchFollowups
+    fetchFollowups,
+    listChatMessages
 } from '../lib/api';
 import { loadSettings, type ChatSettings } from '../components/SettingsDialog';
 import { extractThinking } from '../lib/thinkParser';
@@ -64,19 +65,16 @@ export function useChat(opts: UseChatOpts = {}) {
         if (!enabled) return;
         setThreadId(id);
 
-        const res = await fetch(`/api/chats/${id}/messages`);
-        const data: ChatMessageWire[] = await res.json();
-        const mapped = data.map(mapWireMessage);
+        const res = await listChatMessages(id);
+        const mapped = res.map(mapWireMessage);
         setMessages(mapped);
 
-        if (data.length === 0) {
+        if (mapped.length === 0) {
             setFollowups(getRandomFollowUps(3));
         } else {
             try {
-                if (model && data.length > 0) {
-                    const history = data
-                        .slice(-3)
-                        .map(m => ({ role: m.role, content: m.content }));
+                if (model && mapped.length > 0) {
+                    const history = mapped.slice(-3).map(m => ({ role: m.role, content: m.content }));
                     const s = await fetchFollowups(model, history);
                     setFollowups(s);
                     assistantMessageRef.current = null;
@@ -115,7 +113,6 @@ export function useChat(opts: UseChatOpts = {}) {
     }, []);
 
     // ---------------- send ----------------
-
     // robust base64 using FileReader -> data URL, then strip the header
     async function fileToBase64(file: File): Promise<string> {
         return new Promise<string>((resolve, reject) => {

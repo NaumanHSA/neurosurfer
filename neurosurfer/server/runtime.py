@@ -62,10 +62,10 @@ class RequestContext:
         ...     return "Operation cancelled"
     """
     op_id: str
-    user_id: Optional[str]
     stop_event: threading.Event
     headers: dict
     meta: dict
+    user_id: Optional[str] = None
 
 class OperationManager:
     """

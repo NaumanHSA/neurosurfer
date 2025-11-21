@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from neurosurfer.agents.rag.agent import RAGAgent
 from neurosurfer.server.services.rag.summarizer import FileSummarizer
-from neurosurfer.server.db.models import NMFile
+from neurosurfer.server.db.models import NSFile
 
 import logging
 
@@ -18,12 +18,12 @@ class FileIngestor:
     """
     RAG File Ingestor
 
-    Takes already-persisted NMFile records (one per physical file on disk)
+    Takes already-persisted NSFile records (one per physical file on disk)
     and ingests them into the vectorstore.
 
     It assumes:
-      - Files are already stored on disk at nmfile.stored_path
-      - Zips have already been expanded at the API layer (one NMFile per
+      - Files are already stored on disk at nsfile.stored_path
+      - Zips have already been expanded at the API layer (one NSFile per
         extracted inner file)
     """
 
@@ -44,17 +44,17 @@ class FileIngestor:
         user_id: int,
         thread_id: int,
         collection_name: str,
-        files: List[NMFile],
+        files: List[NSFile],
         reset_state: bool = False,
     ) -> List[Dict[str, Any]]:
         """
-        Ingest existing NMFile rows into the vectorstore.
+        Ingest existing NSFile rows into the vectorstore.
 
         Args:
             db: SQLAlchemy session
             user_id, thread_id: scope sanity-checks
             collection_name: vectorstore collection name
-            files: NMFile records to ingest (e.g. new files for the last message)
+            files: NSFile records to ingest (e.g. new files for the last message)
             reset_state: passed only to the first ingest call
         Returns:
             List of ingestion summaries.
@@ -62,21 +62,21 @@ class FileIngestor:
         summaries: List[Dict[str, Any]] = []
         first = reset_state
 
-        for nmfile in files:
-            if nmfile.user_id != user_id or nmfile.thread_id != thread_id:
+        for nsfile in files:
+            if nsfile.user_id != user_id or nsfile.thread_id != thread_id:
                 LOGGER.warning(
-                    "Skipping NMFile %s: user/thread mismatch (user_id=%s, thread_id=%s)",
-                    nmfile.id,
-                    nmfile.user_id,
-                    nmfile.thread_id,
+                    "Skipping NSFile %s: user/thread mismatch (user_id=%s, thread_id=%s)",
+                    nsfile.id,
+                    nsfile.user_id,
+                    nsfile.thread_id,
                 )
                 continue
 
-            path = nmfile.stored_path
+            path = nsfile.stored_path
             if not path or not os.path.exists(path):
                 LOGGER.warning(
-                    "Skipping NMFile %s: missing stored_path (%s)",
-                    nmfile.id,
+                    "Skipping NSFile %s: missing stored_path (%s)",
+                    nsfile.id,
                     path,
                 )
                 continue
@@ -84,39 +84,39 @@ class FileIngestor:
             if self.verbose:
                 LOGGER.info(
                     "RAG ingest: file_id=%s filename=%s size=%s mime=%s reset_state=%s",
-                    nmfile.id,
-                    nmfile.filename,
-                    nmfile.size,
-                    nmfile.mime,
+                    nsfile.id,
+                    nsfile.filename,
+                    nsfile.size,
+                    nsfile.mime,
                     first,
                 )
 
             # Summarize (if not already summarized)
-            if not nmfile.summary:
+            if not nsfile.summary:
                 try:
-                    nmfile.summary = self.summarizer.summarize_path(path, is_zip_member=False)
+                    nsfile.summary = self.summarizer.summarize_path(path, is_zip_member=False)
                 except Exception:
-                    LOGGER.exception("Failed to summarize file %s", nmfile.id)
+                    LOGGER.exception("Failed to summarize file %s", nsfile.id)
 
             res = self.rag_agent.ingest(
                 sources=[path],
                 extra_metadata={
-                    "file_id": nmfile.id,
-                    "filename": nmfile.filename,
-                    "thread_id": nmfile.thread_id,
-                    "user_id": nmfile.user_id,
+                    "file_id": nsfile.id,
+                    "filename": nsfile.filename,
+                    "thread_id": nsfile.thread_id,
+                    "user_id": nsfile.user_id,
                     "collection": collection_name,
                 },
                 reset_state=first,
             )
             first = False
 
-            res["file_id"] = nmfile.id
-            res["file_summary"] = nmfile.summary
+            res["file_id"] = nsfile.id
+            res["file_summary"] = nsfile.summary
             summaries.append(res)
 
             # If you use an `ingested` flag, you can mark it here:
-            nmfile.ingested = True
+            nsfile.ingested = True
 
         db.commit()
         return summaries

@@ -27,6 +27,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = None
     tools: Optional[List[ToolDef]] = None
     tool_choice: Optional[str | Dict[str, Any]] = None
-    files: Optional[List[FileContent]] = None
     thread_id: Optional[int] = None
+    message_id: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
+    has_files: Optional[bool] = False
