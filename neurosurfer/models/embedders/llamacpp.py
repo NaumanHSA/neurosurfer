@@ -2,15 +2,17 @@ from typing import List, Union, Optional
 import logging
 import numpy as np
 from llama_cpp import Llama
+from pathlib import Path
 from .base import BaseEmbedder
 
 
 class LlamaCppEmbedder(BaseEmbedder):
     def __init__(self, config: dict, logger: Optional[logging.Logger] = None):
-        super().__init__(logger)
+        model_path = Path(config['model_path'])
+        super().__init__(model_path.name, logger)
         
         self.model = Llama(
-            model_path=config['model_path'],
+            model_path=str(model_path),
             n_threads=config.get('n_threads', 4),
             verbose=config.get('verbose', False),
             n_gpu_layers=config.get('n_gpu_layers', 0),

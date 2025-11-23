@@ -12,8 +12,8 @@ class RAGResult:
     """
     used: bool
     augmented_query: str
-    meta: Dict[str, Any]
-
+    context: Optional[str] = None
+    meta: Optional[Dict[str, Any]] = None
 
 @dataclass
 class GateDecision:

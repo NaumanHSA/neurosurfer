@@ -50,10 +50,6 @@ class RAGOrchestrator:
         self.logger = logger or LOGGER
         self.verbose = verbose
         self.persist_directory = os.path.join(APP_DATA_PATH, "rag-storage")
-
-        # REMOVE THIS IN PRODUCTION
-        # self._reset_db()
-
         os.makedirs(self.persist_directory, exist_ok=True)
         # Core RAG agent (no LLM here; main LLM lives in chat handler)
 
@@ -89,37 +85,6 @@ class RAGOrchestrator:
         )
         self.top_k = top_k
 
-    def _reset_db(self):
-        """Clear all chats and threads from the database. Only leave Users Information."""
-        db = SessionLocal()
-
-        # Drop tables
-        NSFile.__table__.drop(db.bind, checkfirst=True)
-        Message.__table__.drop(db.bind, checkfirst=True)
-        ChatThread.__table__.drop(db.bind, checkfirst=True)
-
-        # Recreate tables
-        NSFile.__table__.create(db.bind, checkfirst=True)
-        Message.__table__.create(db.bind, checkfirst=True)
-        ChatThread.__table__.create(db.bind, checkfirst=True)
-        
-        db.query(ChatThread).delete()
-        db.query(Message).delete()
-        db.query(NSFile).delete()
-        db.commit()
-
-        # reset vector db
-        if os.path.exists(self.persist_directory):
-            import shutil
-            shutil.rmtree(self.persist_directory)
-
-        # check if there are any users left
-        self.logger.info(f"Number of users left: {db.query(User).count()}")
-        self.logger.info(f"Number of threads left: {db.query(ChatThread).count()}")
-        self.logger.info(f"Number of messages left: {db.query(Message).count()}")
-        self.logger.info(f"Number of files left: {db.query(NSFile).count()}")
-        db.close()
-
     # -------- public API --------
     def apply(
         self,
@@ -136,6 +101,9 @@ class RAGOrchestrator:
         - user_query: latest user message text
         - files: base64-encoded upload metadata from request (if any)
         """
+        if not user_id or not thread_id:
+            return RAGResult(used=False, augmented_query=user_query, meta={"used": False, "reason": "no_files"})
+        
         # switch the path to the user's thread
         self._set_path(user_id, thread_id)
         collection_name = self._collection_for(user_id, thread_id)
@@ -144,7 +112,8 @@ class RAGOrchestrator:
         # db: SQLAlchemy Session (injected from FastAPI)
         db = SessionLocal()
         # Ingest files if provided
-        if has_files_message:
+        files = []
+        if has_files_message and message_id:
             files = (
                 db.query(NSFile)
                 .filter(
@@ -200,7 +169,7 @@ class RAGOrchestrator:
             thread_id=thread_id,
             collection=collection_name,
             user_query=user_query,
-            message_files=files if has_files_message else [],
+            message_files=files,
         )
         if not decision.rag:
             return RAGResult(
@@ -252,6 +221,7 @@ class RAGOrchestrator:
         db.close()
         return RAGResult(
             used=True,
+            context=ctx_text,
             augmented_query=augmented,
             meta={
                 "used": True,

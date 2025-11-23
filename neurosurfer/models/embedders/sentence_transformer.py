@@ -8,7 +8,7 @@ from .base import BaseEmbedder
 
 class SentenceTransformerEmbedder(BaseEmbedder):
     def __init__(self, model_name: str, logger: Optional[logging.Logger] = None, quantized: bool = True):
-        super().__init__(logger)
+        super().__init__(model_name, logger)
         if quantized:
             bnb_config = BitsAndBytesConfig(load_in_8bit=True, device_map="auto")
             transformer_model = models.Transformer(

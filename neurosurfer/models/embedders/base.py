@@ -39,15 +39,17 @@ class BaseEmbedder(ABC):
         >>> embedding = embedder.embed("Hello world")
         >>> embeddings = embedder.embed(["Text 1", "Text 2"])
     """
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, model_name: str = "Unknown Embedder", logger: Optional[logging.Logger] = None):
         """
         Initialize the base embedder.
         
         Args:
+            model_name (str): Name of the embedding model
             logger (Optional[logging.Logger]): Logger instance. If None, creates default logger.
         """
         self.logger = logger or logging.getLogger(__name__)
         self.model = None
+        self.model_name = model_name
     
     @abstractmethod
     def embed(self, query: Union[str, List[str]], **kwargs) -> Union[List[float], List[List[float]]]:

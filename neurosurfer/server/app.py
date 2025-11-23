@@ -1,6 +1,9 @@
 import inspect, asyncio
 import logging
-from typing import Any, Callable, Optional, Type, Awaitable, List, Dict
+from typing import (
+    Any, Callable, Optional, Type, Awaitable, List, Dict, Union,
+    get_origin, get_args, Coroutine
+)
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +11,13 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from .schemas.model_registry import ModelList
+from neurosurfer.models.chat_models import BaseChatModel
+from neurosurfer.models.embedders import BaseEmbedder
+from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
+
+from .services.rag import RAGOrchestrator, GateDecision, RAGResult 
+from .runtime import RequestContext
+from .schemas import ModelList, AppResponseModel, ChatHandlerModel
 from .security import get_current_user, get_db
 from .models_registry import ModelRegistry
 from .api import _auth_router, _chats_router, chat_completion_router, _files_router
@@ -126,6 +135,16 @@ class NeurosurferApp:
         self._chat_handler: Optional[Callable] = None
         self._stop_generation: Optional[Callable] = None
 
+        self._llm: Optional[BaseChatModel] = None
+        self._embedder: Optional[BaseEmbedder] = SentenceTransformerEmbedder(model_name="intfloat/e5-large-v2", logger=self.logger)
+        self._rag_orchestrator: Optional[RAGOrchestrator] = None
+        self._default_top_k: int = 10
+        self.logger.info("Default embedder: intfloat/e5-large-v2 successfully initialized. Replace it by calling app.register_model(model: BaseEmbedder)")
+
+        # reset rag storage. Remove in production 
+        from .reset import reset_db
+        reset_db()
+        
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             # run startup callbacks
@@ -170,7 +189,47 @@ class NeurosurferApp:
         self.app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, https_only=True)
         self.main_router = APIRouter()
         # ---------------- Auth & Chats (DB-backed) ----------------
-            
+
+    def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):
+        self._rag_orchestrator = RAGOrchestrator(
+            embedder=embedder,
+            gate_llm=llm,
+            top_k=self._default_top_k,
+            verbose=True,
+            logger=self.logger,
+        )
+
+    def register_model(self, model: Union[BaseChatModel, BaseEmbedder], provider: str = None, family: str = "Unknown", description: str = None):
+        if isinstance(model, BaseChatModel):
+            self.model_registry.add(model, family=family, provider=provider, description=description)
+            self._llm = model
+            self.logger.info(f"LLM {model.model_name} successfully registered.")
+        elif isinstance(model, BaseEmbedder):
+            self._embedder = model
+            self.logger.info(f"Embedder {model.model_name} successfully registered.")
+        else:
+            raise ValueError("Model must be an instance of BaseChatModel or BaseEmbedder")
+
+        if self._embedder and self._llm:
+            self._init_rag(self._embedder, self._llm)
+            self.logger.info("RAG service successfully initialized...")
+    
+    def get_model(self, model_name: str):
+        if not self.model_registry.exists(model_name):
+            raise ValueError(f"Model {model_name} not found")
+        return self.model_registry.get(model_name)
+
+    def apply_rag(self, user_id: int, thread_id: int, message_id: int, user_query: str, has_files_message: bool) -> RAGResult:
+        if not self._rag_orchestrator:
+            return RAGResult(used=False, context="", augmented_query=user_query, meta={"reason": "rag_not_initialized"})
+        return self._rag_orchestrator.apply(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_query=user_query,
+            message_id=message_id,
+            has_files_message=has_files_message,
+        )
+
     # ---------- tiny auth (optional) ----------
     def require_api_key(self, req: Request):
         """
@@ -198,12 +257,7 @@ class NeurosurferApp:
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
     # New: API key OR JWT-user
-    def require_auth(
-        self,
-        req: Request,
-        response: Response,                 # inject Response for cookie refresh
-        db: Session = Depends(get_db),
-    ):
+    def require_auth(self, req: Request, response: Response, db: Session = Depends(get_db)):
         """
         Authenticate requests using either API key or JWT-based user authentication.
 
@@ -318,7 +372,7 @@ class NeurosurferApp:
         return fn
 
     # ---------- public API ----------
-    def chat(self):
+    def chat(self) -> Callable:
         """
         Decorator to register the primary chat handler for the application.
 
@@ -336,9 +390,8 @@ class NeurosurferApp:
         Example:
             ```python
             app = NeurosurferApp()
-
             @app.chat()
-            def handle_chat(request_data, context):
+            def handle_chat(request_data):
                 # Process the chat request
                 user_message = request_data.get("messages", [{}])[-1].get("content", "")
                 # Generate response
@@ -353,7 +406,7 @@ class NeurosurferApp:
 
             # Alternative: async handler
             @app.chat()
-            async def handle_chat_async(request_data, context):
+            async def handle_chat_async(request_data):
                 # Async processing
                 response = await some_async_ai_call(request_data)
                 return response
@@ -366,21 +419,46 @@ class NeurosurferApp:
             - The decorator automatically mounts all necessary routes
         """
         def deco(fn: Callable):
+            # ——————————————————————————
+            # Validate signature
+            # ——————————————————————————
+            sig = inspect.signature(fn)
+            params = list(sig.parameters.values())
+
+            # Validate parameter count
+            if len(params) != 1:
+                raise TypeError(f"Chat handler must accept exactly one parameter (args: ChatHandlerModel); got {len(params)}")
+
+            req_param = params[0]
+            # Validate type hints
+            req_ann = req_param.annotation
+
+            if req_ann is inspect._empty or req_ann is not ChatHandlerModel:
+                raise TypeError(f"First parameter of chat handler must be type-hinted as ChatHandlerModel (got {req_ann})")
+
+            # ——————————————————————————
+            # Validate return type
+            # ——————————————————————————
+            ret_ann = sig.return_annotation
+
+            def is_streaming_return(annotation):
+                # Supports async generators and sync generators returning SSE
+                origin = get_origin(annotation)
+                return origin in (Coroutine,) or inspect.isasyncgenfunction(fn)
+
+            if ret_ann is inspect._empty:
+                raise TypeError(f"Chat handler must declare a return type annotation (AppResponseModel or streaming type).")
+
+            if ret_ann is not AppResponseModel and not is_streaming_return(ret_ann):
+                raise TypeError(f"Chat handler must return AppResponseModel or a supported streaming type. Got: {ret_ann}")
+            # ——————————————————————————
+            # All validations passed — register
+            # ——————————————————————————
             self._chat_handler = fn
             self._mount_builtin_routes()
             return fn
         return deco
 
-    def stop_generation(self):
-        """
-        Stop Generation is a decorator that stops the generation of a response.
-        """
-        def deco(fn: Callable):
-            self._stop_generation = fn
-            return fn
-        return deco
-
-        
     def endpoint(
         self,
         path: str,
@@ -520,9 +598,12 @@ class NeurosurferApp:
         async def health():
             return {"status": "ok"}
 
-        @self.main_router.post("/v1/stop")
-        async def stop():
-            self._stop_generation()
+        @self.main_router.post("/v1/stop/{model_name}")
+        async def stop(model_name: str):
+            if not self.model_registry.exists(model_name):
+                raise HTTPException(status_code=404, detail="Model not found")
+            self.model_registry.get(model_name).llm.stop_generation()
+            return {"status": "ok"}
 
         # ---------------- Models and Completions ----------------
         @self.main_router.get("/v1/models", response_model=ModelList)

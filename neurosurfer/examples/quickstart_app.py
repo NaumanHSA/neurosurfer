@@ -39,20 +39,21 @@ Usage:
 from typing import List, Generator
 import os, shutil, logging
 
-from neurosurfer.models.embedders.base import BaseEmbedder
-from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
+from neurosurfer.models.embedders import BaseEmbedder
+from neurosurfer.models.chat_models import BaseChatModel
 from neurosurfer.agents.rag.chunker import Chunker
 from neurosurfer.agents.rag.filereader import FileReader
 
 from neurosurfer.server.app import NeurosurferApp
-from neurosurfer.server.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
+from neurosurfer.server.schemas import ChatHandlerModel, ChatHandlerMessages, AppResponseModel
 from neurosurfer.server.runtime import RequestContext
-from neurosurfer.server.services.rag import RAGOrchestrator
+from neurosurfer.server.services.rag import RAGResult
 
 from neurosurfer.config import config
 from neurosurfer import CACHE_DIR
 logging.basicConfig(level=config.app.logs_level.upper())
 
+LOGGER = logging.getLogger("neurosurfer")
 
 # Create app instance
 ns = NeurosurferApp(
@@ -67,17 +68,6 @@ ns = NeurosurferApp(
     workers=config.app.workers
 )
 
-"""
-Global Application State
-
-These variables hold the core components of the Neurosurfer application that are
-initialized during startup and used throughout the application's lifecycle.
-"""
-LLM: BaseChatModel = None
-EMBEDDER_MODEL: BaseEmbedder = None
-LOGGER: logging.Logger = None
-RAG: RAGOrchestrator | None = None
-
 @ns.on_startup
 async def load_model():
     """
@@ -88,30 +78,21 @@ async def load_model():
     2. Checks for GPU availability and logs hardware info
     3. Loads the main language model (LLM) from configuration
     4. Registers the model in the application's model registry
-    5. Initializes the embedding model for vector similarity
-    6. Sets up the RAG (Retrieval-Augmented Generation) orchestrator
-    7. Performs a warmup inference to ensure models are ready
+    5. Performs a warmup inference to ensure models are ready
 
     Global Variables Modified:
         LOGGER: Set to application logger instance
         LLM: Set to initialized TransformersModel instance
-        EMBEDDER_MODEL: Set to initialized SentenceTransformerEmbedder
-        RAG: Set to configured RAGOrchestrator
 
     Configuration Dependencies:
         - config.model.unsloth: LLM model configuration
-        - config.model.embedder: Embedding model name
-        - config.model.system_prompt: Default system prompt for warmup
-        - config.app.database_path: RAG persistence directory
 
     Note:
         - This function runs automatically when the FastAPI app starts
         - GPU detection helps optimize model loading and inference
         - The warmup call ensures models are properly loaded and ready
-        - RAG system includes file processing and context retrieval
     """
-    global EMBEDDER_MODEL, LOGGER, LLM, RAG
-    LOGGER = logging.getLogger("neurosurfer")
+    global LOGGER
     try:
         import torch
         LOGGER.info(f"GPU Available: {torch.cuda.is_available()}")
@@ -121,9 +102,7 @@ async def load_model():
         LOGGER.warning("Torch not found...")
 
     from neurosurfer.models.chat_models.transformers import TransformersModel
-    from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
-
-    LLM = TransformersModel(
+    llm = TransformersModel(
         # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
         model_name="/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit",
         max_seq_length=config.base_model.max_seq_length,
@@ -133,25 +112,14 @@ async def load_model():
         logger=LOGGER,
     )
     # registered models are visible in the UI. You must register a model for it to be available in the UI.
-    ns.model_registry.add(
-        llm=LLM,
+    ns.register_model(
+        model=llm,
         family="llama",
         provider="Unsloth",
         description="Proxy to Llama"
     )
-    EMBEDDER_MODEL = SentenceTransformerEmbedder(
-        model_name="intfloat/e5-large-v2", 
-        logger=LOGGER
-    )
-    RAG = RAGOrchestrator(
-        embedder=EMBEDDER_MODEL,
-        gate_llm=LLM,
-        top_k=10,
-        verbose=True,
-        logger=LOGGER,
-    )
     # Warmup
-    joke = LLM.ask(user_prompt="Say hi!", system_prompt=config.base_model.system_prompt, stream=False)
+    joke = llm.ask(user_prompt="Say hi!", system_prompt=config.base_model.system_prompt, stream=False)
     LOGGER.info(f"LLM ready: {joke.choices[0].message.content}")
 
 @ns.on_shutdown
@@ -160,7 +128,7 @@ def cleanup():
     pass
 
 @ns.chat()
-def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompletionResponse | Generator[ChatCompletionChunk, None, None]:
+def handler(args: ChatHandlerModel) -> AppResponseModel:
     """
     Process chat completion requests with RAG-enhanced context.
 
@@ -169,19 +137,29 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
     generates responses using the configured language model.
 
     Args:
-        request (ChatCompletionRequest): The chat completion request containing:
-            - messages: List of chat messages with roles and content
+        args (ChatHandlerModel): The chat handler model contains:
+            - user_id: User/session identifier
             - thread_id: Session/thread identifier for context management
+            - message_id: Message identifier for context management
+            - has_files_message: Whether the message contains files
+            - model: The model to use for generation, selected from the UI
+            - messages: ChatHandlerMessages
+                - user_query: Last user message
+                - user_msgs: List of user messages
+                - assistant_msgs: List of assistant messages
+                - system_msgs: List of system messages
+                - converstaion: List of conversation messages
             - temperature: Sampling temperature for response generation
             - max_tokens: Maximum tokens to generate in response
             - stream: Whether to stream the response
+            - system_prompt: Optional system prompt for generation
+            - tools: Optional list of tools to use for generation
+            - tool_choice: Optional tool choice for generation
+            - metadata: Optional metadata for generation
             - files: Optional list of uploaded files for context
-        ctx (RequestContext): Request context containing metadata including:
-            - actor_id: User/session identifier
-            - Additional request metadata
 
     Returns:
-        The response from the LLM, which can be either:
+        The AppResponseModel, which can be either:
             - Complete response object (non-streaming)
             - Streaming response generator (streaming mode)
 
@@ -208,57 +186,39 @@ def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompleti
         - Streaming responses are supported for real-time interaction
         - RAG context injection happens before LLM generation
     """
-    global LLM, RAG
-
-    # Resolve actor/thread ids (thread id is part of JSON now)
-    user_id = ctx.user_id
-    thread_id = request.thread_id
-    message_id = request.message_id
-    has_files_message = request.has_files
+    global LOGGER
 
     # Prepare inputs
-    user_msgs: List[str] = [m["content"] for m in request.messages if m["role"] == "user"]
-    system_msgs = [m["content"] for m in request.messages if m["role"] == "system"]
-    system_prompt = system_msgs[0] if system_msgs else config.base_model.system_prompt    # First system message or default
-    user_query = user_msgs[-1] if user_msgs else ""    # Last user message
+    user_query = args.messages.user_query    # Last user message
 
+    rag_res: RAGResult = ns.apply_rag(
+        user_id=args.user_id,
+        thread_id=args.thread_id,
+        message_id=args.message_id,
+        user_query=user_query,
+        has_files_message=args.has_files_message,
+    )
+    user_query = rag_res.augmented_query
+    if rag_res.used:
+        LOGGER.info(f"[RAG] used context (top_sim={rag_res.meta.get('top_similarity', 0):.3f})")
+    else:
+        LOGGER.info(f"[RAG] no context (reason={rag_res.meta.get('reason')})")
+
+    llm = ns.get_model(args.model).llm
     # Minimal chat history excluding system messages, max 10
     num_recent = 10
-    conversation_messages = [msg for msg in request.messages if msg["role"] != "system"]
+    conversation_messages = args.messages.converstaion
     chat_history = conversation_messages[-num_recent:-1]
 
-    temperature = request.temperature if (request.temperature and 2 > request.temperature > 0) else config.base_model.temperature
-    max_tokens = request.max_tokens if (request.max_tokens and request.max_tokens > 512) else config.base_model.max_new_tokens
-    kwargs = {"temperature": temperature, "max_new_tokens": max_tokens}
-
-    if RAG and thread_id is not None:
-        rag_res = RAG.apply(
-            user_id=user_id,
-            thread_id=thread_id,
-            user_query=user_query,
-            message_id=message_id,
-            has_files_message=has_files_message,
-        )
-        user_query = rag_res.augmented_query
-        if rag_res.used:
-            LOGGER.info(f"[RAG] used context (top_sim={rag_res.meta.get('top_similarity', 0):.3f})")
-        else:
-            LOGGER.info(f"[RAG] no context (reason={rag_res.meta.get('reason')})")
-
     # Model call (stream or non-stream handled by router)
-    return LLM.ask(
+    kwargs = {"temperature": args.temperature, "max_new_tokens": args.max_tokens}
+    return llm.ask(
         user_prompt=user_query,
-        system_prompt=system_prompt,
+        system_prompt=args.system_prompt,
         chat_history=chat_history,
-        stream=request.stream,
+        stream=args.stream,
         **kwargs
     )
-
-@ns.stop_generation()
-def stop_handler():
-    print("Stopping generation...")
-    global LLM
-    LLM.stop_generation()
 
 def create_app():
     return ns.app

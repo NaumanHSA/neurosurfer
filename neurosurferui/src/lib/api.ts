@@ -237,6 +237,7 @@ export type StreamOpts = {
 // into the body.
 // -------------------------------------------------------------
 export async function* streamCompletions(body: any, controller: AbortController): AsyncGenerator<ChatCompletionChunk> {
+  console.log(body)
   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',
     credentials: 'include',

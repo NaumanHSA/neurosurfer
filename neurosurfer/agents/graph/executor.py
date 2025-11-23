@@ -124,7 +124,6 @@ class GraphExecutor:
                     dep_id: nodes_results[dep_id].raw_output for dep_id in node.depends_on
                 }
                 prev = last_result.raw_output if last_result else None
-
                 node_result = self._run_node(
                     node=node,
                     graph_inputs=graph_inputs,

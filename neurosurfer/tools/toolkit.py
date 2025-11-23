@@ -26,7 +26,7 @@ Example:
     >>> tool = toolkit.registry["sql_query"]
 """
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 
 from .base_tool import BaseTool
 from .tool_spec import ToolSpec
@@ -144,3 +144,40 @@ class Toolkit:
         tools_descriptions = ["\nAvailable tools:"]
         tools_descriptions.extend([t.get_tool_description() for t in self.registry.values()])
         return "\n".join(tools_descriptions).strip()
+
+
+    def build_tool_args(
+        tool_spec: ToolSpec,
+        llm_args: Dict[str, Any],
+        context: Dict[str, Any],   # graph_inputs, deps, etc.
+        bindings: Optional[Dict[str, Any]] = None,  # optional per-node bindings
+    ) -> Dict[str, Any]:
+        """
+        Merge LLM-provided args with system/graph-provided args
+        based on ToolParam.llm flag and optional bindings.
+        """
+        bindings = bindings or {}
+        final: Dict[str, Any] = {}
+
+        for param in tool_spec.inputs:
+            name = param.name
+
+            # 1) If we have a binding for this param, that always wins
+            if name in bindings:
+                final[name] = resolve_binding(bindings[name], context)
+                continue
+
+            # 2) If param is LLM-driven, use whatever model gave us (if provided)
+            if param.llm:
+                if name in llm_args:
+                    final[name] = llm_args[name]
+                # if required and missing, you can raise or try repair
+                continue
+
+            # 3) Non-LLM param without explicit binding: try context
+            #    (graph_inputs, dependencies, etc.)
+            value = resolve_from_context(name, context)
+            if value is not None:
+                final[name] = value
+
+        return final

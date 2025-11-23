@@ -48,12 +48,15 @@ from ..schemas import (
     ChatCompletionChunk,
     Choice, 
     ChoiceMessage, 
-    Usage
+    Usage,
+    ChatHandlerModel,
+    ChatHandlerMessages
 )
 from ..runtime import op_manager, RequestContext
 from ..models_registry import ModelRegistry
 from ..security import maybe_current_user, resolve_actor_id
 from ..services.follow_up_questions import FollowUpQuestions
+from neurosurfer.config import config
 
 
 def _sse_chunk(obj: Union[ChatCompletionChunk, dict, str]) -> bytes:
@@ -201,24 +204,67 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
         ctx.meta["actor_id"] = actor_id
         ctx.meta["thread_id"] = body.thread_id or None
 
+        # validations
+        temperature = body.temperature if (body.temperature and 2 > body.temperature > 0) else config.base_model.temperature
+        max_tokens = body.max_tokens if (body.max_tokens and body.max_tokens > 512) else config.base_model.max_new_tokens
+        system_msgs = [m["content"] for m in body.messages if m["role"] == "system"]
+        user_msgs = [m["content"] for m in body.messages if m["role"] == "user"]
+        conversation_messages = [msg for msg in body.messages if msg["role"] != "system"]
+        system_prompt = system_msgs[0] if system_msgs else config.base_model.system_prompt    # First system message or default
+
+        print("User ID:", user.id)
+        print("Thread ID:", body.thread_id)
+        print("Message ID:", body.message_id)
+        print("Has files message:", body.has_files)
+        print("Model:", body.model)
+        print("Temperature:", body.temperature)
+        print("Max tokens:", body.max_tokens)
+        print("Stream:", body.stream)
+        print("System prompt:", system_prompt)
+        print("User messages:", user_msgs)
+        print("Conversation messages:", conversation_messages)
+
+        handler_args = ChatHandlerModel(
+            user_id=user.id if user else None,
+            thread_id=body.thread_id,
+            message_id=body.message_id,
+            has_files_message=body.has_files,
+            model=body.model,
+            messages=ChatHandlerMessages(
+                user_query=user_msgs[-1] if user_msgs else "",    # Last user message
+                user_msgs=user_msgs,
+                assistant_msgs=[m["content"] for m in body.messages if m["role"] == "assistant"],
+                system_msgs=system_msgs,
+                converstaion=conversation_messages,
+            ),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=body.stream,
+            system_prompt=system_prompt,
+        )
+
+        body.temperature = temperature
+        body.max_tokens = max_tokens
+
+        response = _chat_handler(handler_args)
+
         # ============ Non-Streaming Mode ============
         if not body.stream:
-            out = _chat_handler(body, ctx)
-            if inspect.iscoroutine(out):
-                out = await out
+            if inspect.iscoroutine(response):
+                response = await response
             
             op_manager.done(ctx.op_id)
             
             # Handle different return types
-            if isinstance(out, ChatCompletionResponse):
+            if isinstance(response, ChatCompletionResponse):
                 # Pydantic model - use model_dump()
-                return ORJSONResponse(out.model_dump())
-            elif isinstance(out, dict):
+                return ORJSONResponse(response.model_dump())
+            elif isinstance(response, dict):
                 # Legacy dict response
-                return ORJSONResponse(out)
-            elif isinstance(out, str):
+                return ORJSONResponse(response)
+            elif isinstance(response, str):
                 # Plain string - wrap in Pydantic model
-                response = make_chat_response(ctx.op_id, body.model, out)
+                response = make_chat_response(ctx.op_id, body.model, response)
                 return ORJSONResponse(response.model_dump())
             else:
                 raise HTTPException(
@@ -227,35 +273,33 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
                 )
 
         # ============ Streaming Mode ============
-        async def gen() -> AsyncGenerator[bytes, None]:
+        async def gen(out) -> AsyncGenerator[bytes, None]:
             try:
-                result = _chat_handler(body, ctx)
-                
                 # Handle async generator
-                if inspect.isasyncgen(result):
-                    agen = result
+                if inspect.isasyncgen(out):
+                    agen = out
                 # Handle sync generator
-                elif inspect.isgenerator(result):
+                elif inspect.isgenerator(out):
                     async def to_async(gen):
                         for x in gen:
                             yield x
-                    agen = to_async(result)
+                    agen = to_async(out)
                 # Handle coroutine
-                elif inspect.iscoroutine(result):
-                    result = await result
-                    if inspect.isgenerator(result):
+                elif inspect.iscoroutine(out):
+                    out = await out
+                    if inspect.isgenerator(out):
                         async def to_async2(gen):
                             for x in gen:
                                 yield x
-                        agen = to_async2(result)
+                        agen = to_async2(out)
                     else:
                         # Single response
-                        yield _sse_chunk(result)
+                        yield _sse_chunk(out)
                         yield b"data: [DONE]\n\n"
                         return
                 else:
                     # Direct result
-                    yield _sse_chunk(result)
+                    yield _sse_chunk(out)
                     yield b"data: [DONE]\n\n"
                     return
 
@@ -286,7 +330,7 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
         }
-        return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+        return StreamingResponse(gen(response), media_type="text/event-stream", headers=headers)
     
     return router
 

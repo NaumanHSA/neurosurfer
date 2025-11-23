@@ -31,3 +31,25 @@ class ChatCompletionRequest(BaseModel):
     message_id: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
     has_files: Optional[bool] = False
+
+class ChatHandlerMessages(BaseModel):
+    user_query: str
+    user_msgs: List[str]
+    assistant_msgs: List[str]
+    system_msgs: List[str]
+    converstaion: List[Dict[str, str]]
+
+class ChatHandlerModel(BaseModel):
+    model: str
+    user_id: int
+    thread_id: Optional[int] = None
+    message_id: Optional[int] = None
+    has_files_message: bool = False 
+    messages: ChatHandlerMessages
+    temperature: float = 0.7
+    max_tokens: int = 4096
+    stream: bool = False
+    system_prompt: Optional[str] = None
+    tools: Optional[List[ToolDef]] = None
+    tool_choice: Optional[str | Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
