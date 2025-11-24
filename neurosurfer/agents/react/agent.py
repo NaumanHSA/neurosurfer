@@ -236,7 +236,7 @@ class ReActAgent(BaseAgent):
                 sanitized.pop(k, None)
             # now validate using spec (required, types)
             try:
-                spec.check_inputs(sanitized)
+                spec.check_inputs(sanitized, relax=True)
             except Exception as e:
                 return sanitized, extras, e
             return sanitized, extras, None

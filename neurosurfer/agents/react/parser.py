@@ -2,6 +2,8 @@ import json, re
 from typing import Optional, Dict, Any
 from .types import ToolCall
 from .exceptions import ToolCallParseError
+from ..common.utils import extract_and_repair_json
+
 
 # Capture an Action block with braces (non-greedy, dotall)
 JSON_BLOCK = re.compile(
@@ -63,7 +65,10 @@ class ToolCallParser:
         try:
             obj = _force_object(raw)
         except json.JSONDecodeError as e:
-            raise ToolCallParseError(f"Invalid JSON in Action block: {e}") from e
+            try:
+                obj = extract_and_repair_json(raw, return_dict=True)
+            except Exception as e:
+                raise ToolCallParseError(f"Invalid JSON in Action block: {e}") from e
         
         tool = obj.get("tool")
         inputs = obj.get("inputs", {}) or {}
