@@ -126,7 +126,7 @@ class DirectoryScanTool(BaseTool):
         include_patterns: Optional[List[str]] = None,
         exclude_patterns: Optional[List[str]] = None,
         max_depth: Optional[int] = None,
-        **kwargs: Any,
+        **kwargs: Any,  
     ) -> ToolResponse:
         """
         Scan the given project_root (and optional docs_root) and build a

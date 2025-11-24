@@ -54,7 +54,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     
     opts = ServeOptions(
         backend_app=args.backend_app,
-        backend_host=args.backend_host,
+        backend_host=args.backend_host, 
         backend_port=args.backend_port,
         backend_log_level=args.backend_log_level,
         backend_reload=bool(args.backend_reload),

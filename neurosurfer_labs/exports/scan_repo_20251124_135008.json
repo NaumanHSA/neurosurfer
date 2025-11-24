@@ -1,0 +1,288 @@
+{
+  "node_id": "scan_repo",
+  "mode": "structured",
+  "started_at": 1763977808.1325355,
+  "duration_ms": 831,
+  "error": null,
+  "type": "tool_call",
+  "selected_tool": "directory_scan",
+  "inputs": {
+    "include_patterns": [
+      "**"
+    ],
+    "exclude_patterns": []
+  },
+  "returns": {
+    "project_root": "/home/nomi/workspace/neurosurfer/neurosurfer",
+    "docs_root": "/home/nomi/workspace/neurosurfer/docs",
+    "python_files": [],
+    "doc_files": [
+      {
+        "path": "index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/index.md"
+      },
+      {
+        "path": "contributing.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/contributing.md"
+      },
+      {
+        "path": "cli.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/cli.md"
+      },
+      {
+        "path": "getting-started.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/getting-started.md"
+      },
+      {
+        "path": "examples/models-examples.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/examples/models-examples.md"
+      },
+      {
+        "path": "examples/custom-tools-examples.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/examples/custom-tools-examples.md"
+      },
+      {
+        "path": "examples/server-app-example.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/examples/server-app-example.md"
+      },
+      {
+        "path": "examples/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/examples/index.md"
+      },
+      {
+        "path": "examples/rag-examples.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/examples/rag-examples.md"
+      },
+      {
+        "path": "examples/agents-examples.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/examples/agents-examples.md"
+      },
+      {
+        "path": "server/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/index.md"
+      },
+      {
+        "path": "server/neurosurferui.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/neurosurferui.md"
+      },
+      {
+        "path": "server/example-app.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/example-app.md"
+      },
+      {
+        "path": "server/backend/custom-endpoints.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/backend/custom-endpoints.md"
+      },
+      {
+        "path": "server/backend/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/backend/index.md"
+      },
+      {
+        "path": "server/backend/lifecycle-hooks.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/backend/lifecycle-hooks.md"
+      },
+      {
+        "path": "server/backend/auth.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/backend/auth.md"
+      },
+      {
+        "path": "server/backend/chat-handlers.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/server/backend/chat-handlers.md"
+      },
+      {
+        "path": "api-reference/configuration.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/configuration.md"
+      },
+      {
+        "path": "api-reference/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/index.md"
+      },
+      {
+        "path": "api-reference/vectorstores/in_memory.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/vectorstores/in_memory.md"
+      },
+      {
+        "path": "api-reference/vectorstores/base-vectordb.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/vectorstores/base-vectordb.md"
+      },
+      {
+        "path": "api-reference/vectorstores/chroma.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/vectorstores/chroma.md"
+      },
+      {
+        "path": "api-reference/vectorstores/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/vectorstores/index.md"
+      },
+      {
+        "path": "api-reference/models/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/index.md"
+      },
+      {
+        "path": "api-reference/models/embedders/sentence-transformer.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/embedders/sentence-transformer.md"
+      },
+      {
+        "path": "api-reference/models/embedders/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/embedders/index.md"
+      },
+      {
+        "path": "api-reference/models/embedders/base-embedder.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/embedders/base-embedder.md"
+      },
+      {
+        "path": "api-reference/models/embedders/llamacpp-embedder.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/embedders/llamacpp-embedder.md"
+      },
+      {
+        "path": "api-reference/models/chat-models/base-model.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/chat-models/base-model.md"
+      },
+      {
+        "path": "api-reference/models/chat-models/llamacpp-model.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/chat-models/llamacpp-model.md"
+      },
+      {
+        "path": "api-reference/models/chat-models/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/chat-models/index.md"
+      },
+      {
+        "path": "api-reference/models/chat-models/openai-model.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/chat-models/openai-model.md"
+      },
+      {
+        "path": "api-reference/models/chat-models/transformers-model.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/chat-models/transformers-model.md"
+      },
+      {
+        "path": "api-reference/models/chat-models/unsloth-model.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/models/chat-models/unsloth-model.md"
+      },
+      {
+        "path": "api-reference/tools/tool-spec.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/tool-spec.md"
+      },
+      {
+        "path": "api-reference/tools/base-tool.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/base-tool.md"
+      },
+      {
+        "path": "api-reference/tools/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/index.md"
+      },
+      {
+        "path": "api-reference/tools/toolkit.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/toolkit.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/index.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/sql/db_insights_tool.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/sql/db_insights_tool.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/sql/sql_executor.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/sql/sql_executor.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/sql/relevant_table_schema_retriever.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/sql/relevant_table_schema_retriever.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/sql/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/sql/index.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/sql/final_answer_formatter.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/sql/final_answer_formatter.md"
+      },
+      {
+        "path": "api-reference/tools/builtin-tools/sql/sql_query_generator.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/tools/builtin-tools/sql/sql_query_generator.md"
+      },
+      {
+        "path": "api-reference/rag/ingestor.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/rag/ingestor.md"
+      },
+      {
+        "path": "api-reference/rag/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/rag/index.md"
+      },
+      {
+        "path": "api-reference/rag/filereader.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/rag/filereader.md"
+      },
+      {
+        "path": "api-reference/rag/chunker.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/rag/chunker.md"
+      },
+      {
+        "path": "api-reference/agents/rag-agent.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/agents/rag-agent.md"
+      },
+      {
+        "path": "api-reference/agents/react-agent.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/agents/react-agent.md"
+      },
+      {
+        "path": "api-reference/agents/sql-agent.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/agents/sql-agent.md"
+      },
+      {
+        "path": "api-reference/agents/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/agents/index.md"
+      },
+      {
+        "path": "api-reference/agents/tools_router_agent.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/agents/tools_router_agent.md"
+      },
+      {
+        "path": "api-reference/database/sql_schema_store.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/database/sql_schema_store.md"
+      },
+      {
+        "path": "api-reference/database/sql_database.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/database/sql_database.md"
+      },
+      {
+        "path": "api-reference/database/index.md",
+        "abs_path": "/home/nomi/workspace/neurosurfer/docs/api-reference/database/index.md"
+      }
+    ],
+    "packages": [
+      "neurosurfer",
+      "neurosurfer.agents",
+      "neurosurfer.agents.agent",
+      "neurosurfer.agents.graph",
+      "neurosurfer.agents.rag",
+      "neurosurfer.agents.react",
+      "neurosurfer.cli",
+      "neurosurfer.db",
+      "neurosurfer.models.chat_models",
+      "neurosurfer.models.embedders",
+      "neurosurfer.server",
+      "neurosurfer.server.api",
+      "neurosurfer.server.db",
+      "neurosurfer.server.schemas",
+      "neurosurfer.server.services.rag",
+      "neurosurfer.tools",
+      "neurosurfer.tools.common",
+      "neurosurfer.tools.sql",
+      "neurosurfer.tools.websearch",
+      "neurosurfer.tools.websearch.engines",
+      "neurosurfer.tracing",
+      "neurosurfer.utils",
+      "neurosurfer.vectorstores"
+    ],
+    "modules": [],
+    "summary": {
+      "python_file_count": 0,
+      "doc_file_count": 58,
+      "package_count": 23,
+      "module_count": 0
+    }
+  },
+  "final": false,
+  "extras": {}
+}

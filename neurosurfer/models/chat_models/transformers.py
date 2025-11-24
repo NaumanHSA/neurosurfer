@@ -74,7 +74,7 @@ class TransformersModel(BaseChatModel):
         model_args = {
             "device_map": "auto" if self.device == "cuda" else None,
             "trust_remote_code": True,
-            "torch_dtype": self.dtype,
+            "dtype": self.dtype,
         }
         is_prequantized = self._is_model_already_quantized(self.model_name)
         

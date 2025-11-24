@@ -35,7 +35,6 @@ nodes:
       A JSON object with "packages", "modules", "python_files", "doc_files".
     tools: ["directory_scan"]
     mode: structured
-    output_schema: neurosurfer.docs.schemas.DocRepoIndex
     export: true
 
   # 2) Build symbol index (optional but nice)
@@ -51,7 +50,6 @@ nodes:
       A JSON object mapping modules to symbol lists and short descriptions.
     tools: ["code_symbol_index"]
     mode: structured
-    output_schema: neurosurfer.docs.schemas.SymbolIndex
     export: true
 
   # 3) Plan docs structure
@@ -67,40 +65,41 @@ nodes:
       A DocPlan JSON listing all pages with their titles and target paths.
     tools: []
     mode: structured
-    output_schema: neurosurfer.docs.schemas.DocPlan
     export: true
+    policy:
+      max_new_tokens: 16000
+      temperature: 0.7
 
-  # 4) Generate per-page content
-  - id: generate_pages
-    depends_on: ["plan_docs"]
-    purpose: >
-      Generate or refresh markdown pages according to the DocPlan.
-    goal: >
-      For each DocPageSpec, use RAG over code and existing docs to
-      produce a high-quality markdown page, then write it to disk.
-    expected_result: >
-      A summary of pages written (paths, titles, types).
-    tools: ["code_search", "file_write"]
-    mode: structured
-    output_schema: neurosurfer.docs.schemas.DocGenerationReport
-    export: true
+  # # 4) Generate per-page content
+  # - id: generate_pages
+  #   depends_on: ["plan_docs"]
+  #   purpose: >
+  #     Generate or refresh markdown pages according to the DocPlan.
+  #   goal: >
+  #     For each DocPageSpec, use RAG over code and existing docs to
+  #     produce a high-quality markdown page, then write it to disk.
+  #   expected_result: >
+  #     A summary of pages written (paths, titles, types).
+  #   tools: ["code_search", "file_write"]
+  #   mode: structured
+  #   export: true
 
-  # 5) Build mkdocs nav
-  - id: build_mkdocs_nav
-    depends_on: ["plan_docs"]
-    purpose: >
-      Produce a mkdocs nav structure reflecting the new docs layout,
-      preserving top-level sections like API Reference, Server, CLI, Examples.
-    goal: >
-      Generate a MkDocsNavSpec that can be merged into mkdocs.yml or
-      written as a standalone file.
-    expected_result: >
-      A MkDocsNavSpec JSON object and a yaml string.
-    tools: ["file_write"]
-    mode: structured
-    output_schema: neurosurfer.docs.schemas.MkDocsNavResult
-    export: true
+  # # 5) Build mkdocs nav
+  # - id: build_mkdocs_nav
+  #   depends_on: ["plan_docs"]
+  #   purpose: >
+  #     Produce a mkdocs nav structure reflecting the new docs layout,
+  #     preserving top-level sections like API Reference, Server, CLI, Examples.
+  #   goal: >
+  #     Generate a MkDocsNavSpec that can be merged into mkdocs.yml or
+  #     written as a standalone file.
+  #   expected_result: >
+  #     A MkDocsNavSpec JSON object and a yaml string.
+  #   tools: ["file_write"]
+  #   mode: structured
+  #   export: true
 
 outputs:
-  - generate_pages
-  - build_mkdocs_nav
+  - plan_docs
+  # - generate_pages
+  # - build_mkdocs_nav

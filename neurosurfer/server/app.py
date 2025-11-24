@@ -141,10 +141,6 @@ class NeurosurferApp:
         self._default_top_k: int = 10
         self.logger.info("Default embedder: intfloat/e5-large-v2 successfully initialized. Replace it by calling app.register_model(model: BaseEmbedder)")
 
-        # reset rag storage. Remove in production 
-        from .reset import reset_db
-        reset_db()
-        
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             # run startup callbacks
@@ -178,6 +174,10 @@ class NeurosurferApp:
         except Exception as _e:
             print('DB init warning:', _e)
 
+        # # reset rag storage. Remove in production 
+        # from .reset import reset_db
+        # reset_db()
+        
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=self.cors_origins,

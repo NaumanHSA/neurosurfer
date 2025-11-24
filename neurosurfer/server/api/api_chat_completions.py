@@ -212,17 +212,17 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
         conversation_messages = [msg for msg in body.messages if msg["role"] != "system"]
         system_prompt = system_msgs[0] if system_msgs else config.base_model.system_prompt    # First system message or default
 
-        print("User ID:", user.id)
-        print("Thread ID:", body.thread_id)
-        print("Message ID:", body.message_id)
-        print("Has files message:", body.has_files)
-        print("Model:", body.model)
-        print("Temperature:", body.temperature)
-        print("Max tokens:", body.max_tokens)
-        print("Stream:", body.stream)
-        print("System prompt:", system_prompt)
-        print("User messages:", user_msgs)
-        print("Conversation messages:", conversation_messages)
+        # print("User ID:", user.id)
+        # print("Thread ID:", body.thread_id)
+        # print("Message ID:", body.message_id)
+        # print("Has files message:", body.has_files)
+        # print("Model:", body.model)
+        # print("Temperature:", body.temperature)
+        # print("Max tokens:", body.max_tokens)
+        # print("Stream:", body.stream)
+        # print("System prompt:", system_prompt)
+        # print("User messages:", user_msgs)
+        # print("Conversation messages:", conversation_messages)
 
         handler_args = ChatHandlerModel(
             user_id=user.id if user else None,

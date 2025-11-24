@@ -1,9 +1,6 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_origin, get_args
-from json_repair import repair_json
-import typing
+from typing import Any, Dict, List, Set, Optional, Tuple, Type, Union, get_origin, get_args
 from dataclasses import dataclass
-from typing import Any, Optional, Type, get_args, get_origin
 
 from pydantic import BaseModel as PydanticModel
 from .templates import STRUCTURED_CONTRACT_PROMPT
@@ -33,17 +30,17 @@ def _type_to_pyhint(t: Any) -> str:
     args = get_args(t)
 
     # Optional[T] -> T
-    if origin is typing.Union and len(args) == 2 and type(None) in args:
+    if origin is Union and len(args) == 2 and type(None) in args:
         t = args[0] if args[1] is type(None) else args[1]
         origin = get_origin(t)
         args = get_args(t)
 
     # Containers
-    if origin in (list, typing.List, tuple, typing.Tuple, set, typing.Set):
+    if origin in (list, List, tuple, Tuple, set, Set):
         elem = args[0] if args else str
         return f"[{_type_to_pyhint(elem)}]"
 
-    if origin in (dict, typing.Dict):
+    if origin in (dict, Dict):
         return "object"
 
     # Primitives
@@ -190,17 +187,17 @@ def _hint_or_render_inline(t: Any) -> str:
     args = get_args(t)
 
     # Optional[T] -> T
-    if origin is typing.Union and len(args) == 2 and type(None) in args:
+    if origin is Union and len(args) == 2 and type(None) in args:
         t = args[0] if args[1] is type(None) else args[1]
         origin = get_origin(t)
         args = get_args(t)
 
-    if origin in (list, typing.List, tuple, typing.Tuple, set, typing.Set):
+    if origin in (list, List, tuple, Tuple, set, Set):
         elem = args[0] if args else str
         inner = _hint_or_render_inline(elem)
         return f"[{inner}]"
 
-    if origin in (dict, typing.Dict):
+    if origin in (dict, Dict):
         return "object"
 
     if t in (str,):
@@ -248,13 +245,13 @@ def _render_field(
     args = get_args(annotation)
 
     # Unwrap Optional[T]
-    if origin is typing.Union and len(args) == 2 and type(None) in args:
+    if origin is Union and len(args) == 2 and type(None) in args:
         annotation = args[0] if args[1] is type(None) else args[1]
         origin = get_origin(annotation)
         args = get_args(annotation)
 
     # Arrays
-    if origin in (list, typing.List, tuple, typing.Tuple, set, typing.Set):
+    if origin in (list, List, tuple, Tuple, set, Set):
         elem = args[0] if args else str
         inline_elem = _hint_or_render_inline(elem)
         inline = f"{name}: [{inline_elem}]"
@@ -300,7 +297,7 @@ def _render_field(
         return "\n".join(lines)
 
     # Dict -> object
-    if origin in (dict, typing.Dict):
+    if origin in (dict, Dict):
         return f"{name}: object  // {object_comment}"
 
     # Primitive
@@ -388,20 +385,3 @@ def maybe_unwrap_named_root(json_obj: dict, schema_cls: Type[PydanticModel]) -> 
         if isinstance(k, str) and k.strip() == schema_cls.__name__ and isinstance(v, dict):
             return v
     return json_obj
-
-def extract_and_repair_json(text: str, return_dict: bool = True) -> Optional[Union[str, Dict[str, Any]]]:
-    """
-    Extract and parse the first valid JSON object from arbitrary text (e.g., LLM output).
-    
-    Handles:
-    - Markdown code fences (```json ... ```)
-    - Extraneous text before/after JSON
-    - Nested braces {...}
-    - Incomplete or malformed chunks (best-effort parsing)
-
-    Returns:
-        dict if successful, otherwise None.
-    """
-    if not text or not isinstance(text, str):
-        return None
-    return repair_json(text, return_objects=return_dict)

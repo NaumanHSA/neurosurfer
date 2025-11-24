@@ -5,8 +5,8 @@ import logging
 import json
 from datetime import datetime
 
-from .schema import GraphExecutionResult, GraphNode, NodeExecutionResult
 from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
+from .schema import GraphExecutionResult, GraphNode, NodeExecutionResult
 
 logger = logging.getLogger(__name__)
 

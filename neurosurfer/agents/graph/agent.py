@@ -8,6 +8,7 @@ from typing import Any, Optional, Union
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
 from neurosurfer.tracing import Tracer
+from neurosurfer.agents.rag.agent import RAGAgent
 
 from .schema import Graph, GraphExecutionResult
 from .executor import GraphExecutor   # the class you showed above
@@ -57,6 +58,10 @@ class GraphAgent:
         logger: Optional[logging.Logger] = None,
         log_traces: bool = True,
         export_dir: Union[Path, str] = "exports",
+        knowledge_sources: Optional[list[Union[str, Path]]] = None,  # dirs/files for KB
+        rag_agent: Optional[RAGAgent] = None,
+        auto_ingest_kb: bool = True,
+        kb_tool_name: str = "kb_search",
     ) -> None:
         """
         Parameters
@@ -109,6 +114,21 @@ class GraphAgent:
         self.artifacts = artifact_store or ArtifactStore()
         self.log_traces = log_traces
         self.export_dir = export_dir
+
+        # --- RAG wiring ---
+        self.rag: Optional[RAGAgent] = rag_agent
+        if self.rag is None and knowledge_sources:
+            from neurosurfer.agents.rag import RAGAgent, RAGAgentConfig
+            self.rag = RAGAgent(llm=self.llm, config=RAGAgentConfig())
+        
+        if self.rag and knowledge_sources and auto_ingest_kb:
+            self.logger.info("Ingesting knowledge base for GraphAgent...")
+            self.rag.ingest(sources=knowledge_sources, reset_state=True)
+
+        # # expose KB as a tool
+        # if self.rag is not None:
+        #     kb_tool = RAGSearchTool(rag=self.rag, name=kb_tool_name)
+        #     self.toolkit.register_tool(kb_tool)
 
         self.executor = GraphExecutor(
             graph=self.graph,

@@ -59,7 +59,7 @@ class ManagerAgent:
         Returns a plain string to pass into `Agent.run(...)`.
         """
         if self.log_traces:
-            self._print(f"\n\\[{self.id}] Tracing Start!")
+            rprint(f"\n\\[{self.id}] Tracing Start!")
 
         purpose = node.purpose or ""
         goal = node.goal or ""

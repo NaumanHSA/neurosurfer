@@ -11,22 +11,18 @@ from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.tool_spec import TOOL_TYPE_CAST
+from neurosurfer.tracing import Tracer, TracerConfig
 
-from ..common.utils import normalize_response
+from ..common.utils import normalize_response, extract_and_repair_json
 from .config import AgentConfig
+from .schema_utils import build_structured_system_prompt, maybe_unwrap_named_root
+from .responses import StructuredResponse, ToolCallResponse, AgentResponse
 from .templates import (
     TOOL_ROUTING_PROMPT,
     STRICT_TOOL_ROUTING_PROMPT,
     REPAIR_JSON_PROMPT,
     CORRECT_JSON_PROMPT,
 )
-from .schema_utils import (
-    build_structured_system_prompt,
-    extract_and_repair_json,
-    maybe_unwrap_named_root,
-)
-from .responses import StructuredResponse, ToolCallResponse, AgentResponse
-from neurosurfer.tracing import Tracer, TracerConfig
 
 
 class Agent:
@@ -458,7 +454,7 @@ class Agent:
                     routing_attempt += 1
                     continue
                 try:
-                    checked = self._validate_inputs(tool_name, tool_inputs)
+                    checked = self._validate_inputs(tool_name, tool_inputs, relax=True)
                 except Exception as e:
                     repair_prompt = (
                         f"[Previous issue]\nFix inputs for tool '{tool_name}'. Error: {e}\n"
@@ -493,7 +489,10 @@ class Agent:
         t.log(f"Raw inputs: {tool_inputs}")
         t.close()
 
-        payload = {**checked, **(context or {})}
+        # Handle graph inputs in case agent is utilized by graph executor
+        graph_inputs = context.get('graph_inputs', {})
+        if graph_inputs: context.pop('graph_inputs')
+        payload = {**checked, **context, **graph_inputs}
         tool = self.toolkit.registry.get(tool_name)
 
         with self.tracer(
@@ -525,7 +524,7 @@ class Agent:
                 return e_msg
 
     # Input validation for tools
-    def _validate_inputs(self, tool_name: str, raw_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_inputs(self, tool_name: str, raw_inputs: Dict[str, Any], relax: bool = False) -> Dict[str, Any]:
         """
         Validate and cast raw tool inputs according to the tool's `ToolSpec`.
 
@@ -550,7 +549,7 @@ class Agent:
                 except Exception as e:
                     raise ValueError(f"Invalid input for parameter '{p.name}': {e}")
 
-        return tool.spec.check_inputs(inputs)
+        return tool.spec.check_inputs(inputs, relax=relax)
 
     # Internal helper to print messages
     def _print(self, msg: str, color: str = "cyan", rich: bool = True):

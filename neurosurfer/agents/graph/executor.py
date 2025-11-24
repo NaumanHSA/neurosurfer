@@ -8,6 +8,9 @@ from pydantic import BaseModel as PydModel
 
 from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from neurosurfer.tools import Toolkit
+from neurosurfer.tracing import Tracer, TracerConfig
+from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
+from neurosurfer.agents import Agent, AgentConfig
 
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
@@ -15,9 +18,6 @@ from .manager import ManagerAgent, ManagerConfig
 from .schema import Graph, GraphNode, NodeExecutionResult, GraphExecutionResult
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
 from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs, rprint
-from neurosurfer.tracing import Tracer, TracerConfig
-from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
-from neurosurfer.agents import Agent, AgentConfig
 
 
 class GraphExecutor:

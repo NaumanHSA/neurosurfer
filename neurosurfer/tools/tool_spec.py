@@ -214,7 +214,7 @@ class ToolSpec:
     def parse_inputs(self, raw: Dict[str, Any]):
         ...
 
-    def check_inputs(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def check_inputs(self, raw: Dict[str, Any], relax: bool = False) -> Dict[str, Any]:
         """
         Validate and sanitize runtime inputs against the specification.
         
@@ -225,6 +225,7 @@ class ToolSpec:
         
         Args:
             raw (Dict[str, Any]): Raw input dictionary from LLM or user
+            relax (bool): If True, relaxes validation (e.g. only check passed parameters)
         
         Returns:
             Dict[str, Any]: Validated input dictionary (same as input if valid)
@@ -244,9 +245,10 @@ class ToolSpec:
             >>> spec.check_inputs({"x": 42, "z": 10})  # Extra param 'z'
         """
         # Required
-        for p in self.inputs:
-            if p.required and p.name not in raw:
-                raise ValueError(f"Missing required input: {p.name}")
+        if not relax:
+            for p in self.inputs:
+                if p.required and p.name not in raw:
+                    raise ValueError(f"Missing required input: {p.name}")
 
         # Types
         for p in self.inputs:

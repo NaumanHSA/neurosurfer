@@ -102,9 +102,13 @@ async def load_model():
         LOGGER.warning("Torch not found...")
 
     from neurosurfer.models.chat_models.transformers import TransformersModel
+    MODEL_SOURCE = os.getenv(
+        "NEUROSURF_MODEL_PATH",
+        "/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit",
+    )
     llm = TransformersModel(
         # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
-        model_name="/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit",
+        model_name=MODEL_SOURCE,
         max_seq_length=config.base_model.max_seq_length,
         load_in_4bit=config.base_model.load_in_4bit,
         enable_thinking=config.base_model.enable_thinking,
