@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, List, Literal
 import time
 
-class _TraceStepContext:
+class TraceStepContext:
     """
     Context manager returned by Tracer.step().
 
@@ -46,7 +46,7 @@ class _TraceStepContext:
         }
         self._span_cm = None
 
-    def __enter__(self) -> "_TraceStepContext":
+    def __enter__(self) -> "TraceStepContext":
         # increase nesting depth for this tracer
         self._tracer._depth += 1
 
@@ -121,7 +121,7 @@ class _TraceStepContext:
             type=type,
         )
 
-    def start(self) -> "_TraceStepContext":
+    def start(self) -> "TraceStepContext":
         self.__enter__()
         return self
 

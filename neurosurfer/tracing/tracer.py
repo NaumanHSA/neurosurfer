@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .models import TraceStep, TraceResult
 from .span import SpanTracer, RichTracer, NullSpanTracer
-from .step_context import _TraceStepContext
+from .step_context import TraceStepContext
 
 
 logger = logging.getLogger("neurosurfer.tracing.tracer")
@@ -168,7 +168,7 @@ class Tracer:
         inputs: Optional[Dict[str, Any]] = None,
         agent_id: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
-    ) -> _TraceStepContext:
+    ) -> TraceStepContext:
         """
         Create a traced step context.
 
@@ -187,7 +187,7 @@ class Tracer:
         self._counter += 1
         step_id = self._counter
 
-        return _TraceStepContext(
+        return TraceStepContext(
             tracer=self,
             step_id=step_id,
             kind=kind,
@@ -202,7 +202,7 @@ class Tracer:
     # ------------------------------------------------------------------
     def _record_step(self, raw: Dict[str, Any]) -> None:
         """
-        Convert raw dict from _TraceStepContext into a TraceStep and store it.
+        Convert raw dict from TraceStepContext into a TraceStep and store it.
         """
         try:
             step = TraceStep(**raw)

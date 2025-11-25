@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Union, Generator, Optional
 from types import GeneratorType
 
-from neurosurfer.tracing import Tracer, TracerConfig
+from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
@@ -253,21 +253,29 @@ class ReActAgent(BaseAgent):
                 final_answer = final
                 break
             
-            reason_tracer.log(message=f"[🔧] Using Tool: {tool_call.tool}\n[📤] Inputs: {tool_call.inputs}", type="info")
-            reason_tracer.close()
+            reason_tracer.log(message=f"[🔧] Tool Selected: {tool_call.tool}", type="info")
+
+            tool_tracer = self.tracer(
+                agent_id=self.id,
+                kind="llm.call",
+                label="react_agent.loop.tool_execute",
+                inputs={
+                    "tool_name": tool_call.tool,
+                    "tool_inputs": tool_call.inputs
+                },
+            ).start()
 
             history.append(response)
             # Execute tool safely with bounded retries
             # core.py, inside _run_loop, replacing the "execute tool" part
-            tool_response = self._try_execute_tool(tool_call)
+            tool_response = self._try_execute_tool(tool_call, tool_tracer)
             tool_results = normalize_response(tool_response.results)
 
             if isinstance(tool_results, GeneratorType):
                 # live stream to the user and accumulate
                 results_text = ""
-                if tool_response.final_answer:
-                    if not self.config.skip_special_tokens:
-                        yield self.delims.sof
+                if tool_response.final_answer and not self.config.skip_special_tokens:
+                    yield self.delims.sof
                 for chunk in tool_results:
                     results_text += chunk
                     yield chunk
@@ -293,7 +301,13 @@ class ReActAgent(BaseAgent):
                 if self.config.verbose:
                     rprint(f"[bold]results:[/bold] {results_text}")
 
+            tool_tracer.log(f"\n[🔧] Tool Result: {results_text[:150]}...", type="info")
+            tool_tracer.close()
             iteration += 1
+
+        tool_tracer.log(f"\n[🔧] Final Tool Result: {final_answer[:150]}...", type="info")
+        tool_tracer.close()
+        reason_tracer.close()
         # self.logger.info(f"[ReActAgent] Stopped -> Final answer length: {len(final_answer)}")
         return final_answer or "I couldn't determine the answer."
 
@@ -397,7 +411,7 @@ class ReActAgent(BaseAgent):
         return resp.choices[0].message.content
 
     # ---------- Tool Exec with retries ----------
-    def _try_execute_tool(self, tool_call: ToolCall) -> ToolResponse:
+    def _try_execute_tool(self, tool_call: ToolCall, tool_tracer: TraceStepContext) -> ToolResponse:
         tool_name = tool_call.tool
         tool = self.toolkit.registry[tool_name]
 
@@ -405,11 +419,9 @@ class ReActAgent(BaseAgent):
         last_err = None
         while attempts <= self.config.retry.max_tool_errors:
             try:
-                if self.config.verbose:
-                    rprint(f"\n[🔧] Tool: {tool_name}\n[📤] Inputs: {tool_call.inputs}")
-
+                tool_tracer.log(f"\n[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {tool_call.inputs.keys()}", type="info")
                 all_inputs = {**tool_call.inputs, **self.memory.items()}
-                tool_response = tool(**all_inputs)
+                tool_response: ToolResponse = tool(**all_inputs)
                 self.memory.clear()
                 # write extras to memory for next step
                 for k, v in tool_response.extras.items():
@@ -418,7 +430,7 @@ class ReActAgent(BaseAgent):
 
             except Exception as e:
                 last_err = str(e)
-                self.logger.error(f"[Tool:{tool_name}] error: {last_err}")
+                tool_tracer.log(f"Error Executing Tool: {tool_name} -> {last_err}", type="error")
                 if attempts >= self.config.retry.max_tool_errors:
                     break
                 if self.config.repair_with_llm:
@@ -432,6 +444,7 @@ class ReActAgent(BaseAgent):
                 attempts += 1
                 self.config.retry.sleep(attempts)
         # Synthesize a failure ToolResponse (non-final)
+        tool_tracer.log(f"Tool Execution Failed: {tool_name}, Reason: Retries Exceeded", type="warning")
         return ToolResponse(
             results=f"[tool:{tool_name}] failed after retries: {last_err}",
             final_answer=False,

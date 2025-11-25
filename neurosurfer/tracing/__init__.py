@@ -8,7 +8,7 @@ from .span import (
     RichTracer,     # RichTracer becomes ConsoleTracer if `rich` package is missing
 )
 from .models import TraceStep, TraceResult
-from .tracer import Tracer, TracerConfig, _TraceStepContext
+from .tracer import Tracer, TracerConfig, TraceStepContext
 
 __all__ = [
     "SpanTracer",
@@ -21,5 +21,5 @@ __all__ = [
     "TraceResult",
     "Tracer",
     "TracerConfig",
-    "_TraceStepContext",
+    "TraceStepContext",
 ]
