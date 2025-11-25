@@ -6,8 +6,8 @@ import logging
 from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from neurosurfer.tracing import Tracer, TracerConfig
 from .schema import GraphNode
-from .utils import rprint
 from .templates import MANAGER_SYSTEM_PROMPT, COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE
+from ..common.utils import rprint
 
 @dataclass
 class ManagerConfig():

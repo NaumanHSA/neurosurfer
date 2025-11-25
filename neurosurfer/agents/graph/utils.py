@@ -219,15 +219,3 @@ def _cast_input_value(spec: GraphInput, value: Any) -> Any:
 
     # unknown / custom type => pass through
     return value
-
-# Internal helper to print messages
-def rprint(msg: str, color: str = "cyan", rich: bool = True):
-    try:
-        if rich:
-            from rich.console import Console
-            console = Console(force_jupyter=False, force_terminal=True)
-            console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
-        else:
-            print(msg)
-    except NameError:
-        print(msg)

@@ -12,6 +12,7 @@ from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionRespon
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.tool_spec import TOOL_TYPE_CAST
 from neurosurfer.tracing import Tracer, TracerConfig
+from neurosurfer.agents.common.utils import rprint
 
 from ..common.utils import normalize_response, extract_and_repair_json
 from .config import AgentConfig
@@ -194,9 +195,9 @@ class Agent:
             self.logger.warning("`output_schema` provided with `stream=True`; forcing non-streaming structured output.")
             use_stream = False
 
-        self._print("🧠 Thinking...", color="yellow")
+        rprint("🧠 Thinking...", color="yellow")
         if self.log_traces:
-            self._print(f"\n\\[{self.id}] Tracing Start!")
+            rprint(f"\n\\[{self.id}] Tracing Start!")
         with self.tracer(
             agent_id=self.id,
             kind="agent",
@@ -252,15 +253,13 @@ class Agent:
                     t.outputs(output=response)
 
         if self.log_traces:
-            self._print(f"\\[{self.id}] Tracing End!\n")  
+            rprint(f"\\[{self.id}] Tracing End!\n")
+
         # Print final response
         if isinstance(response, str):
-            self._print("Final response:", color="green")
-            self._print(response.strip(), rich=False)
-        return AgentResponse(
-            response=response,
-            traces=self.tracer.results,
-        )
+            rprint("Final response:", color="green")
+            rprint(response.strip(), rich=False)
+        return AgentResponse(response=response, traces=self.tracer.results)
 
     # Structured output owned here (compact contract + parse + repair)
     def _structured_llm_call(
@@ -377,7 +376,7 @@ class Agent:
         use_stream: bool,
         context: Dict[str, Any],
         strict_tool_call: bool,
-    ) -> Union[str, ToolCallResponse]:
+    ) -> ToolCallResponse:
         """
         Route a request to a tool (or fall back to text) using the toolkit.
 
@@ -385,7 +384,15 @@ class Agent:
           1. Builds a routing prompt including all tool descriptions.
           2. Asks the LLM to select a tool and provide inputs (JSON).
           3. Repairs invalid selections or inputs when possible.
-          4. Executes the selected tool and normalizes the results.
+          4. Executes the selected tool and normalizes the results, 
+             OR calls the LLM a second time (optionally streaming) for a direct answer.
+
+        Tracing
+        -------
+        Opens a top-level span `agent.route_and_call`, plus:
+          - `agent.route_and_call.router_llm_call`: for the LLM routing call.
+          - `agent.route_and_call.tool_execute`: around the tool invocation.
+          - `agent.route_and_call.direct_llm_call`: for the LLM direct call.
 
         Tracing
         -------
@@ -394,7 +401,7 @@ class Agent:
           - `agent.route_and_call.tool_execute`: around the tool invocation.
         """
         tool_descriptions = self.toolkit.get_tools_description()
-        router_prompt = (STRICT_TOOL_ROUTING_PROMPT if strict_tool_call else TOOL_ROUTING_PROMPT).format(
+        router_prompt = TOOL_ROUTING_PROMPT.format(
             tool_descriptions=tool_descriptions,
             extra_instructions=extra_instructions or "",
         )
@@ -416,9 +423,9 @@ class Agent:
             },
         ).start()
         while True:
-            user_prompt = user_prompt if not repair_prompt else f"{user_prompt}\n\n{repair_prompt}"
+            effective_user_prompt = user_prompt if not repair_prompt else f"{user_prompt}\n\n{repair_prompt}"
             llm_params = {
-                "user_prompt": user_prompt,
+                "user_prompt": effective_user_prompt,
                 "system_prompt": router_prompt,
                 "temperature": temperature,
                 "max_new_tokens": max_new_tokens,
@@ -434,13 +441,31 @@ class Agent:
                 tool_name = str(obj["tool"])
                 tool_inputs = obj["inputs"] if isinstance(obj["inputs"], dict) else {}
             else:
-                if strict_tool_call:
-                    tool_name, tool_inputs = "none", {}
-                else:
-                    # return plain response if model can choose between tool and direct answer
-                    t.log("Returning plain response", type="info")
-                    t.close()
-                    return model_response
+                # treat as routing failure, not final answer
+                routing_attempt += 1
+                if (
+                    routing_attempt > self.config.retry.max_route_retries
+                    or not self.config.repair_with_llm
+                ):
+                    if strict_tool_call:
+                        e_msg = (
+                            "There was a problem selecting the right tool or repairing invalid "
+                            "inputs while `strict_tool_call` is enabled."
+                        )
+                        t.log(e_msg, type="error")
+                        t.set_error(e_msg)
+                        return self._tool_call_response(tool_return=e_msg)
+                    else:
+                        # non-strict: fall back to "no tool" and do a second, answer-only call
+                        tool_name, tool_inputs = "none", {}
+                        break
+
+                repair_prompt = (
+                    "[Previous issue]\nYour output was not valid JSON or did not select a "
+                    "usable tool. Return JSON only."
+                )
+                time.sleep(self.config.retry.backoff_sec * routing_attempt)
+                continue
 
             # for strict tool calling, validate tool call and repair inputs if invalid
             if tool_name and tool_name != "none":
@@ -464,34 +489,50 @@ class Agent:
                     )
                     routing_attempt += 1
                     continue
-                break
+                break  # valid tool + inputs -> proceed to tool execution
 
-            # If we get here, no usable tool was selected; try repair or give up
+            # If we get here, tool_name is "none"
             routing_attempt += 1
-            if (
-                routing_attempt > self.config.retry.max_route_retries
-                or not self.config.repair_with_llm
-            ):
+            if strict_tool_call:
+                # strict: no tool allowed -> error
                 e_msg = (
-                    "There was a problem selecting the right tool or repairing invalid "
-                    "inputs while `strict_tool_call` is enabled."
+                    "Strict tool calling is enabled, but the router selected no tool "
+                    "(`tool: none`)."
                 )
                 t.log(e_msg, type="error")
                 t.set_error(e_msg)
-                return e_msg
-            repair_prompt = (
-                "[Previous issue]\nYour output was not valid JSON or did not select a "
-                "usable tool. Return JSON only."
-            )
-            time.sleep(self.config.retry.backoff_sec * routing_attempt)
+                return self._tool_call_response(tool_return=e_msg)
+            # non-strict: accept "none", we'll answer directly in a second call
+            break
 
         t.log(f"Selected tool: {tool_name}")
         t.log(f"Raw inputs: {tool_inputs}")
         t.close()
 
-        # Handle graph inputs in case agent is utilized by graph executor
-        graph_inputs = context.get('graph_inputs', {})
-        if graph_inputs: context.pop('graph_inputs')
+        # --------- 2a) NO TOOL: second LLM call (possibly streaming) ---------
+        if tool_name == "none":
+            llm_params = {
+                "user_prompt": user_prompt,
+                "system_prompt": "You are a helpful assistant. Answer the user's query to the best of your ability.",
+                "temperature": temperature,
+                "max_new_tokens": max_new_tokens,
+                "stream": use_stream,
+            }
+            model_response = normalize_response(self.llm.ask(**llm_params))
+            return self._tool_call_response(
+                tool_return=self._yield_tool_stream(
+                    model_response, 
+                    {
+                        "temperature": llm_params.get("temperature"),
+                        "max_new_tokens": llm_params.get("max_new_tokens"),
+                        "stream": llm_params.get("stream"),
+                    }
+                ), final=True)
+
+        # --------- 2b) TOOL EXECUTION PATH ---------
+        graph_inputs = context.get("graph_inputs", {})
+        if graph_inputs:
+            context.pop("graph_inputs")
         payload = {**checked, **context, **graph_inputs}
         tool = self.toolkit.registry.get(tool_name)
 
@@ -503,14 +544,17 @@ class Agent:
                 "tool_name": tool_name,
                 "payload": payload,
             },
-        ) as t:
+        ) as t_tool:
             try:
                 tool_response = tool(**payload)
                 extras = tool_response.extras or {}
                 tool_return = normalize_response(tool_response.results)
-                t.outputs(tool_return=tool_return, extras=extras)
-                t.log(f"Tool '{tool_name}' Tool Return: {str(tool_return)[:100]}...", type="info")
-                return ToolCallResponse(
+                t_tool.outputs(tool_return=tool_return, extras=extras)
+                t_tool.log(
+                    f"Tool '{tool_name}' Tool Return: {str(tool_return)[:100]}...",
+                    type="info",
+                )
+                return self._tool_call_response(
                     selected_tool=tool_name,
                     inputs=checked,
                     returns=tool_return,
@@ -519,9 +563,9 @@ class Agent:
                 )
             except Exception as e:
                 e_msg = f"Error while executing tool '{tool_name}': {e}.\nInputs: {checked}\n"
-                t.set_error(e_msg)
-                t.log(e_msg, type="error")
-                return e_msg
+                t_tool.set_error(e_msg)
+                t_tool.log(e_msg, type="error")
+                return self._tool_call_response(tool_return=e_msg)
 
     # Input validation for tools
     def _validate_inputs(self, tool_name: str, raw_inputs: Dict[str, Any], relax: bool = False) -> Dict[str, Any]:
@@ -551,14 +595,30 @@ class Agent:
 
         return tool.spec.check_inputs(inputs, relax=relax)
 
-    # Internal helper to print messages
-    def _print(self, msg: str, color: str = "cyan", rich: bool = True):
-        try:
-            if rich:
-                from rich.console import Console
-                console = Console(force_jupyter=False, force_terminal=True)
-                console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
-            else:
-                print(msg)
-        except NameError:
-            print(msg)
+    def _yield_tool_stream(self, model_response: Generator[str, None, None], trace_inputs: Dict[str, Any]):
+        with self.tracer(
+            agent_id=self.id,
+            kind="llm.call",
+            label="agent.route_and_call.answer_llm_call",
+            inputs=trace_inputs,
+        ) as t:
+            response_ = ""
+            for chunk in model_response:
+                response_ += chunk
+                yield chunk
+            t.outputs(model_response=response_, model_response_len=len(response_))
+
+    def _tool_call_response(
+        self, 
+        tool_name: str = "none", 
+        tool_inputs: Dict[str, Any] = {}, 
+        tool_return: Any = "", 
+        final: bool = False, 
+        extras: Dict[str, Any] = {}) -> ToolCallResponse:
+        return ToolCallResponse(
+            selected_tool=tool_name,
+            inputs=tool_inputs,
+            returns=tool_return,
+            final=final,
+            extras=extras,
+        )

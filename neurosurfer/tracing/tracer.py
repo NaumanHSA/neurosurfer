@@ -124,11 +124,10 @@ class Tracer:
         else:
             self._span_tracer = RichTracer() if self.config.log_steps else NullSpanTracer()
 
-        self._steps: list[TraceStep] = []
         self._meta: Dict[str, Any] = dict(meta or {})
-        self._counter: int = 0
+        self._result = TraceResult(meta=self._meta)  # single shared instance
 
-        # NEW: track nesting depth of step contexts
+        self._counter: int = 0
         self._depth: int = 0
 
 
@@ -156,7 +155,7 @@ class Tracer:
         """
         Structured tracing results for this run.
         """
-        return TraceResult(steps=list(self._steps), meta=dict(self._meta))
+        return self._result
 
     # ------------------------------------------------------------------
     # Public API: tracer(...)
@@ -169,7 +168,7 @@ class Tracer:
         inputs: Optional[Dict[str, Any]] = None,
         agent_id: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> _TraceStepContext:
         """
         Create a traced step context.
 
@@ -207,14 +206,13 @@ class Tracer:
         """
         try:
             step = TraceStep(**raw)
-            self._steps.append(step)
+            self._result.steps.append(step)
         except Exception as e:  # pragma: no cover - defensive
             self.logger.warning("Failed to record trace step: %s", e)
     
     def _span(self, name: str, attrs: Dict[str, Any]):
         """
         Internal helper to create a low-level span (or a no-op if log_steps=False).
-
         Here we inject `_level` automatically based on current self._depth.
         """
         # make a shallow copy so we don't mutate caller's dict
@@ -259,7 +257,7 @@ class Tracer:
             print(line)
             
     def reset(self):
-        self._steps = []
+        self._result = TraceResult(meta=self._meta)  # single shared instance
         self._counter = 0
         self._depth = 0
 

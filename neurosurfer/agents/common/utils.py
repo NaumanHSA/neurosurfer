@@ -23,9 +23,12 @@ def normalize_response(results: Union[str, Generator, ChatCompletionResponse, Ch
     # streaming generator
     if isinstance(results, Generator):
         return stream_text_from_response(results)
-    if isinstance(results, Dict): return results
-    try: return str(results)
-    except: raise ValueError(f"Unsupported results type: {type(results)}")
+    if isinstance(results, Dict): 
+        return results
+    try: 
+        return str(results)
+    except: 
+        raise ValueError(f"Unsupported results type: {type(results)}")
 
 
 def extract_and_repair_json(text: str, return_dict: bool = True) -> Optional[Union[str, Dict[str, Any]]]:
@@ -44,3 +47,16 @@ def extract_and_repair_json(text: str, return_dict: bool = True) -> Optional[Uni
     if not text or not isinstance(text, str):
         return None
     return repair_json(text, return_objects=return_dict)
+
+
+# Internal helper to print messages
+def rprint(msg: str, color: str = "cyan", rich: bool = True):
+    try:
+        if rich:
+            from rich.console import Console
+            console = Console(force_jupyter=False, force_terminal=True)
+            console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
+        else:
+            print(msg)
+    except NameError:
+        print(msg)

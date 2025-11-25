@@ -3,34 +3,23 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Union, Generator, Optional
 from types import GeneratorType
 
-from rich import print as rprint
-
+from neurosurfer.tracing import Tracer, TracerConfig
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.base_tool import ToolResponse
 from neurosurfer.config import config
 
+from ..common.utils import normalize_response, rprint
 from .base import BaseAgent
 from .parser import ToolCallParser
-from .types import ToolCall
+from .types import ToolCall, ReactAgentResponse
 from .exceptions import ToolCallParseError, ToolExecutionError
 from .retry import RetryPolicy
 from .history import History
 from .memory import EphemeralMemory
-from ..common.utils import normalize_response
 from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT
-
-
-@dataclass
-class ReActConfig:
-    temperature: float = config.base_model.temperature
-    max_new_tokens: int = config.base_model.max_new_tokens
-    verbose: bool = True
-    allow_input_pruning: bool = True     # drop extra inputs not in ToolSpec
-    repair_with_llm: bool = True         # ask LLM to repair invalid Action
-    retry: RetryPolicy = field(default_factory=RetryPolicy)
-    skip_special_tokens: bool = False
+from .config import ReActConfig
 
 
 class ReActAgent(BaseAgent):
@@ -43,18 +32,44 @@ class ReActAgent(BaseAgent):
     """
     def __init__(
         self,
-        toolkit: Toolkit,
-        llm: BaseChatModel,
-        logger: logging.Logger = logging.getLogger(__name__),
+        id: str = "ReAct_Agent",
+        llm: BaseChatModel = None,
+        toolkit: Optional[Toolkit] = None,
+        *,
         specific_instructions: str = "",
-        config: Optional[ReActConfig] = None
+        config: Optional[ReActConfig] = None,
+        logger: logging.Logger = logging.getLogger(__name__),
+        verbose: bool = False,
+        tracer: Optional[Tracer] = None,
+        log_traces: Optional[bool] = True,
     ) -> None:
         super().__init__()
-        self.toolkit = toolkit
+
+        self.id = id
         self.llm = llm
-        self.logger = logger
+        self.toolkit = toolkit
         self.specific_instructions = specific_instructions
         self.config = config or ReActConfig()
+        self.logger = logger
+        self.verbose = verbose
+        self.log_traces = log_traces
+        if self.llm is None:
+            raise ValueError("llm must be provided")
+
+         # Tracing setup
+        # Base tracer that actually records and log steps (RichTracer by default).
+        self.tracer: Tracer = tracer or Tracer(
+            config=TracerConfig(log_steps=self.log_traces),
+            meta={
+                "agent_type": "generic_agent",
+                "agent_config": self.config,
+                "model": self.llm.model_name,
+                "toolkit": toolkit is not None,
+                "verbose": verbose,
+                "log_steps": self.log_traces,
+            },
+            logger_=logger,
+        )
         self.parser = ToolCallParser()
         self.memory = EphemeralMemory()
         self.raw_results = ""
@@ -62,16 +77,83 @@ class ReActAgent(BaseAgent):
         self._last_error: Optional[str] = None
 
     # ---------- Public API ----------
-    def run(self, user_query: str, **kwargs: Any) -> Generator[str, None, str]:
-        # kwargs override config temporarily
-        temperature = kwargs.get("temperature", self.config.temperature)
-        max_new_tokens = kwargs.get("max_new_tokens", self.config.max_new_tokens)
+    def run(
+        self,
+        *,
+        query: Optional[str] = None,
+        stream: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        max_new_tokens: Optional[int] = None,
+        specific_instructions: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        _route_extra_instructions: str = "",
+        reset_tracer: bool = True,
+    ) -> ReactAgentResponse:
+        """
+        Run the ReAct agent.
 
-        return self._run_loop(
-            user_query=user_query,
-            temperature=temperature,
-            max_new_tokens=max_new_tokens,
+        - If stream=True: returns ReactAgentResponse with a Generator[str]
+          that yields tokens as they are produced.
+        - If stream=False: returns ReactAgentResponse with the full string
+          (we still use streaming under the hood, but we buffer it).
+        """
+        if reset_tracer:
+            self.tracer.reset()
+
+        # Resolve config defaults
+        stream = self.config.return_stream_by_default if stream is None else bool(stream)
+        temperature = float(self.config.temperature if temperature is None else temperature)
+        max_new_tokens = int(self.config.max_new_tokens if max_new_tokens is None else max_new_tokens)
+        specific_instructions = (
+            self.specific_instructions
+            if specific_instructions is None
+            else specific_instructions or ""
         )
+        system_prompt = self._system_prompt(specific_instructions)
+
+        rprint("🧠 Thinking...", color="yellow")
+        if self.log_traces:
+            rprint(f"\n\\[{self.id}] Tracing Start!")
+
+        with self.tracer(
+            agent_id=self.id,
+            kind="react_agent",
+            label="react_agent.run",
+            inputs={
+                "agent_type": type(self).__name__,
+                "has_toolkit": bool(self.toolkit),
+                "stream": stream,
+                "specific_instructions": specific_instructions,
+                "scratchpad": system_prompt,
+            },
+        ):
+            # -------- Streaming path --------
+            if stream:
+                final_response = self._run_loop(
+                    query=query,
+                    temperature=temperature,
+                    max_new_tokens=max_new_tokens,
+                    system_prompt=system_prompt,
+                )
+            # -------- Non-streaming path --------
+            else:
+                final_response = ""
+                for chunk in self._run_loop(
+                    query=query,
+                    temperature=temperature,
+                    max_new_tokens=max_new_tokens,
+                    system_prompt=system_prompt,
+                ):
+                    final_response += chunk
+
+            if self.log_traces:
+                rprint(f"\\[{self.id}] Tracing End!\n")
+
+            # Print final response (like your normal Agent)
+            if isinstance(final_response, str):
+                rprint("Final response:", color="green")
+                rprint(final_response.strip(), rich=False)
+            return ReactAgentResponse(response=final_response, traces=self.tracer.results)
 
     def stop_generation(self):
         self.logger.info("[ReActAgent] Stopping generation...")
@@ -84,17 +166,37 @@ class ReActAgent(BaseAgent):
         self.toolkit = toolkit
 
     # ---------- Core loop ----------
-    def _run_loop(self, user_query: str, temperature: float, max_new_tokens: int) -> Generator[str, None, str]:
+    def _run_loop(
+        self,
+        query: str, 
+        temperature: float, 
+        max_new_tokens: int,
+        system_prompt: str,
+    ) -> Generator[str, None, str]:
+
         history = History()
         final_answer = ""
         self.stop_event = False
-
-        system_prompt = self._system_prompt()
-
+        iteration = 0
         while not self.stop_event:
-            reasoning_prompt = self._build_prompt(user_query, history)
-            yield "\n\n[🧠] Chain of Thoughts...\n"
-            stream = self.llm.ask(
+            reasoning_prompt = self._build_prompt(query, history)
+            reason_tracer = self.tracer(
+                agent_id=self.id,
+                kind="llm.call",
+                label="react_agent.loop.reason_llm_call",
+                inputs={
+                    "iteration": iteration,                          # ReAct loop iteration
+                    "query": query,
+                    "query_len": len(query),
+                    "history_len": len(history.as_text()),
+                    "reasoning_prompt": reasoning_prompt,
+                    "reasoning_prompt_len": len(reasoning_prompt),
+                    "temperature": temperature,
+                    "max_new_tokens": max_new_tokens,
+                },
+            ).start()
+
+            streaming_response = self.llm.ask(
                 user_prompt=reasoning_prompt,
                 system_prompt=system_prompt,
                 chat_history=[],
@@ -104,7 +206,7 @@ class ReActAgent(BaseAgent):
             )
 
             response, final_started = "", False
-            for chunk in stream:
+            for chunk in streaming_response:
                 if chunk.choices[0].finish_reason == "stop":
                     break
                 part = chunk.choices[0].delta.content
@@ -134,21 +236,25 @@ class ReActAgent(BaseAgent):
                 else:
                     yield part
 
-            if final_started: 
+            if final_started:
+                reason_tracer.outputs(final_answer=final_answer)
                 if not self.config.skip_special_tokens:
                     yield self.delims.eof
                 break
             
             # No final answer yet, try to parse an Action
-            tool_call = self._decide_tool_call(response, user_query, history)
+            tool_call = self._decide_tool_call(response, query, history)
             if tool_call is None or tool_call.tool is None:
                 # agent believes no tool is required and no final answer was streamed; ask LLM to produce final
                 history.append(response)
                 # Add a gentle nudge: produce final answer now
-                final = self._force_final_answer(user_query, history, temperature, max_new_tokens)
+                final = self._force_final_answer(query, history, temperature, max_new_tokens)
                 yield self.delims.sof + final + self.delims.eof
                 final_answer = final
                 break
+            
+            reason_tracer.log(message=f"[🔧] Using Tool: {tool_call.tool}\n[📤] Inputs: {tool_call.inputs}", type="info")
+            reason_tracer.close()
 
             history.append(response)
             # Execute tool safely with bounded retries
@@ -187,6 +293,7 @@ class ReActAgent(BaseAgent):
                 if self.config.verbose:
                     rprint(f"[bold]results:[/bold] {results_text}")
 
+            iteration += 1
         # self.logger.info(f"[ReActAgent] Stopped -> Final answer length: {len(final_answer)}")
         return final_answer or "I couldn't determine the answer."
 
@@ -339,12 +446,12 @@ class ReActAgent(BaseAgent):
         return h
 
     # ---------- Prompts ----------
-    def _system_prompt(self) -> str:
+    def _system_prompt(self, specific_instructions: str) -> str:
         from .scratchpad import REACT_AGENT_PROMPT
         tool_desc = self.toolkit.get_tools_description().strip()
         return REACT_AGENT_PROMPT.format(
             tool_descriptions=tool_desc,
-            specific_instructions=self.specific_instructions
+            specific_instructions=specific_instructions
         )
 
     def _build_prompt(self, user_query: str, history: History) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Generator
 from pydantic import BaseModel as PydModel
 
 from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
@@ -17,8 +17,8 @@ from .errors import GraphConfigurationError
 from .manager import ManagerAgent, ManagerConfig
 from .schema import Graph, GraphNode, NodeExecutionResult, GraphExecutionResult
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
-from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs, rprint
-
+from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs
+from ..common.utils import rprint
 
 class GraphExecutor:
     """
@@ -358,7 +358,7 @@ class GraphExecutor:
 
     def _normalize_agent_output(
         self, result: Any
-    ) -> Tuple[Any, Optional[StructuredResponse], Optional[ToolCallResponse]]:
+    ) -> Tuple[Any, str, Generator[str, None, None], Optional[StructuredResponse], Optional[ToolCallResponse]]:
         """
         Collapse the variety of Agent.run outputs into a single representation.
         """
