@@ -1,0 +1,35 @@
+{
+  "node_id": "build_symbol_index",
+  "mode": "structured",
+  "started_at": 1764153770.660679,
+  "duration_ms": 2574,
+  "error": null,
+  "type": "tool_call",
+  "selected_tool": "code_symbol_index",
+  "inputs": {
+    "module_paths": [
+      "neurosurfer.agents.*",
+      "neurosurfer.models.*",
+      "neurosurfer.rag.*",
+      "neurosurfer.server.*",
+      "neurosurfer.cli.*",
+      "neurosurfer.tools.*"
+    ]
+  },
+  "returns": {
+    "modules": {},
+    "summary": {
+      "module_count": 0,
+      "class_count": 0,
+      "function_count": 0
+    },
+    "errors": [
+      {
+        "path": null,
+        "error": "CodeSymbolIndexTool requires either `python_files` argument or `project_root` configured in CodeSymbolIndexConfig."
+      }
+    ]
+  },
+  "final": false,
+  "extras": {}
+}

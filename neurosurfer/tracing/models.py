@@ -12,7 +12,7 @@ class TraceLog(BaseModel):
     ts: float
     message: str
     data: Dict[str, Any] = Field(default_factory=dict)
-    type: Literal["info", "warning", "error", "debug"] = "info"
+    type: str = "info"
 
 class TraceStep(BaseModel):
     """

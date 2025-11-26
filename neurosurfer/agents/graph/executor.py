@@ -11,6 +11,7 @@ from neurosurfer.tools import Toolkit
 from neurosurfer.tracing import Tracer, TracerConfig
 from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
 from neurosurfer.agents import Agent, AgentConfig
+from neurosurfer.agents.react import ReActAgent, ReActConfig
 
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
@@ -163,7 +164,7 @@ class GraphExecutor:
                 f"YAML refers to unknown tools not registered in Toolkit: {sorted(missing)}"
             )
 
-    def _get_agent_for_node(self, node: GraphNode) -> Agent:
+    def _get_agent_for_node(self, node: GraphNode):
         """Create or reuse an Agent instance for this node."""
         if node.id in self._agents:
             return self._agents[node.id]
@@ -181,7 +182,51 @@ class GraphExecutor:
                         f"Node {node.id!r} refers to unknown tool {name!r}"
                     )
                 node_toolkit.register_tool(tool)
+        if node.kind == "react":
+            return self._get_react_agent_for_node(node, node_toolkit)
+        else:
+            return self._get_base_agent_for_node(node, node_toolkit)
 
+    def _get_react_agent_for_node(self, node: GraphNode, toolkit: Optional[Toolkit] = None) -> Agent:
+        """Create or reuse an Agent instance for this node."""
+        # Per-node AgentConfig (copy global, then apply NodePolicy)
+        node_config = ReActConfig()
+        if node.policy is not None:
+            p = node.policy
+
+            if p.allow_input_pruning is not None:
+                node_config.allow_input_pruning = p.allow_input_pruning
+            if p.repair_with_llm is not None:
+                node_config.repair_with_llm = p.repair_with_llm
+            # assuming RetryPolicy has 'max_parse_retries'
+            if p.retries is not None and getattr(node_config, "retry", None) is not None:
+                node_config.retry.max_parse_retries = p.retries
+            if p.max_new_tokens is not None:
+                node_config.max_new_tokens = p.max_new_tokens
+            if p.temperature is not None:
+                node_config.temperature = p.temperature
+            if p.skip_special_tokens is not None:
+                node_config.skip_special_tokens = p.skip_special_tokens
+            if p.return_stream_by_default is not None:
+                node_config.return_stream_by_default = p.return_stream_by_default
+            if p.log_internal_thoughts is not None:
+                node_config.log_internal_thoughts = p.log_internal_thoughts
+
+        agent_logger = logging.getLogger(f"neurosurfer.react_agent.{node.id}")
+        agent = ReActAgent(
+            id=node.id,
+            llm=self.llm,
+            toolkit=toolkit,
+            config=node_config,
+            logger=agent_logger,
+            tracer=self.tracer,
+            log_traces=self.log_traces
+        )
+        self._agents[node.id] = agent
+        return agent
+
+    def _get_base_agent_for_node(self, node: GraphNode, toolkit: Optional[Toolkit] = None) -> Agent:
+        """Create or reuse an Agent instance for this node."""
         # Per-node AgentConfig (copy global, then apply NodePolicy)
         node_config = AgentConfig()
         if node.policy is not None:
@@ -211,12 +256,11 @@ class GraphExecutor:
         agent = Agent(
             id=node.id,
             llm=self.llm,
-            toolkit=node_toolkit,
+            toolkit=toolkit,
             config=node_config,
             logger=agent_logger,
             tracer=self.tracer,
             log_traces=self.log_traces,
-            verbose=True,
         )
         self._agents[node.id] = agent
         return agent

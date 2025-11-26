@@ -423,3 +423,7 @@ class BaseChatModel(ABC):
                 self.logger.info(f"[BaseChatModel] Stop word '{hit}' detected.")
                 break
             if piece: yield piece
+
+    def silent(self):
+        if self.logger:
+            self.logger.disabled = True

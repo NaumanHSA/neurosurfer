@@ -61,7 +61,7 @@ class RAGAgent:
         ingestor_config: Optional[RAGIngestorConfig] = None,
         logger: Optional[logging.Logger] = None,
         make_source=None,
-        router_llm: Optional[BaseChatModel] = None, 
+        router_llm: Optional[BaseChatModel] = None,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.llm = llm

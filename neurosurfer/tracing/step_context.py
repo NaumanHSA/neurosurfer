@@ -45,6 +45,7 @@ class TraceStepContext:
             "logs": [],
         }
         self._span_cm = None
+        self._is_closed = False
 
     def __enter__(self) -> "TraceStepContext":
         # increase nesting depth for this tracer
@@ -91,7 +92,12 @@ class TraceStepContext:
         inputs: dict = self._step_data.setdefault("inputs", {})
         inputs.update(kwargs)
 
-    def log(self, message: str, type: Literal["info", "warning", "error", "debug"] = "info", **data: Any) -> None:
+    def stream(
+        self, 
+        message: str, 
+        type: str = "info", 
+        **data: Any
+    ) -> None:
         """
         Add an internal log line to this step.
 
@@ -100,7 +106,43 @@ class TraceStepContext:
           when `log_steps=True`.
         """
         ts = time.time()
+        # store in structured trace
+        # logs: list = self._step_data.setdefault("logs", [])
+        # logs.append(
+        #     {
+        #         "ts": ts,
+        #         "message": message,
+        #         "data": data or {},
+        #         "type": type,
+        #     }
+        # )
+        # print as a log line (aligned with this step)
+        indent_level = max(self._tracer._depth - 1, 0)
+        self._tracer._log_line(
+            step_id=self._step_data["step_id"],
+            indent_level=indent_level,
+            message=message,
+            type=type,
+            type_keyword=False,
+            stream=True
+        )
 
+
+    def log(
+        self, 
+        message: str, 
+        type: str = "info", 
+        type_keyword: bool = True,
+        **data: Any
+    ) -> None:
+        """
+        Add an internal log line to this step.
+
+        - Stored in the structured trace result (step.logs)
+        - Printed at the same indentation level as the step spans
+          when `log_steps=True`.
+        """
+        ts = time.time()
         # store in structured trace
         logs: list = self._step_data.setdefault("logs", [])
         logs.append(
@@ -111,7 +153,6 @@ class TraceStepContext:
                 "type": type,
             }
         )
-
         # print as a log line (aligned with this step)
         indent_level = max(self._tracer._depth - 1, 0)
         self._tracer._log_line(
@@ -119,13 +160,22 @@ class TraceStepContext:
             indent_level=indent_level,
             message=message,
             type=type,
+            type_keyword=type_keyword,
+            stream=False,
         )
+
 
     def start(self) -> "TraceStepContext":
         self.__enter__()
         return self
 
+    def is_closed(self) -> bool:
+        return self._is_closed
+
     def close(self) -> None:
+        self._is_closed = True
+        indent_level = max(self._tracer._depth - 1, 0)
+        self._ensure_stream_newline(indent_level)
         self.__exit__(None, None, None)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -148,3 +198,30 @@ class TraceStepContext:
 
         # do not suppress exceptions
         return False
+
+    def _ensure_stream_newline(self, indent_level: int) -> None:
+        """
+        If this step used streaming logs, emit a final newline / blank line
+        so the closing '◀ [step...]' appears on its own line.
+        """
+
+        if not hasattr(self._tracer, "_stream_started"):
+            return
+
+        if self._step_data["step_id"] not in self._tracer._stream_started:
+            return
+
+        # Emit one empty line with proper indentation (non-stream mode).
+        self._tracer._log_line(
+            step_id=self._step_data["step_id"],
+            indent_level=indent_level,
+            message="\n",          # empty message => just indent + newline
+            type="info",
+            type_keyword=False,
+            stream=False,
+        )
+
+        # Clean up streaming state for this step
+        self._tracer._stream_started.discard(self._step_data["step_id"])
+        if hasattr(self._tracer, "_stream_at_line_start"):
+            self._tracer._stream_at_line_start.pop(self._step_data["step_id"], None)

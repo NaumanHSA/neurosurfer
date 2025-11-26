@@ -98,6 +98,10 @@ class NodePolicy(BaseModel):
     strict_tool_call: Optional[bool] = None
     strict_json: Optional[bool] = None
     max_json_repair_attempts: Optional[int] = None    # for malformed JSON repairs
+    
+    skip_special_tokens: Optional[bool] = None
+    return_stream_by_default: Optional[bool] = None
+    log_internal_thoughts: Optional[bool] = None
 
     class Config:
         extra = "ignore"  # ignore unknown keys under 'policy'
@@ -109,6 +113,7 @@ class NodePolicy(BaseModel):
 class GraphNode(BaseModel):
     id: str
     description: Optional[str] = None
+    kind: str = Field(default="base", description="Node kind: base | react")
     purpose: Optional[str] = None
     goal: Optional[str] = None
     expected_result: Optional[str] = None
@@ -125,6 +130,13 @@ class GraphNode(BaseModel):
     # save node's output as files
     export: Optional[bool] = Field(default=False, description="Whether to export the node's output as files.")
     export_path: Optional[str] = Field(default=None, description="Optional custom path for exporting the node's output.")
+
+    @field_validator("kind")
+    def _kind_not_invalid(cls, v: str) -> str:
+        v = v.strip()
+        if v not in {"base", "react"}:
+            raise ValueError(f"node kind must be 'base' or 'react', got '{v}'")
+        return v
 
     @field_validator("id")
     def _id_not_empty(cls, v: str) -> str:

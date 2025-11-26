@@ -63,7 +63,6 @@ export async function exportChatAsPDF(chatId: string, chatTitle: string = 'Chat 
     yPosition += 8
 
     // Process each message
-    // Process each message
     for (let i = 0; i < msgs.length; i++) {
       const msg = msgs[i]
       const content = stripEmojis(msg.content || '')

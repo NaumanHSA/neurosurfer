@@ -14,11 +14,56 @@ from .step_context import TraceStepContext
 
 logger = logging.getLogger("neurosurfer.tracing.tracer")
 RICH_LOG_TYPES_MAPPING = {
-    "info": "[bold green]INFO: {message}[/bold green]",
-    "warning": "[bold yellow]WARNING: {message}[/bold yellow]",
-    "error": "[bold red]ERROR: {message}[/bold red]",
-    "debug": "[bold blue]DEBUG: {message}[/bold blue]",
+    # Core levels
+    "info":     "[bold green]INFO: {message}[/bold green]",
+    "warning":  "[bold yellow]WARNING: {message}[/bold yellow]",
+    "error":    "[bold red]ERROR: {message}[/bold red]",
+    "debug":    "[bold blue]DEBUG: {message}[/bold blue]",
+
+    # Success / ok / done
+    "success":  "[bold bright_green]SUCCESS: {message}[/bold bright_green]",
+    "ok":       "[bright_green]OK: {message}[/bright_green]",
+
+    # Trace / very low-level stuff (soft gray/white)
+    "trace":    "[dim bright_black]TRACE: {message}[/dim bright_black]",
+    "verbose":  "[dim grey50]VERBOSE: {message}[/dim grey50]",
+
+    # White / neutral
+    "neutral":  "[white]{message}[/white]",
+    "white":    "[white]{message}[/white]",
+    "whiteb":    "[bold white]{message}[/bold white]",
+
+    # Grey variants
+    "grey":         "[grey50]{message}[/grey50]",
+    "gray":         "[grey50]{message}[/grey50]",
+    "dim":          "[dim]{message}[/dim]",
+    "muted":        "[dim bright_black]{message}[/dim bright_black]",
+
+    # Orange / amber / highlight-ish
+    "orange":       "[bold orange1]ORANGE: {message}[/bold orange1]",
+    "orange_soft":  "[orange1]{message}[/orange1]",
+    "amber":        "[dark_orange3]AMBER: {message}[/dark_orange3]",
+
+    # Magenta / purple
+    "magenta":  "[bold magenta]{message}[/bold magenta]",
+    "purple":   "[bold medium_purple4]{message}[/bold medium_purple4]",
+
+    # Cyan / teal
+    "cyan":     "[bold cyan]{message}[/bold cyan]",
+    "teal":     "[bright_cyan]{message}[/bright_cyan]",
+
+    # Special semantic types for agent stuff (optional, but nice)
+    "thought":      "[italic bright_black]{message}[/italic bright_black]",
+    "action":       "[bold blue]Action: {message}[/bold blue]",
+    "observation":  "[bold cyan]Observation: {message}[/bold cyan]",
+    "tool":         "[bold magenta]TOOL: {message}[/bold magenta]",
+    "prompt":       "[dim grey50]PROMPT: {message}[/dim grey50]",
+    "meta":         "[dim]META: {message}[/dim]",
+
+    # Critical / panic
+    "critical": "[bold white on red]CRITICAL: {message}[/bold white on red]",
 }
+
 
 class _NoOpStepContext:
     """
@@ -129,6 +174,7 @@ class Tracer:
 
         self._counter: int = 0
         self._depth: int = 0
+        self._stream_started: set[int] = set()
 
 
     # ------------------------------------------------------------------
@@ -155,6 +201,7 @@ class Tracer:
         """
         Structured tracing results for this run.
         """
+        self._result.steps = sorted(self._result.steps, key=lambda s: s.step_id)
         return self._result
 
     # ------------------------------------------------------------------
@@ -225,37 +272,134 @@ class Tracer:
             return NullSpanTracer().span(name, attrs)
         return self._span_tracer.span(name, attrs)
 
-    def _log_line(self, *, step_id: int, indent_level: int, message: str, type: Optional[str] = None) -> None:
+    def _log_line(
+        self,
+        *,
+        step_id: int,
+        indent_level: int,
+        message: str,
+        type: Optional[str] = None,
+        type_keyword: bool = True,
+        stream: bool = False,
+    ) -> None:
         """
         Emit a single inline log line for a step, at the correct indentation.
         Respects `log_steps` and uses the underlying span backend (rich/logger/print).
+
+        - Non-stream (default): line-based logging with indentation and per-type formatting.
+        - Stream=True: append chunks inline on a single indented line for this step_id,
+        keeping indentation and colors even when message contains '\\n'.
         """
         if not self.config.log_steps:
             return
+        
+        if type not in RICH_LOG_TYPES_MAPPING:
+            type = "neutral"
 
         indent = " " * (indent_level * 4)
-        line = f"{indent}    {RICH_LOG_TYPES_MAPPING[type].format(message=message)}"
+        prefix = indent + "    "
+
+        # ---------- STREAMING MODE ----------
+        if stream:
+            # lazy init state for streaming steps
+            if not hasattr(self, "_stream_started"):
+                self._stream_started: set[int] = set()
+            if not hasattr(self, "_stream_at_line_start"):
+                # True means "next char will be at the beginning of a logical line"
+                self._stream_at_line_start: Dict[int, bool] = {}
+
+            # pick formatter (colors / style)
+            fmt = RICH_LOG_TYPES_MAPPING.get(type or "info", "{message}")
+            if not type_keyword:
+                # strip "DEBUG: " / "ERROR: " etc if present in format
+                token = f"{(type or '').upper()}: "
+                fmt = fmt.replace(token, "")
+
+            # Try to use Rich console if available
+            st = self._span_tracer
+            console = None
+            try:
+                from rich.console import Console  # type: ignore
+                console = getattr(st, "console", None)
+                if not isinstance(console, Console):
+                    console = None
+            except Exception:
+                console = None
+
+            # split by lines but keep line breaks so we can re-indent after '\n'
+            pieces = message.splitlines(keepends=True) or [""]
+
+            # Initialize per-step state
+            if step_id not in self._stream_started:
+                self._stream_started.add(step_id)
+                self._stream_at_line_start[step_id] = True
+
+            def _write(text: str, end: str = ""):
+                # Unified low-level writer for streaming
+                if console is not None:
+                    console.print(text, end=end, soft_wrap=False)
+                else:
+                    # don't use logger here; it always adds newlines
+                    print(text, end=end, flush=True)
+
+            # Walk through all pieces, respecting '\n' and line starts
+            # pieces.append("\n\n")
+            for piece in pieces:
+                if piece == "":
+                    continue
+
+                has_newline = piece.endswith("\n")
+                chunk = piece[:-1] if has_newline else piece
+
+                # At the beginning of a logical line? Then print indent first.
+                if self._stream_at_line_start.get(step_id, True):
+                    _write(prefix)
+                    self._stream_at_line_start[step_id] = False
+
+                # Apply formatting (colors etc.)
+                formatted = fmt.format(message=chunk)
+                _write(formatted, end="")
+
+                if has_newline:
+                    # Finish this line and mark that next char is a new line
+                    _write("\n")
+                    self._stream_at_line_start[step_id] = True
+            return
+
+        # ---------- NON-STREAM MODE (line-based) ----------
+        raw_lines = message.splitlines() or [""]
+        fmt = RICH_LOG_TYPES_MAPPING.get(type or "info", "{message}")
+        if not type_keyword:
+            token = f"{(type or '').upper()}: "
+            fmt = fmt.replace(token, "")
+
+        formatted_lines = [
+            prefix + fmt.format(message=line)
+            for line in raw_lines
+        ]
+
         st = self._span_tracer
         try:
-            from rich.console import Console
-            # RichTracer-style
+            from rich.console import Console  # type: ignore
             console: Optional[Console] = getattr(st, "console", None)
             if console is not None:
-                console.print(line)
+                for line in formatted_lines:
+                    console.print(line)
                 return
 
-            # LoggerTracer-style
             logger_obj = getattr(st, "logger", None)
             if logger_obj is not None:
-                logger_obj.info(line)
+                for line in formatted_lines:
+                    logger_obj.info(line)
                 return
 
-            # Fallback: plain print
-            print(line)
+            for line in formatted_lines:
+                print(line)
         except Exception:
-            # Last-resort fallback, shouldn't really happen
-            print(line)
-            
+            for line in formatted_lines:
+                print(line)
+
+                
     def reset(self):
         self._result = TraceResult(meta=self._meta)  # single shared instance
         self._counter = 0

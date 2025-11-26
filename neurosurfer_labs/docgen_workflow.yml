@@ -70,19 +70,19 @@ nodes:
       max_new_tokens: 16000
       temperature: 0.7
 
-  # # 4) Generate per-page content
-  # - id: generate_pages
-  #   depends_on: ["plan_docs"]
-  #   purpose: >
-  #     Generate or refresh markdown pages according to the DocPlan.
-  #   goal: >
-  #     For each DocPageSpec, use RAG over code and existing docs to
-  #     produce a high-quality markdown page, then write it to disk.
-  #   expected_result: >
-  #     A summary of pages written (paths, titles, types).
-  #   tools: ["code_search", "file_write"]
-  #   mode: structured
-  #   export: true
+  # 4) Generate per-page content
+  - id: generate_pages
+    depends_on: ["plan_docs"]
+    purpose: >
+      Generate or refresh markdown pages according to the DocPlan.
+    goal: >
+      For each DocPageSpec, use RAG over code and existing docs to
+      produce a high-quality markdown page, then write it to disk.
+    expected_result: >
+      A summary of pages written (paths, titles, types).
+    tools: ["code_search", "file_write"]
+    mode: structured
+    export: true
 
   # # 5) Build mkdocs nav
   # - id: build_mkdocs_nav
@@ -101,5 +101,5 @@ nodes:
 
 outputs:
   - plan_docs
-  # - generate_pages
+  - generate_pages
   # - build_mkdocs_nav

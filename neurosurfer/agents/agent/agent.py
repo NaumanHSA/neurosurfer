@@ -78,7 +78,6 @@ class Agent:
         *,
         config: Optional[AgentConfig] = None,
         logger: logging.Logger = logging.getLogger(__name__),
-        verbose: bool = False,
         tracer: Optional[Tracer] = None,
         log_traces: Optional[bool] = True,
     ):
@@ -87,7 +86,6 @@ class Agent:
         self.toolkit = toolkit
         self.config = config or AgentConfig()
         self.logger = logger
-        self.verbose = verbose
         self.log_traces = log_traces
 
         if self.llm is None:
@@ -102,7 +100,6 @@ class Agent:
                 "agent_config": self.config,
                 "model": self.llm.model_name,
                 "toolkit": toolkit is not None,
-                "verbose": verbose,
                 "log_steps": self.log_traces,
             },
             logger_=logger,
@@ -555,9 +552,9 @@ class Agent:
                     type="info",
                 )
                 return self._tool_call_response(
-                    selected_tool=tool_name,
-                    inputs=checked,
-                    returns=tool_return,
+                    tool_name=tool_name,
+                    tool_inputs=checked,
+                    tool_return=tool_return,
                     final=bool(tool_response.final_answer),
                     extras=extras,
                 )
@@ -614,7 +611,8 @@ class Agent:
         tool_inputs: Dict[str, Any] = {}, 
         tool_return: Any = "", 
         final: bool = False, 
-        extras: Dict[str, Any] = {}) -> ToolCallResponse:
+        extras: Dict[str, Any] = {}
+        ) -> ToolCallResponse:
         return ToolCallResponse(
             selected_tool=tool_name,
             inputs=tool_inputs,
