@@ -8,13 +8,13 @@ from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.base_tool import ToolResponse
 
+from ..common import AgentMemory
 from ..common.utils import normalize_response, rprint
 from .base import BaseAgent
 from .parser import ToolCallParser
 from .types import ToolCall, ReactAgentResponse
 from .exceptions import ToolCallParseError, ToolExecutionError
 from .history import History
-from .memory import EphemeralMemory
 from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT
 from .config import ReActConfig
 
@@ -68,7 +68,7 @@ class ReActAgent(BaseAgent):
             logger_=logger,
         )
         self.parser = ToolCallParser()
-        self.memory = EphemeralMemory()
+        self.memory = AgentMemory()
         self.raw_results = ""
         self.schema_context = ""  # keep if you want to inject schemas
         self._last_error: Optional[str] = None
@@ -434,12 +434,11 @@ class ReActAgent(BaseAgent):
         while attempts <= self.config.retry.max_tool_errors:
             try:
                 tool_tracer.log(f"[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {str(tool_call.inputs)[:150]}...", type="info")
-                all_inputs = {**tool_call.inputs, **self.memory.items()}
+                mem_snapshot = self.memory.snapshot_for_tool()
+                all_inputs = {**tool_call.inputs, **mem_snapshot.as_flat_dict()}
                 tool_response: ToolResponse = tool(**all_inputs)
-                self.memory.clear()
-                # write extras to memory for next step
-                for k, v in tool_response.extras.items():
-                    self.memory.set(k, v)
+                self.memory.clear_ephemeral()
+                self.memory.update_from_extras(tool_response.extras, scope="ephemeral")
                 return tool_response
 
             except Exception as e:

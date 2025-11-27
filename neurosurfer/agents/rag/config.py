@@ -18,12 +18,20 @@ class RetrieveResult:
 
 
 RetrievalScope = Literal["small", "medium", "wide", "full"]
+AnswerBreadth = Literal["single_fact", "short_list", "long_list", "aggregation", "summary"]
 RetrievalMode = Literal["classic", "smart"]
-RetrievalScopeToTopK: Dict[str, int] = {
+RETRIEVAL_SCOPE_BASE_K: Dict[str, int] = {
     "small": 5,
     "medium": 10,
     "wide": 20,
     "full": 40,
+}
+ANSWER_BREADTH_MULTIPLIER: Dict[str, int] = {
+    "single_fact": 1,
+    "short_list": 2,
+    "long_list": 4,
+    "aggregation": 3,
+    "summary": 3,
 }
 
 @dataclass
@@ -37,8 +45,8 @@ class RetrievalPlan:
     """
     mode: RetrievalMode = "classic"
     scope: Optional[RetrievalScope] = None
+    answer_breadth: Optional[AnswerBreadth] = None
     top_k: Optional[int] = None
-    neighbor_hops: int = 0
     notes: Optional[str] = None
     extra: Dict[str, Any] = None
 

@@ -19,6 +19,7 @@ For each user query, you must:
 1. Decide whether the question requires document-based retrieval ("rag": true/false).
 2. Identify which uploaded files (if any) are relevant ("related_files": [...] exact names).
 3. Decide the retrieval scope ("retrieval_scope": "small" | "medium" | "wide" | "full").
+4. Decide the answer breadth ("answer_breadth": "single_fact" | "short_list" | "long_list" | "aggregation" | "summary").
 
 You are given:
 - The user's current query.
@@ -30,7 +31,8 @@ You MUST output a single JSON object with the following structure:
 {
   "rag": true | false,
   "related_files": ["file-A.ext", "file-B.ext"],
-  "retrieval_scope": "small" | "medium" | "wide" | "full"
+  "retrieval_scope": "small" | "medium" | "wide" | "full",
+  "answer_breadth": "single_fact" | "short_list" | "long_list" | "aggregation" | "summary"
 }
 
 Rules for deciding rag:
@@ -51,6 +53,13 @@ Rules for retrieval_scope:
 - medium: the question spans multiple concepts or sections but not the entire file.
 - wide: the question requires broad coverage, comparisons, or multiple far-apart sections.
 - full: the question requires full-file understanding, full summary, or complete content.
+
+Guidelines for answer_breadth:
+- single_fact: the answer is a single fact or definition.
+- short_list: the answer is a small list (e.g. up to ~10 items).
+- long_list: the answer is a large list or many rows.
+- aggregation: the answer is a statistic or aggregate (count, average, distribution).
+- summary: the answer is a summary of an entire file or multiple files.
 
 Important:
 - Output ONLY valid JSON.
@@ -105,6 +114,7 @@ class RAGGate:
                     optimized_query=user_query,
                     related_files=[f.filename for f in message_files],
                     retrieval_scope="medium",
+                    answer_breadth="single_fact",
                     reason="no_gate_llm_has_message_files",
                 )
             else:
@@ -114,6 +124,7 @@ class RAGGate:
                     optimized_query=user_query,
                     related_files=[],
                     retrieval_scope="medium",
+                    answer_breadth="single_fact",
                     reason="no_gate_llm_no_files",
                 )
 
@@ -135,6 +146,7 @@ class RAGGate:
                 optimized_query=user_query,
                 related_files=[],
                 retrieval_scope="medium",
+                answer_breadth="single_fact",
                 reason="no_files_for_thread",
             )
 
@@ -147,14 +159,15 @@ class RAGGate:
 
         # If we have ONLY attached files and nothing else in the thread,
         # we don't need the gate LLM: just use them.
-        if attached_files and not older_files:
-            return GateDecision(
-                rag=True,
-                optimized_query=user_query,
-                related_files=attached_names,
-                retrieval_scope="medium",
-                reason="only_attached_files",
-            )
+        # if attached_files and not older_files:
+        #     return GateDecision(
+        #         rag=True,
+        #         optimized_query=user_query,
+        #         related_files=attached_names,
+        #         retrieval_scope="medium",
+        #         answer_breadth="single_fact",
+        #         reason="only_attached_files",
+        #     )
 
         # Build the files block for the LLM:
         # we include BOTH attached and older files, marking which are attached now.
@@ -203,6 +216,7 @@ class RAGGate:
                     optimized_query=user_query,
                     related_files=attached_names,
                     retrieval_scope="medium",
+                    answer_breadth="single_fact",
                     reason="gate_llm_error_with_attached_files",
                 )
             return GateDecision(
@@ -210,15 +224,16 @@ class RAGGate:
                 optimized_query=user_query,
                 related_files=[],
                 retrieval_scope="medium",
+                answer_breadth="single_fact",
                 reason="gate_llm_error_no_attached_files",
             )
-
         try:
             gate_obj = extract_and_repair_json(raw_text)
             self.logger.info(f"GATE DECISION -------------- {gate_obj}")
             gate_rag = bool(gate_obj.get("rag", False))
             gate_related = list(gate_obj.get("related_files") or [])
             scope = gate_obj.get("retrieval_scope", "medium")
+            answer_breadth = gate_obj.get("answer_breadth", "single_fact")
 
             # Final related_files = attached_files UNION gate-selected files
             final_related = sorted(set(attached_names) | set(gate_related))
@@ -234,9 +249,11 @@ class RAGGate:
                 related_files=final_related,
                 optimized_query=user_query,
                 retrieval_scope=scope,
+                answer_breadth=answer_breadth,
                 raw_response=raw_text,
             )
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Failed to parse gate response: {raw_text}")
             # If JSON parsing fails, still fall back gracefully.
             if attached_files:
                 return GateDecision(
@@ -244,6 +261,7 @@ class RAGGate:
                     related_files=attached_names,
                     optimized_query=user_query,
                     retrieval_scope="medium",
+                    answer_breadth="single_fact",
                     raw_response=raw_text,
                     reason="json_parse_error_with_attached_files",
                 )
@@ -252,6 +270,7 @@ class RAGGate:
                 related_files=[],
                 optimized_query=user_query,
                 retrieval_scope="medium",
+                answer_breadth="single_fact",
                 raw_response=raw_text,
                 reason="json_parse_error_no_attached_files",
             )

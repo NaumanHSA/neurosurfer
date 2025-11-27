@@ -7,6 +7,7 @@ import threading
 import re
 from typing import Any, Dict, Generator, List, Optional, Tuple
 from threading import RLock
+from jinja2.exceptions import TemplateError
 
 import torch
 from transformers import (
@@ -230,12 +231,44 @@ class TransformersModel(BaseChatModel):
         if "qwen3" in self.model_name.lower() and not self.enable_thinking:
             system_prompt = (system_prompt or "") + "/nothink"
 
-        messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
-        messages.extend(chat_history or [])
-        messages.append({"role": "user", "content": user_prompt})
-
-        return self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
+        # Normalize conversation for strict templates
+        system_prompt, normalized_history = self._normalize_for_chat_template(
+            system_prompt=system_prompt,
+            chat_history=chat_history or [],
+            user_prompt=user_prompt,
         )
+
+        messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+        messages.extend(normalized_history)
+
+        try:
+            return self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except TemplateError as e:
+            # Log and fall back to a simple text format
+            self.logger.warning(
+                "Chat template failed (%s). Falling back to plain prompt formatting.",
+                e,
+            )
+            return self._fallback_plain_prompt(system_prompt, normalized_history)
+
+    def _fallback_plain_prompt(
+        self,
+        system_prompt: Optional[str],
+        messages: List[Dict[str, str]],
+    ) -> str:
+        parts = []
+        if system_prompt:
+            parts.append(f"[SYSTEM]\n{system_prompt}\n")
+
+        for m in messages:
+            role = m.get("role", "user").upper()
+            content = m.get("content", "")
+            parts.append(f"[{role}]\n{content}\n")
+
+        # End with an assistant cue
+        parts.append("[ASSISTANT]\n")
+        return "\n".join(parts)

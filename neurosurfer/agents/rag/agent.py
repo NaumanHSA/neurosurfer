@@ -21,7 +21,9 @@ from .config import (
     RetrievalPlan, 
     RetrievalScope, 
     RetrievalMode, 
-    RetrievalScopeToTopK
+    AnswerBreadth,
+    RETRIEVAL_SCOPE_BASE_K,
+    ANSWER_BREADTH_MULTIPLIER,
 )
 from .token_utils import TokenCounter
 from .context_builder import ContextBuilder
@@ -87,7 +89,7 @@ class RAGAgent:
         self.file_reader = file_reader or FileReader()
         self.chunker = chunker or Chunker()
 
-        self.tokens = TokenCounter(llm, chars_per_token=self.cfg.approx_chars_per_token)
+        self.tokens = TokenCounter(self.llm, chars_per_token=self.cfg.approx_chars_per_token)
         self.ctx = ContextBuilder(
             include_metadata_in_context=self.cfg.include_metadata_in_context,
             context_separator=self.cfg.context_separator,
@@ -208,7 +210,8 @@ class RAGAgent:
         similarity_threshold: Optional[float] = None,
         retrieval_mode: RetrievalMode = "classic",       
         retrieval_scope: Optional[RetrievalScope] = None,
-        retrieval_plan: Optional[RetrievalPlan] = None,  
+        retrieval_plan: Optional[RetrievalPlan] = None,
+        answer_breadth: Optional[AnswerBreadth] = None,
     ) -> RetrieveResult:
         """
         Public interface for retrieving documents from the vectorstore.
@@ -234,6 +237,9 @@ class RAGAgent:
         if retrieval_plan is not None and not isinstance(retrieval_plan, RetrievalPlan):
             raise ValueError("Retrieval plan must be an instance of RetrievalPlan")
 
+        if answer_breadth is not None and answer_breadth not in get_args(AnswerBreadth):
+            raise ValueError(f"Answer breadth must be one of: {get_args(AnswerBreadth)}")
+
         # --- Decide the plan ---
         if retrieval_plan is not None:
             plan = retrieval_plan
@@ -241,25 +247,25 @@ class RAGAgent:
             plan = RetrievalPlan(
                 mode="classic",
                 scope=None,
+                answer_breadth=None,
                 top_k=top_k or self.cfg.top_k,
-                neighbor_hops=0,
             )
         else:
             # smart mode
             if retrieval_scope is not None:
                 # map scope -> default top_k if caller didn't provide one
-                default_k = RetrievalScopeToTopK.get(retrieval_scope, top_k or self.cfg.top_k)
+                default_k = self._compute_top_k(retrieval_scope, answer_breadth, max_top_k=50)
                 plan = RetrievalPlan(
                     mode="smart",
                     scope=retrieval_scope,
+                    answer_breadth=answer_breadth,
                     top_k=default_k,
-                    neighbor_hops=1 if retrieval_scope in ("medium", "wide") else 0,
                 )
             else:
                 # let the agent plan using router_llm
                 plan = self._plan_retrieval(user_query)
-
-        print("------------------", plan)
+        
+        self.logger.info(f"[RAGAgent.retrieve] Retrieval plan: {plan}")
         # Embed the query and retrieve documents based on the plan
         query_vec = self.embedder.embed(query=user_query, normalize_embeddings=self.cfg.normalize_embeddings)
         raw = self.vectorstore.similarity_search(
@@ -269,13 +275,17 @@ class RAGAgent:
             similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
         )
         docs, distances = self._unpack_results(raw)
+        self.logger.info(f"[RAGAgent.retrieve] Retrieved {len(docs)} documents")
 
         # Build + trim (only context, using a buffer for prompts/history)
         untrimmed_context = self.ctx.build(docs)
+        self.logger.info(f"[RAGAgent.retrieve] Untrimmed context: {len(untrimmed_context)} chars")
         trim = self._trim_context_by_token_limit(
             db_context=untrimmed_context,
             reserved_prompt_tokens=getattr(self.cfg, "prompt_token_buffer", 500),
         )
+        self.logger.info(f"[RAGAgent.retrieve] Trimmed context: {len(trim.trimmed_context)} chars")
+
         return RetrieveResult(
             context=trim.trimmed_context,
             max_new_tokens=trim.final_max_new_tokens,
@@ -365,12 +375,12 @@ class RAGAgent:
             return RetrievalPlan(
                 mode="smart",
                 scope="medium",
+                answer_breadth="single_fact",
                 top_k=self.cfg.top_k,
-                neighbor_hops=0,
             )
         user_prompt = (
             f"User query:\n{user_query}\n"
-            "Decide the retrieval scope and top_k for this question."
+            "Decide the retrieval scope and answer breadth for this question."
             "Remember: respond ONLY with a JSON object."
         )
         try:
@@ -381,17 +391,17 @@ class RAGAgent:
                 temperature=0.2,
                 stream=False,
             ).choices[0].message.content
+
             obj = extract_and_repair_json(content, return_dict=True)
             scope = obj.get("scope", "medium")
-            top_k = obj.get("top_k") or self.cfg.top_k
-            neighbor_hops = int(obj.get("neighbor_hops", 0))
+            answer_breadth = obj.get("answer_breadth", "single_fact")
 
+            top_k = self._compute_top_k(scope, answer_breadth)
             return RetrievalPlan(
                 mode="smart",
                 scope=scope,
-                top_k=int(top_k),
-                neighbor_hops=neighbor_hops,
-                extra=obj,
+                answer_breadth=answer_breadth,
+                top_k=top_k,
             )
         except Exception:
             # Be robust: fall back to something sane
@@ -399,10 +409,16 @@ class RAGAgent:
             return RetrievalPlan(
                 mode="smart",
                 scope="medium",
+                answer_breadth="single_fact",
                 top_k=self.cfg.top_k,
-                neighbor_hops=0,
             )
 
+    def _compute_top_k(self, scope: str, breadth: str, max_top_k: int = 50) -> int:
+        base_k = RETRIEVAL_SCOPE_BASE_K.get(scope, 10)
+        mult = ANSWER_BREADTH_MULTIPLIER.get(breadth, 1)
+        k = base_k * mult
+        return min(k, max_top_k)
+        
     # ---------- Internals ----------
     def _trim_context_by_token_limit(
         self,

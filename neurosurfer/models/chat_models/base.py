@@ -427,3 +427,84 @@ class BaseChatModel(ABC):
     def silent(self):
         if self.logger:
             self.logger.disabled = True
+
+
+    def _normalize_for_chat_template(
+        self,
+        system_prompt: Optional[str],
+        chat_history: List[dict],
+        user_prompt: str,
+    ) -> Tuple[Optional[str], List[Dict[str, str]]]:
+        """
+        Make the conversation safe for strict chat templates:
+
+        - Merge any system messages from history into the main system_prompt.
+        - Drop or map unsupported roles (tool/function/etc.).
+        - Enforce user/assistant alternation as best as possible.
+        - Avoid double 'user' at the end when we append user_prompt.
+        """
+
+        # 1) Merge extra system messages from history into system_prompt
+        extra_system_parts = [
+            (m.get("content") or "")
+            for m in chat_history
+            if m.get("role") == "system" and m.get("content")
+        ]
+        if extra_system_parts:
+            merged = "\n\n".join(extra_system_parts)
+            if system_prompt:
+                system_prompt = f"{system_prompt}\n\n{merged}"
+            else:
+                system_prompt = merged
+
+        # 2) Filter / map roles to only 'user' and 'assistant'
+        filtered: List[Dict[str, str]] = []
+        for m in chat_history:
+            role = m.get("role")
+            content = m.get("content") or ""
+            if not content:
+                continue
+
+            if role in ("user", "assistant"):
+                filtered.append({"role": role, "content": content})
+            elif role in ("tool", "function"):
+                # Treat tool outputs as assistant text (common pattern)
+                filtered.append({"role": "assistant", "content": content})
+            # else: drop unknown roles
+
+        # 3) Enforce alternation user/assistant/user/assistant/...
+        normalized: List[Dict[str, str]] = []
+        expected_role = "user"
+
+        for m in filtered:
+            role = m["role"]
+            content = m["content"]
+
+            if not normalized:
+                # First non-system message must be user; if not, coerce.
+                if role != "user":
+                    role = "user"
+                normalized.append({"role": role, "content": content})
+                expected_role = "assistant"
+                continue
+
+            # For subsequent messages, either match expected role or merge
+            if role == expected_role:
+                normalized.append({"role": role, "content": content})
+                expected_role = "user" if expected_role == "assistant" else "assistant"
+            else:
+                # Same role twice in a row → merge into previous message
+                normalized[-1]["content"] += "\n\n" + content
+                # expected_role stays as-is
+
+        # 4) Append current user prompt safely
+        user_prompt = user_prompt or ""
+        if user_prompt:
+            if normalized and normalized[-1]["role"] == "user":
+                # Avoid user/user; merge
+                normalized[-1]["content"] += "\n\n" + user_prompt
+            else:
+                normalized.append({"role": "user", "content": user_prompt})
+
+        return system_prompt, normalized
+        

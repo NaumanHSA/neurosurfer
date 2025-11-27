@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -48,7 +48,8 @@ class RAGOrchestrator:
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.logger = logger or LOGGER
-        self.verbose = verbose
+        # self.verbose = verbose
+        self.verbose = True
         self.persist_directory = os.path.join(APP_DATA_PATH, "rag-storage")
         os.makedirs(self.persist_directory, exist_ok=True)
         # Core RAG agent (no LLM here; main LLM lives in chat handler)
@@ -85,15 +86,15 @@ class RAGOrchestrator:
         )
         self.top_k = top_k
 
+
     # -------- public API --------
-    def apply(
+    def retrieve(
         self,
         *,
         user_id: int,
         thread_id: int,
         user_query: str,
-        message_id: int,
-        has_files_message: bool = False,
+        files: List[Dict[str, Any]],
     ) -> RAGResult:
         """
         Main entry point.
@@ -111,38 +112,6 @@ class RAGOrchestrator:
 
         # db: SQLAlchemy Session (injected from FastAPI)
         db = SessionLocal()
-        # Ingest files if provided
-        files = []
-        if has_files_message and message_id:
-            files = (
-                db.query(NSFile)
-                .filter(
-                    NSFile.user_id == user_id,
-                    NSFile.thread_id == thread_id,
-                    NSFile.message_id == message_id,
-                    NSFile.collection == collection_name,
-                    NSFile.ingested == False,
-                )
-                .all()
-            )
-            if files:
-                if self.verbose:
-                    self.logger.info(f"Ingesting files for thread {user_id}/{thread_id}, num files: {len(files)}")
-
-                summaries = self.ingestion.ingest_files(
-                    db,
-                    user_id=user_id,
-                    thread_id=thread_id,
-                    collection_name=collection_name,
-                    files=files,
-                )
-                if self.verbose:
-                    self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
-                    if summaries:
-                        self.logger.info(f"Ingested files summaries:")
-                        for summary in summaries:
-                            self.logger.info(summary)
-
         # Check if this thread has files
         has_files_thread = (
             db.query(NSFile)
@@ -189,6 +158,8 @@ class RAGOrchestrator:
             self.logger.info(f"Metadata filter: {metadata_filter}")
             self.logger.info(f"Optimized query: {decision.optimized_query}")
             self.logger.info(f"Retrieval scope: {decision.retrieval_scope}")
+            self.logger.info(f"Answer breadth: {decision.answer_breadth}")
+            self.logger.info(f"Gate reason: {decision.reason}")
 
         # Retrieve context
         retrieved = self.rag_agent.retrieve(
@@ -198,9 +169,10 @@ class RAGOrchestrator:
             similarity_threshold=None,
             retrieval_mode="smart",
             retrieval_scope=decision.retrieval_scope,
+            answer_breadth=decision.answer_breadth,
         )
         ctx_text = (retrieved.context or "").strip()
-
+        
         if self.verbose:
             self.logger.info(f"User Query: {decision.optimized_query}")
             self.logger.info(f"Documents in collection: {self.rag_agent._get_collection_docs_count()}")
@@ -228,6 +200,96 @@ class RAGOrchestrator:
                 "reason": "ok",
                 "gate": decision.__dict__,
             },
+        )
+
+
+    # -------- public API --------
+    def ingest(
+        self,
+        *,
+        user_id: int,
+        thread_id: int,
+        message_id: int,
+        has_files_message: bool = False,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Main entry point.
+        - user_id, thread_id: scope for both SQL and vectorstore collection
+        - message_id: latest user message text
+        - has_files_message: whether the message contains files
+        """
+        summaries, files = [], []
+        if not user_id or not thread_id:
+            return summaries, files
+        
+        # switch the path to the user's thread
+        self._set_path(user_id, thread_id)
+        collection_name = self._collection_for(user_id, thread_id)
+        self.rag_agent.set_collection(collection_name)
+
+        # db: SQLAlchemy Session (injected from FastAPI)
+        db = SessionLocal()
+        # Ingest files if provided
+        if has_files_message and message_id:
+            files = (
+                db.query(NSFile)
+                .filter(
+                    NSFile.user_id == user_id,
+                    NSFile.thread_id == thread_id,
+                    NSFile.message_id == message_id,
+                    NSFile.collection == collection_name,
+                    NSFile.ingested == False,
+                )
+                .all()
+            )
+            if files:
+                if self.verbose:
+                    self.logger.info(f"Ingesting files for thread {user_id}/{thread_id}, num files: {len(files)}")
+
+                summaries = self.ingestion.ingest_files(
+                    db,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    collection_name=collection_name,
+                    files=files,
+                )
+                if self.verbose:
+                    self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
+                    if summaries:
+                        self.logger.info(f"Ingested files summaries:")
+                        for summary in summaries:
+                            self.logger.info(summary)
+        return summaries, files
+        
+    # -------- public API --------
+    def apply(
+        self,
+        *,
+        user_id: int,
+        thread_id: int,
+        user_query: str,
+        message_id: int,
+        has_files_message: bool = False,
+    ) -> RAGResult:
+        """
+        Main entry point.
+        - user_id, thread_id: scope for both SQL and vectorstore collection
+        - user_query: latest user message text
+        - files: base64-encoded upload metadata from request (if any)
+        """
+        # ingest files if any
+        summaries, files = self.ingest(
+            user_id=user_id,
+            thread_id=thread_id,
+            message_id=message_id,
+            has_files_message=has_files_message,
+        )
+        # retrieve context based on the user query
+        return self.retrieve(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_query=user_query,
+            files=files,
         )
 
     # -------- internals --------

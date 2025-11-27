@@ -14,8 +14,11 @@ from pydantic import BaseModel
 from neurosurfer.models.chat_models import BaseChatModel
 from neurosurfer.models.embedders import BaseEmbedder
 from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
+from neurosurfer.agents.react import ReActAgent, ReActConfig
+from neurosurfer.tools import Toolkit
+from neurosurfer.tools.code_execution.python_exec_tool import PythonExecTool
 
-from .services.rag import RAGOrchestrator, GateDecision, RAGResult 
+from .services.rag import RAGOrchestrator, GateDecision, RAGResult, RAGRetrieveTool
 from .runtime import RequestContext
 from .schemas import ModelList, AppResponseModel, ChatHandlerModel
 from .security import get_current_user, get_db
@@ -138,6 +141,8 @@ class NeurosurferApp:
         self._llm: Optional[BaseChatModel] = None
         self._embedder: Optional[BaseEmbedder] = SentenceTransformerEmbedder(model_name="intfloat/e5-large-v2", logger=self.logger)
         self._rag_orchestrator: Optional[RAGOrchestrator] = None
+        self._agent: Optional[ReActAgent] = None
+        self._toolkit: Optional[Toolkit] = None
         self._default_top_k: int = 10
         self.logger.info("Default embedder: intfloat/e5-large-v2 successfully initialized. Replace it by calling app.register_model(model: BaseEmbedder)")
 
@@ -190,6 +195,26 @@ class NeurosurferApp:
         self.main_router = APIRouter()
         # ---------------- Auth & Chats (DB-backed) ----------------
 
+    def _init_agent(self):
+        self._toolkit = Toolkit(
+            tools=[
+                PythonExecTool(llm=self._llm, logger=self.logger),
+                RAGRetrieveTool(rag_orchestrator=self._rag_orchestrator, logger=self.logger)
+            ]
+        )
+        self._agent = ReActAgent(
+            id="MainChatAgent",
+            llm=self._llm,
+            toolkit=self._toolkit,
+            specific_instructions="",
+            logger=self.logger,
+            config=ReActConfig()
+        )
+        # self._agent.memory.set_persistent("user_id", args.user_id)
+        # self._agent.memory.set_persistent("thread_id", args.thread_id)
+        # self._agent.memory.set_persistent("files_context", files_ctx)
+        # self._agent.memory.set_persistent("workdir", code_workdir)
+        
     def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):
         self._rag_orchestrator = RAGOrchestrator(
             embedder=embedder,
@@ -212,6 +237,7 @@ class NeurosurferApp:
 
         if self._embedder and self._llm:
             self._init_rag(self._embedder, self._llm)
+            self._init_agent()
             self.logger.info("RAG service successfully initialized...")
     
     def get_model(self, model_name: str):

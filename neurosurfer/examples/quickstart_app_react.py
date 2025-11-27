@@ -39,15 +39,15 @@ Usage:
 from typing import List, Generator
 import os, shutil, logging
 
-from neurosurfer.models.embedders import BaseEmbedder
-from neurosurfer.models.chat_models import BaseChatModel
-from neurosurfer.agents.rag.chunker import Chunker
-from neurosurfer.agents.rag.filereader import FileReader
-
+from neurosurfer.agents.react import ReActAgent, ReActConfig
 from neurosurfer.server.app import NeurosurferApp
 from neurosurfer.server.schemas import ChatHandlerModel, ChatHandlerMessages, AppResponseModel
 from neurosurfer.server.runtime import RequestContext
 from neurosurfer.server.services.rag import RAGResult
+
+from neurosurfer.tools import Toolkit
+from neurosurfer.tools.code_execution.python_exec_tool import PythonExecTool
+from neurosurfer.server.services.rag.rag_retrieve_tool import RAGRetrieveTool
 
 from neurosurfer.config import config
 from neurosurfer import CACHE_DIR
@@ -120,6 +120,22 @@ async def load_model():
         provider="Unsloth",
         description="Proxy to Llama"
     )
+    # react agent 
+    # Build ReAct agent
+    # Build toolkit
+    toolkit = Toolkit()
+    toolkit.register_tool(PythonExecTool(llm=llm, logger=LOGGER))
+    toolkit.register_tool(RAGRetrieveTool(embedder=ns._embedder, logger=LOGGER))  # you’ll create this wrapper
+
+    global react_agent
+    react_agent = ReActAgent(
+        id="MainChatAgent",
+        llm=llm,
+        toolkit=toolkit,
+        specific_instructions="",
+        logger=LOGGER,
+    )
+
     # Warmup
     joke = llm.ask(user_prompt="Say hi!", system_prompt=config.base_model.system_prompt, stream=False)
     LOGGER.info(f"LLM ready: {joke.choices[0].message.content}")
@@ -188,11 +204,29 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
         - Streaming responses are supported for real-time interaction
         - RAG context injection happens before LLM generation
     """
-    global LOGGER
+    global LOGGER, react_agent
 
     # Prepare inputs
     user_query = args.messages.user_query    # Last user message
 
+    # ingest files if any
+    ingestion_summaries = ns._rag_orchestrator.ingest(
+        user_id=args.user_id,
+        thread_id=args.thread_id,
+        message_id=args.message_id,
+        has_files_message=args.has_files_message,
+    )
+
+    final_answer = react_agent.run(
+        query=user_query,
+        stream=args.stream,
+        temperature=args.temperature,
+        max_new_tokens=args.max_tokens,
+        specific_instructions="",
+        _route_extra_instructions="",
+        reset_tracer=True,
+    )
+    
     rag_res: RAGResult = ns.apply_rag(
         user_id=args.user_id,
         thread_id=args.thread_id,
