@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Union, Generator
+from typing import Dict, Any, Optional, Union, Generator, List
 from neurosurfer.tracing import TraceResult
 
 @dataclass
@@ -7,6 +7,7 @@ class ToolCall:
     tool: str
     inputs: Dict[str, Any] = field(default_factory=dict)
     final_answer: bool = False
+    memory_keys: Optional[List[str]] = None
     # optional explanation for debug / self-repair prompts
     rationale: Optional[str] = None
 

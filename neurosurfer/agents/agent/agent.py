@@ -516,15 +516,21 @@ class Agent:
                 "stream": use_stream,
             }
             model_response = normalize_response(self.llm.ask(**llm_params))
-            return self._tool_call_response(
-                tool_return=self._yield_tool_stream(
-                    model_response, 
-                    {
-                        "temperature": llm_params.get("temperature"),
-                        "max_new_tokens": llm_params.get("max_new_tokens"),
-                        "stream": llm_params.get("stream"),
-                    }
-                ), final=True)
+            if use_stream:
+                return self._tool_call_response(
+                    tool_return=self._yield_tool_stream(
+                        model_response, 
+                        {
+                            "temperature": llm_params.get("temperature"),
+                            "max_new_tokens": llm_params.get("max_new_tokens"),
+                            "stream": llm_params.get("stream"),
+                        }
+                    ), final=True)
+            else:
+                return self._tool_call_response(
+                    tool_return=model_response,
+                    final=True
+                )
 
         # --------- 2b) TOOL EXECUTION PATH ---------
         graph_inputs = context.get("graph_inputs", {})
@@ -600,9 +606,12 @@ class Agent:
             inputs=trace_inputs,
         ) as t:
             response_ = ""
+            t.log(message="Final Answer:\n", type="info", type_keyword=False)
             for chunk in model_response:
                 response_ += chunk
                 yield chunk
+                t.stream(message=chunk, type="verbose")
+            t.log("\n", type="info", type_keyword=False)
             t.outputs(model_response=response_, model_response_len=len(response_))
 
     def _tool_call_response(

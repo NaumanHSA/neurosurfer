@@ -120,22 +120,6 @@ async def load_model():
         provider="Unsloth",
         description="Proxy to Llama"
     )
-    # react agent 
-    # Build ReAct agent
-    # Build toolkit
-    toolkit = Toolkit()
-    toolkit.register_tool(PythonExecTool(llm=llm, logger=LOGGER))
-    toolkit.register_tool(RAGRetrieveTool(embedder=ns._embedder, logger=LOGGER))  # you’ll create this wrapper
-
-    global react_agent
-    react_agent = ReActAgent(
-        id="MainChatAgent",
-        llm=llm,
-        toolkit=toolkit,
-        specific_instructions="",
-        logger=LOGGER,
-    )
-
     # Warmup
     joke = llm.ask(user_prompt="Say hi!", system_prompt=config.base_model.system_prompt, stream=False)
     LOGGER.info(f"LLM ready: {joke.choices[0].message.content}")
@@ -204,7 +188,7 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
         - Streaming responses are supported for real-time interaction
         - RAG context injection happens before LLM generation
     """
-    global LOGGER, react_agent
+    global LOGGER
 
     # Prepare inputs
     user_query = args.messages.user_query    # Last user message
@@ -217,7 +201,7 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
         has_files_message=args.has_files_message,
     )
 
-    final_answer = react_agent.run(
+    final_answer = ns._agent.run(
         query=user_query,
         stream=args.stream,
         temperature=args.temperature,

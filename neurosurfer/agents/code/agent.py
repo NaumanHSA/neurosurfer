@@ -1,0 +1,213 @@
+# neurosurfer/agents/code/agent.py
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Literal, Generator
+
+import logging
+
+from neurosurfer.models.chat_models.base import BaseChatModel
+from neurosurfer.tools import Toolkit
+from neurosurfer.tools.base_tool import ToolResponse
+from neurosurfer.tools.code_execution.python_exec_tool import (
+    PythonExecTool,
+    PythonExecToolConfig,
+)
+from neurosurfer.agents.react.agent import ReActAgent
+from neurosurfer.agents.react.types import ReactAgentResponse
+from neurosurfer.tracing import Tracer, TracerConfig
+
+from .config import CodeAgentConfig
+from .scratchpad import CODE_AGENT_SPECIFIC_INSTRUCTIONS
+
+
+logger = logging.getLogger(__name__)
+
+
+class CodeAgent(ReActAgent):
+    """
+    CodeAgent: a specialized ReAct agent for multi-step Python code execution.
+
+    - Uses the generic ReActAgent core loop (Actions + tool calls + Final Answer).
+    - Comes with a default toolkit containing `python_execute`.
+    - Encourages multi-step workflows: inspect -> compute -> explain.
+    - Supports streaming and non-streaming responses.
+    - Allows passing `files_context` and `workdir` directly at run-time.
+    """
+
+    def __init__(
+        self,
+        *,
+        llm: BaseChatModel,
+        toolkit: Optional[Toolkit] = None,
+        config: Optional[CodeAgentConfig] = None,
+        tracer: Optional[Tracer] = None,
+        log_traces: bool = True,
+        logger_: Optional[logging.Logger] = None,
+    ) -> None:
+        if llm is None:
+            raise ValueError("CodeAgent requires an llm")
+
+        self.code_config = config or CodeAgentConfig(skip_special_tokens=True)
+        logger_local = logger_ or logger
+
+        # Default toolkit: just PythonExecTool for now, but can be extended
+        if toolkit is None:
+            toolkit = self._build_default_toolkit(llm=llm)
+
+        # Tracer (reuse your global tracer infra)
+        tracer = tracer or Tracer(
+            config=TracerConfig(log_steps=log_traces),
+            meta={
+                "agent_type": "code_agent",
+                "agent_config": self.code_config,
+                "model": llm.model_name,
+                "toolkit": bool(toolkit),
+                "logging": "full" if self.code_config.log_internal_thoughts else "basic",
+            },
+            logger_=logger_local,
+        )
+
+        super().__init__(
+            id=self.code_config.agent_name,
+            llm=llm,
+            toolkit=toolkit,
+            specific_instructions=CODE_AGENT_SPECIFIC_INSTRUCTIONS,
+            config=self.code_config,
+            logger=logger_local,
+            tracer=tracer,
+            log_traces=log_traces,
+        )
+
+    # ---------- Toolkit wiring ----------
+
+    def _build_default_toolkit(self, llm: BaseChatModel) -> Toolkit:
+        """
+        Build a default Toolkit for CodeAgent.
+
+        Currently:
+        - Registers only the PythonExecTool.
+        - You can later extend this to include a RAG retrieval tool, etc.
+        """
+        tk = Toolkit()
+        py_cfg = PythonExecToolConfig(
+            max_code_retries=3,
+            include_code_in_answer=True,
+            max_table_rows=20,
+        )
+        py_tool = PythonExecTool(llm=llm, config=py_cfg, logger=logger)
+        tk.register_tool(py_tool)
+        return tk
+
+    # ---------- Public API: run ----------
+
+    def run(
+        self,
+        *,
+        query: str,
+        stream: Optional[bool] = None,
+        temperature: Optional[float] = None,
+        max_new_tokens: Optional[int] = None,
+        # Code-specific runtime context:
+        files_context: Optional[Dict[str, Dict[str, Any]]] = None,
+        workdir: Optional[str] = None,
+        # Optional post-processing:
+        post_process: Literal["none", "summarize"] = "none",
+        reset_tracer: bool = True,
+    ) -> ReactAgentResponse:
+        """
+        Run the CodeAgent on a natural-language query.
+
+        Args:
+            query:
+                The user question/task, e.g.
+                "Analyze the GPA distribution from the uploaded CSV and show top 10 students."
+            stream:
+                If True, returns a streaming ReactAgentResponse (chunks via generator).
+                If False, returns a ReactAgentResponse with the full final string.
+            temperature:
+                Overrides config.temperature if provided.
+            max_new_tokens:
+                Overrides config.max_new_tokens if provided.
+            files_context:
+                Mapping of filename -> {path, mime, size} for the current chat/thread.
+                This is injected into the code tools via persistent memory.
+            workdir:
+                Directory where code execution should occur (plots, temp files).
+                If None, uses CodeAgentConfig.default_workdir.
+            post_process:
+                - "none" (default): use the agent's / tools' output as-is.
+                - "summarize": after the ReAct run completes (non-streaming), do one
+                  extra LLM call to rewrite the raw answer into a cleaner explanation.
+                  Ignored when stream=True.
+            reset_tracer:
+                If True, resets tracing results before this run.
+
+        Returns:
+            ReactAgentResponse: includes final answer text and trace results.
+        """
+        # Inject runtime context into persistent memory so tools can see it.
+        if files_context is not None:
+            self.set_persistent_memory(files_context=files_context)
+        if workdir is not None:
+            self.set_persistent_memory(workdir=workdir)
+        elif self.code_config.default_workdir is not None:
+            self.set_persistent_memory(workdir=self.code_config.default_workdir)
+
+        # Use base ReActAgent.run to handle streaming + core loop
+        base_resp = super().run(
+            query=query,
+            stream=stream,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            specific_instructions=None,   # we already injected CodeAgent instructions at init
+            context=None,
+            _route_extra_instructions="",
+            reset_tracer=reset_tracer,
+        )
+
+        # If streaming, we can't easily post-process; just return.
+        if stream:
+            return base_resp
+
+        # Optional final summarization pass (non-streaming only)
+        if (
+            post_process == "summarize"
+            and self.code_config.enable_post_processing
+            and base_resp.response
+        ):
+            summarized = self._summarize_final_answer(base_resp.response)
+            return ReactAgentResponse(
+                response=summarized,
+                traces=base_resp.traces,
+            )
+
+        return base_resp
+
+    # ---------- Optional post-processing ----------
+
+    def _summarize_final_answer(self, raw_answer: str) -> str:
+        """
+        One extra LLM call to clean up / simplify the raw code-oriented answer.
+
+        This is optional; used only when post_process='summarize'.
+        """
+        try:
+            resp = self.llm.ask(
+                system_prompt=(
+                    "You are a senior data analyst. "
+                    "Given the following technical/code-oriented answer, "
+                    "rewrite it as a clear, concise explanation for a user. "
+                    "Preserve all important numbers and conclusions."
+                ),
+                user_prompt=raw_answer,
+                chat_history=[],
+                temperature=max(0.2, float(self.code_config.temperature) - 0.3),
+                max_new_tokens=min(int(self.code_config.max_new_tokens * 1.5), 2048),
+                stream=False,
+            )
+            return resp.choices[0].message.content or raw_answer
+        except Exception as e:
+            logger.warning(f"[CodeAgent] Post-processing summarization failed: {e}")
+            return raw_answer

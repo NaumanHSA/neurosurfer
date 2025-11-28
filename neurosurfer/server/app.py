@@ -25,6 +25,7 @@ from .security import get_current_user, get_db
 from .models_registry import ModelRegistry
 from .api import _auth_router, _chats_router, chat_completion_router, _files_router
 from .config import CORS_ORIGINS, SECRET_KEY
+from .utils import build_files_context
 
 # ---------- Neurosurfer app builder ----------
 class NeurosurferApp:
@@ -214,7 +215,7 @@ class NeurosurferApp:
         # self._agent.memory.set_persistent("thread_id", args.thread_id)
         # self._agent.memory.set_persistent("files_context", files_ctx)
         # self._agent.memory.set_persistent("workdir", code_workdir)
-        
+    
     def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):
         self._rag_orchestrator = RAGOrchestrator(
             embedder=embedder,
@@ -222,6 +223,35 @@ class NeurosurferApp:
             top_k=self._default_top_k,
             verbose=True,
             logger=self.logger,
+        )
+
+    def run_agent(self, user_id: int, thread_id: int, message_id: int, user_query: str, has_files_message: bool):
+        
+        # Ingest new files if any to the chroma db
+        ingestion_summaries = self._rag_orchestrator.ingest(
+            user_id=user_id,
+            thread_id=thread_id,
+            message_id=message_id,
+            has_files_message=has_files_message,
+        )
+
+        # Set agent memory with files context
+        files_context = build_files_context(user_id=user_id, thread_id=thread_id)
+        self._agent.set_persistent_memory(
+            user_id=user_id,
+            thread_id=thread_id,
+            message_id=message_id,
+            has_files_message=has_files_message,
+            files_context=files_context
+        )
+
+        # Run agent
+        return self._agent.run(
+            query=user_query,
+            stream=True,
+            specific_instructions="",
+            _route_extra_instructions="",
+            reset_tracer=True,
         )
 
     def register_model(self, model: Union[BaseChatModel, BaseEmbedder], provider: str = None, family: str = "Unknown", description: str = None):

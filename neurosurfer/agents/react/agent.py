@@ -139,6 +139,10 @@ class ReActAgent(BaseAgent):
     def update_toolkit(self, toolkit: Toolkit) -> None:
         self.toolkit = toolkit
 
+    def set_persistent_memory(self, **kwargs) -> None:
+        for key, value in kwargs.items():
+            self.memory.set_persistent(key, value)
+
     # ---------- Core loop ----------
     def _run_loop(
         self,
@@ -424,7 +428,6 @@ class ReActAgent(BaseAgent):
         )
         return normalize_response(response)
 
-    # ---------- Tool Exec with retries ----------
     def _try_execute_tool(self, tool_call: ToolCall, tool_tracer: TraceStepContext) -> ToolResponse:
         tool_name = tool_call.tool
         tool = self.toolkit.registry[tool_name]
@@ -434,11 +437,38 @@ class ReActAgent(BaseAgent):
         while attempts <= self.config.retry.max_tool_errors:
             try:
                 tool_tracer.log(f"[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {str(tool_call.inputs)[:150]}...", type="info")
-                mem_snapshot = self.memory.snapshot_for_tool()
-                all_inputs = {**tool_call.inputs, **mem_snapshot.as_flat_dict()}
+                # NEW: extract any requested memory keys
+                print("tool_call -------- ", tool_call)
+                inputs = dict(tool_call.inputs)
+
+                # mem_keys = inputs.pop("memory_keys", None)
+                mem_keys = tool_call.memory_keys
+                mem_injected: Dict[str, Any] = {}
+
+                if mem_keys:
+                    if isinstance(mem_keys, str):
+                        mem_keys = [mem_keys]
+                    if isinstance(mem_keys, list):
+                        mem_injected = self.memory.resolve_keys(mem_keys)
+
+                # Normal runtime memory (if you still want a global fallback)
+                # mem_snapshot = self.memory.snapshot_for_tool()
+                # runtime_injected = mem_snapshot.as_flat_dict()
+
+                all_inputs = {
+                    **inputs,
+                    **mem_injected,      # memory selected by LLM
+                    # **runtime_injected # optional: global injection
+                }
+                print("all_inputs ----------- ", all_inputs)
+
+                # mem_snapshot = self.memory.snapshot_for_tool()
+                # all_inputs = {**tool_call.inputs, **mem_snapshot.as_flat_dict()}
                 tool_response: ToolResponse = tool(**all_inputs)
                 self.memory.clear_ephemeral()
-                self.memory.update_from_extras(tool_response.extras, scope="ephemeral")
+                print("tool_response.extras -------- ", tool_response.extras)
+                # Update memory from extras, including metadata
+                self.memory.update_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_name)
                 return tool_response
 
             except Exception as e:
@@ -482,12 +512,24 @@ class ReActAgent(BaseAgent):
     def _build_prompt(self, user_query: str, history: History) -> str:
         prompt = f"# User Query:\n{user_query}\n"
         prompt += history.to_prompt()
+
+        # NEW: memory listing for the LLM
+        memory_block = self.memory.llm_visible_summary()
+        prompt += (
+            "\n# Working Memory:\n"
+            "You have access to the following memory slots from previous tool calls.\n"
+            "Each slot can be passed to a future tool by referencing its `key`.\n"
+            f"{memory_block}\n\n"
+        )
+
         prompt += (
             "# Next Steps: (What should you do next for this step?)\n"
             "You are continuing the reasoning from the previous steps above.\n"
             "Produce exactly ONE new Action block (if you still need a tool), OR\n"
             "Produce the final answer (if you are ready).\n"
-            "If you think the answer is ready, generate a complete Final Answer independent of the history.\n"
+            "If you plan to use a memory slot in a tool call, include a field\n"
+            "  \"memory_keys\": [\"key1\", \"key2\", ...]\n"
+            "in the Action JSON. Do NOT restate or regenerate the values, only the keys.\n"
         )
         return prompt
 

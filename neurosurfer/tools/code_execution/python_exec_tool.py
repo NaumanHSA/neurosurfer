@@ -189,7 +189,7 @@ class PythonExecTool(BaseTool):
         file_names: Optional[List[str]] = None,
         files_context: Optional[Dict[str, Dict[str, Any]]] = None,
         workdir: Optional[str] = None,
-        **_: Any,
+        **kwargs: Any,
     ) -> ToolResponse:
         """
         Execute the Python task.
@@ -200,6 +200,8 @@ class PythonExecTool(BaseTool):
                 ...
             }
         """
+        print("files_context---------------", files_context)
+        final_answer = kwargs.get("final_answer", False)
         files_context = files_context or {}
         file_names = file_names or list(files_context.keys())
 
@@ -223,7 +225,7 @@ class PythonExecTool(BaseTool):
                 answer += code
                 answer += "\n```"
             return ToolResponse(
-                final_answer=True,
+                final_answer=final_answer,
                 results=answer,
                 extras={"generated_plots": generated_plots or []},
             )
@@ -242,12 +244,42 @@ class PythonExecTool(BaseTool):
             answer += code
             answer += "\n```"
 
-        return ToolResponse(
-            final_answer=True,
-            results=answer,
-            extras={"generated_plots": generated_plots or []},
-        )
+        # NEW: build extras with optional schema insight
+        extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
 
+        # If the result is a DataFrame or Series, add a schema-ish memory slot
+        try:
+            import pandas as _pd
+            if isinstance(result, _pd.DataFrame):
+                schema_key = "last_dataframe_schema"
+                extras[schema_key] = {
+                    "value": {
+                        "columns": list(result.columns),
+                        "dtypes": {c: str(t) for c, t in result.dtypes.items()},
+                        "sample_head": result.head(5).to_dict(orient="list"),
+                    },
+                    "description": "Schema and sample rows for the last DataFrame computed by python_execute.",
+                    "visible_to_llm": True,
+                }
+            elif isinstance(result, _pd.Series):
+                schema_key = "last_series_schema"
+                extras[schema_key] = {
+                    "value": {
+                        "name": result.name,
+                        "index_sample": list(result.index[:10]),
+                        "dtype": str(result.dtype),
+                    },
+                    "description": "Schema and sample index for the last Series computed by python_execute.",
+                    "visible_to_llm": True,
+                }
+        except Exception:
+            pass
+
+        return ToolResponse(
+            final_answer=final_answer,
+            results=answer,
+            extras=extras,
+        )
     # ------------- Internals -------------
 
     def _format_files_listing(
@@ -358,6 +390,7 @@ class PythonExecTool(BaseTool):
 
         return last_code, None, last_plots, last_error
 
+
     def _exec_code(
         self,
         code: str,
@@ -386,8 +419,10 @@ class PythonExecTool(BaseTool):
             os.chdir(workdir)
 
         try:
-            local_ns: Dict[str, Any] = {}
-            global_ns: Dict[str, Any] = {
+            # Single shared sandbox for both globals and locals.
+            # This avoids NameError issues for functions used inside
+            # list comprehensions, generators, etc.
+            sandbox: Dict[str, Any] = {
                 "math": math,
                 "statistics": statistics,
                 "json": json,
@@ -396,20 +431,20 @@ class PythonExecTool(BaseTool):
                 "plt": plt,
                 "files": files_context,
             }
+            # Explicitly expose builtins (optional but clearer)
+            sandbox["__builtins__"] = __builtins__
 
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                exec(  # nosec - you control the environment; see note below
+                exec(  # nosec - you control the environment; see note above
                     code,
-                    global_ns,
-                    local_ns,
+                    sandbox,
+                    sandbox,
                 )
 
-            result = None
-            if "result" in local_ns:
-                result = local_ns["result"]
-            elif "result" in global_ns:
-                result = global_ns["result"]
+            # Prefer an explicit `result` variable if present
+            if "result" in sandbox:
+                result = sandbox["result"]
             else:
                 # Fall back to stdout if no result var
                 output = buf.getvalue().strip()
@@ -420,8 +455,8 @@ class PythonExecTool(BaseTool):
                     )
                 result = output
 
-            generated_plots = []
-            gp = local_ns.get("generated_plots") or global_ns.get("generated_plots")
+            generated_plots: List[str] = []
+            gp = sandbox.get("generated_plots")
             if isinstance(gp, list):
                 generated_plots = [str(x) for x in gp]
 

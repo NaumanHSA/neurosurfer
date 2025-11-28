@@ -72,6 +72,7 @@ class ToolCallParser:
         
         tool = obj.get("tool")
         inputs = obj.get("inputs", {}) or {}
+        memory_keys = obj.get("memory_keys", [])
         final_answer = bool(obj.get("final_answer", False))
 
         if tool is None:
@@ -79,4 +80,4 @@ class ToolCallParser:
         if not isinstance(inputs, dict):
             raise ToolCallParseError("`inputs` must be a JSON object.")
 
-        return ToolCall(tool=str(tool), inputs=inputs, final_answer=final_answer)
+        return ToolCall(tool=str(tool), inputs=inputs, memory_keys=memory_keys, final_answer=final_answer)
