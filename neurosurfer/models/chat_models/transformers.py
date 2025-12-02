@@ -5,9 +5,8 @@ import uuid
 import logging
 import threading
 import re
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Literal
 from threading import RLock
-from jinja2.exceptions import TemplateError
 
 import torch
 from transformers import (
@@ -23,6 +22,7 @@ from .base import BaseChatModel
 from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.config import config
 
+
 class StopSignalCriteria(StoppingCriteria):
     def __init__(self, stop_fn):
         super().__init__()
@@ -34,7 +34,7 @@ class StopSignalCriteria(StoppingCriteria):
 
 class TransformersModel(BaseChatModel):
     """
-    HF Transformers local model - now returns Pydantic models
+    HF Transformers local model - returns Pydantic models.
     """
 
     def __init__(
@@ -43,16 +43,26 @@ class TransformersModel(BaseChatModel):
         max_seq_length: int = config.base_model.max_seq_length,
         load_in_4bit: bool = config.base_model.load_in_4bit,
         enable_thinking: bool = config.base_model.enable_thinking,
+        reasoning_effort: Literal["low", "medium", "high"] = "medium",
         stop_words: Optional[List[str]] = config.base_model.stop_words,
         verbose: bool = config.base_model.verbose,
         logger: logging.Logger = logging.getLogger(),
         **kwargs,
     ):
-        super().__init__(max_seq_length=max_seq_length, enable_thinking=enable_thinking, stop_words=stop_words, verbose=verbose, logger=logger, **kwargs)
+        super().__init__(
+            max_seq_length=max_seq_length,
+            enable_thinking=enable_thinking,
+            stop_words=stop_words,
+            verbose=verbose,
+            logger=logger,
+            **kwargs,
+        )
         self.model_name = model_name
         self.lock = RLock()
         self.call_id: Optional[str] = None
         self.generation_thread: Optional[threading.Thread] = None
+        self.enable_thinking = enable_thinking
+        self.reasoning_effort = reasoning_effort
 
         # Choose dtype/device sensibly
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -70,15 +80,15 @@ class TransformersModel(BaseChatModel):
         self.stop_words = stops or []
 
     # ---------- init ----------
-    def init_model(self, load_in_4bit=False, **kwargs):
+    def init_model(self, load_in_4bit: bool = False, **kwargs: Any):
         self.logger.info("Initializing Transformers model.")
-        model_args = {
+        model_args: Dict[str, Any] = {
             "device_map": "auto" if self.device == "cuda" else None,
             "trust_remote_code": True,
             "torch_dtype": self.dtype,
         }
         is_prequantized = self._is_model_already_quantized(self.model_name)
-        
+
         if load_in_4bit and not is_prequantized:
             try:
                 bnb_config = BitsAndBytesConfig(
@@ -101,13 +111,13 @@ class TransformersModel(BaseChatModel):
         self.logger.info("Transformers model initialized successfully.")
 
     def _is_model_already_quantized(self, model_path_or_id: str) -> bool:
-        """Check if model is already quantized"""
+        """Check if model is already quantized."""
         cfg = os.path.join(model_path_or_id, "config.json")
         if os.path.exists(cfg):
             with open(cfg, "r") as f:
                 try:
-                    config = json.load(f)
-                    return "quantization_config" in config
+                    config_json = json.load(f)
+                    return "quantization_config" in config_json
                 except Exception:
                     return False
 
@@ -117,8 +127,8 @@ class TransformersModel(BaseChatModel):
             cfg2 = os.path.join(tmp_dir, "config.json")
             if os.path.exists(cfg2):
                 with open(cfg2, "r") as f:
-                    config = json.load(f)
-                    return "quantization_config" in config
+                    config_json = json.load(f)
+                    return "quantization_config" in config_json
         except Exception:
             pass
         return False
@@ -134,20 +144,25 @@ class TransformersModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatCompletionResponse:
         """
-        Returns ChatCompletionResponse (Pydantic model)
+        Returns ChatCompletionResponse (Pydantic model).
         """
         self.call_id = str(uuid.uuid4())
         self.reset_stop_signal()
 
-        # Format prompt
-        prompt = self._format_messages(system_prompt, chat_history, user_prompt)
-        inputs = self.tokenizer(prompt, return_tensors="pt")
-        if self.device == "cuda":
-            inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
+        # Format prompt using BaseChatModel (chat_template aware)
+        messages = self._build_messages(system_prompt, chat_history, user_prompt)
+        # 2) Tokenized inputs via chat_template-aware helper
+        inputs = self._apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            enable_thinking=self.enable_thinking,
+            reasoning_effort=self.reasoning_effort,
+        ).to("cuda")
+        # if self.device == "cuda":
+        #     inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
 
         prompt_tokens = inputs["input_ids"].shape[1]
-
-        # Run generation synchronously
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -156,26 +171,22 @@ class TransformersModel(BaseChatModel):
             **kwargs,
         )
 
-        # Slice off the prompt tokens
-        generated_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+        generated_tokens = outputs[0][prompt_tokens:]
         completion_tokens = len(generated_tokens)
 
-        # Decode only the new tokens
         response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-        
-        # Remove <think>...</think> blocks if thinking is disabled
+
         if not self.enable_thinking:
             response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
 
-        # Return Pydantic model
         return self._final_nonstream_response(
             call_id=self.call_id,
             model=self.model_name,
             content=response,
             prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens
+            completion_tokens=completion_tokens,
         )
-    
+
     # ---------- core (stream) - Yields Pydantic Models ----------
     def _stream(
         self,
@@ -184,21 +195,33 @@ class TransformersModel(BaseChatModel):
         chat_history: List[dict],
         temperature: float,
         max_new_tokens: int,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> Generator[ChatCompletionChunk, None, None]:
         """
-        Yields ChatCompletionChunk (Pydantic models)
+        Yields ChatCompletionChunk (Pydantic models).
         """
         self.call_id = str(uuid.uuid4())
         self.reset_stop_signal()
 
-        prompt = self._format_messages(system_prompt, chat_history, user_prompt)
-        inputs = self.tokenizer(prompt, return_tensors="pt")
-        if self.device == "cuda":
-            inputs = {k: v.to(self.device, non_blocking=True) for k, v in inputs.items()}
+         # 1) Build messages
+        messages = self._build_messages(system_prompt, chat_history, user_prompt)
+        # 2) Tokenized inputs via chat_template-aware helper
+        inputs = self._apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            enable_thinking=self.enable_thinking,
+            reasoning_effort=self.reasoning_effort,
+        ).to("cuda")
 
-        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
-        stopping_criteria = StoppingCriteriaList([StopSignalCriteria(lambda: self._stop_signal)])
+        streamer = TextIteratorStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
+        stopping_criteria = StoppingCriteriaList([
+            StopSignalCriteria(lambda: self._stop_signal),
+        ])
 
         gen_kwargs = dict(
             **inputs,
@@ -211,64 +234,22 @@ class TransformersModel(BaseChatModel):
         gen_kwargs.update(kwargs)
 
         with self.lock:
-            self.generation_thread = threading.Thread(target=self.model.generate, kwargs=gen_kwargs, daemon=True)
+            self.generation_thread = threading.Thread(
+                target=self.model.generate,
+                kwargs=gen_kwargs,
+                daemon=True,
+            )
             self.generation_thread.start()
 
-        # Stream out Pydantic chunks
         for piece in self._transformers_consume_stream(streamer):
-            yield self._delta_chunk(call_id=self.call_id, model=self.model_name, content=piece)
-        # Final stop chunk
-        yield self._stop_chunk(call_id=self.call_id, model=self.model_name, finish_reason="stop")
-    
-    # ---------- formatting ----------
-    def _format_messages(
-        self,
-        system_prompt: str,
-        chat_history: List[dict],
-        user_prompt: str
-    ) -> str:
-        # Qwen thinking toggle
-        if "qwen3" in self.model_name.lower() and not self.enable_thinking:
-            system_prompt = (system_prompt or "") + "/nothink"
+            yield self._delta_chunk(
+                call_id=self.call_id,
+                model=self.model_name,
+                content=piece,
+            )
 
-        # Normalize conversation for strict templates
-        system_prompt, normalized_history = self._normalize_for_chat_template(
-            system_prompt=system_prompt,
-            chat_history=chat_history or [],
-            user_prompt=user_prompt,
+        yield self._stop_chunk(
+            call_id=self.call_id,
+            model=self.model_name,
+            finish_reason="stop",
         )
-
-        messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
-        messages.extend(normalized_history)
-
-        try:
-            return self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-        except TemplateError as e:
-            # Log and fall back to a simple text format
-            self.logger.warning(
-                "Chat template failed (%s). Falling back to plain prompt formatting.",
-                e,
-            )
-            return self._fallback_plain_prompt(system_prompt, normalized_history)
-
-    def _fallback_plain_prompt(
-        self,
-        system_prompt: Optional[str],
-        messages: List[Dict[str, str]],
-    ) -> str:
-        parts = []
-        if system_prompt:
-            parts.append(f"[SYSTEM]\n{system_prompt}\n")
-
-        for m in messages:
-            role = m.get("role", "user").upper()
-            content = m.get("content", "")
-            parts.append(f"[{role}]\n{content}\n")
-
-        # End with an assistant cue
-        parts.append("[ASSISTANT]\n")
-        return "\n".join(parts)

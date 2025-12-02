@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import io
-import textwrap
+import os, io
 import traceback
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -14,80 +14,15 @@ from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.tools.tool_spec import ToolSpec, ToolParam, ToolReturn
 
-
-PYTHON_EXEC_SYSTEM_PROMPT = """You are a careful Python 3 assistant.
-
-You write minimal, correct Python code to solve the user's task.
-The code will be executed in a controlled environment with:
-
-- Standard Python 3
-- Allowed libraries:
-    - math
-    - statistics
-    - json
-    - numpy as np
-    - pandas as pd
-    - matplotlib.pyplot as plt
-
-You MUST respect these constraints:
-
-- Do NOT import or use any other libraries (no torch, no sklearn, no http clients, no os / subprocess for shell access).
-- Do NOT access the network.
-- Do NOT read or write arbitrary files. You may ONLY access paths provided in the `files` mapping.
-
-Available objects:
-
-- `files`: a dict mapping filename (string) to an object:
-    {
-        "filename": {
-            "path": "<absolute-path>",
-            "mime": "<mime-type>",
-            "size": <int bytes>
-        },
-        ...
-    }
-
-You may:
-- Use `pd.read_csv(files["students.csv"]["path"])` for CSV.
-- Open text files by path in read-only mode if absolutely necessary.
-
-Your job:
-
-1. Use Python to EXACTLY compute the answer to the user's task.
-2. Store the final answer in a variable named `result`.
-
-`result` can be:
-- int, float, str
-- list or dict
-- pandas.Series or pandas.DataFrame
-- or another simple printable object
-
-If you create plots, you MUST:
-- Use matplotlib (plt).
-- Save them to PNG files in the current working directory with filenames like:
-      "plot_1.png", "plot_2.png", ...
-- Also store a list of created filenames in a variable called `generated_plots`,
-  e.g.:
-      generated_plots = ["plot_1.png", "plot_2.png"]
-
-Output format:
-
-- Respond with ONLY a single Python code block.
-- No explanations outside the code block.
-"""
-
-PYTHON_EXEC_USER_PROMPT_TEMPLATE = """
-User task:
-{task}
-
-Available files (from chat session):
-{files_listing}
-
-Guidelines:
-- If you need a file, reference it via the `files` dict using its filename key.
-- Prefer pandas for CSV, numpy/math/statistics for numeric work, and matplotlib for plots.
-- Keep code as short and clear as possible.
-"""
+from .templates import PYTHON_EXEC_SYSTEM_PROMPT
+from .utils import (
+    build_error_extras, 
+    build_memory_extras_for_result, 
+    format_result, 
+    format_files_listing,
+    build_user_prompt,
+    extract_code_block
+)
 
 
 @dataclass
@@ -182,13 +117,13 @@ class PythonExecTool(BaseTool):
         self.config = config or PythonExecToolConfig()
         self.logger = logger or logging.getLogger(__name__)
 
-    # ------------- Public API -------------
     def __call__(
         self,
         task: str,
         file_names: Optional[List[str]] = None,
         files_context: Optional[Dict[str, Dict[str, Any]]] = None,
         workdir: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> ToolResponse:
         """
@@ -200,19 +135,18 @@ class PythonExecTool(BaseTool):
                 ...
             }
         """
-        print("files_context---------------", files_context)
         final_answer = kwargs.get("final_answer", False)
         files_context = files_context or {}
         file_names = file_names or list(files_context.keys())
 
         # Build a human-readable listing for the prompt
-        files_listing = self._format_files_listing(files_context, file_names)
-
-        code, result, generated_plots, error = self._run_code_with_retries(
+        files_listing = format_files_listing(files_context, file_names)
+        code, result, generated_plots, error, error_extras, error_category = self._run_code_with_retries(
             task=task,
             files_context=files_context,
             files_listing_for_prompt=files_listing,
             workdir=workdir,
+            context=context,
         )
 
         if error is not None:
@@ -220,18 +154,27 @@ class PythonExecTool(BaseTool):
                 "I attempted to solve this using Python code, but the code kept failing.\n\n"
                 f"Last error:\n{error}"
             )
+            # If it's a missing dependency, treat this as a hard stop.
+            if error_category == "missing_dependency":
+                # Extract the first line for a concise message
+                first_line = error.splitlines()[0] if error else ""
+                answer = (
+                    "I tried to run Python code for your task, but the environment is missing "
+                    f"a required library (error: `{first_line}`).\n\n"
+                    "This sandbox cannot install new packages (no pip/conda), and libraries are limited."
+                )
+            
             if code and self.config.include_code_in_answer:
                 answer += "\n\nGenerated code (may be buggy):\n```python\n"
                 answer += code
                 answer += "\n```"
-            return ToolResponse(
-                final_answer=final_answer,
-                results=answer,
-                extras={"generated_plots": generated_plots or []},
-            )
 
+            extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
+            extras.update(error_extras)
+            return ToolResponse(final_answer=final_answer, results=answer, extras=extras)
+        
         # Success
-        result_text = self._format_result(result)
+        result_text = format_result(result, max_table_rows=self.config.max_table_rows)
         answer = f"Here are the results from executing Python code for your task:\n\n{result_text}"
 
         if generated_plots:
@@ -244,75 +187,17 @@ class PythonExecTool(BaseTool):
             answer += code
             answer += "\n```"
 
-        # NEW: build extras with optional schema insight
+        # build extras that can be used as memory for the next tool call
         extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
+        extras.update(build_memory_extras_for_result(result))
 
-        # If the result is a DataFrame or Series, add a schema-ish memory slot
-        try:
-            import pandas as _pd
-            if isinstance(result, _pd.DataFrame):
-                schema_key = "last_dataframe_schema"
-                extras[schema_key] = {
-                    "value": {
-                        "columns": list(result.columns),
-                        "dtypes": {c: str(t) for c, t in result.dtypes.items()},
-                        "sample_head": result.head(5).to_dict(orient="list"),
-                    },
-                    "description": "Schema and sample rows for the last DataFrame computed by python_execute.",
-                    "visible_to_llm": True,
-                }
-            elif isinstance(result, _pd.Series):
-                schema_key = "last_series_schema"
-                extras[schema_key] = {
-                    "value": {
-                        "name": result.name,
-                        "index_sample": list(result.index[:10]),
-                        "dtype": str(result.dtype),
-                    },
-                    "description": "Schema and sample index for the last Series computed by python_execute.",
-                    "visible_to_llm": True,
-                }
-        except Exception:
-            pass
-
-        return ToolResponse(
-            final_answer=final_answer,
-            results=answer,
-            extras=extras,
-        )
-    # ------------- Internals -------------
-
-    def _format_files_listing(
-        self,
-        files_context: Dict[str, Dict[str, Any]],
-        file_names: List[str],
-    ) -> str:
-        if not files_context:
-            return "(no files available)"
-
-        lines: List[str] = []
-        for name in file_names:
-            meta = files_context.get(name)
-            if not meta:
-                continue
-            size = meta.get("size")
-            mime = meta.get("mime")
-            path = meta.get("path")
-            lines.append(f"- {name} (mime={mime}, size={size} bytes, path='{path}')")
-        if not lines:
-            return "(no matching files in context)"
-        return "\n".join(lines)
-
-    def _build_user_prompt(
-        self,
-        task: str,
-        files_listing: str,
-    ) -> str:
-        tpl = PYTHON_EXEC_USER_PROMPT_TEMPLATE.format(
-            task=task,
-            files_listing=files_listing,
-        )
-        return textwrap.dedent(tpl).strip()
+        # add code to the extras
+        extras["python_last_code"] = {
+            "value": code,
+            "description": "Python code used in the last python_execute call.",
+            "visible_to_llm": False,
+        }
+        return ToolResponse(final_answer=final_answer, results=answer, extras=extras)
 
     def _ask_for_code(
         self,
@@ -320,9 +205,9 @@ class PythonExecTool(BaseTool):
         files_listing_for_prompt: str,
         previous_error: Optional[str] = None,
         previous_code: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> str:
-        user_prompt = self._build_user_prompt(task, files_listing_for_prompt)
-
+        user_prompt = build_user_prompt(task, files_listing_for_prompt, context)
         if previous_error:
             repair_note = (
                 "\n\nThe previous code attempt failed with this error:\n"
@@ -342,17 +227,7 @@ class PythonExecTool(BaseTool):
             stream=False,
         )
         raw = resp.choices[0].message.content or ""
-        return self._extract_code_block(raw)
-
-    @staticmethod
-    def _extract_code_block(text: str) -> str:
-        import re
-
-        pattern = r"```(?:python)?\s*(.*?)```"
-        m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-        if m:
-            return m.group(1).strip()
-        return text.strip()
+        return extract_code_block(raw)
 
     def _run_code_with_retries(
         self,
@@ -360,15 +235,19 @@ class PythonExecTool(BaseTool):
         files_context: Dict[str, Dict[str, Any]],
         files_listing_for_prompt: str,
         workdir: Optional[str],
-    ) -> tuple[Optional[str], Any, List[str], Optional[str]]:
+        context: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[str], Any, List[str], Optional[str], Dict[str, Any], Optional[str]]:
         last_error: Optional[str] = None
         last_code: Optional[str] = None
+        last_category: Optional[str] = None
         last_plots: List[str] = []
+        error_extras: Dict[str, Any] = {}
 
         for attempt in range(self.config.max_code_retries):
             code = self._ask_for_code(
                 task=task,
                 files_listing_for_prompt=files_listing_for_prompt,
+                context=context,
                 previous_error=last_error,
                 previous_code=last_code,
             )
@@ -380,15 +259,28 @@ class PythonExecTool(BaseTool):
                     files_context=files_context,
                     workdir=workdir,
                 )
-                return code, result, plots, None
+                return code, result, plots, None, {}, None
+
             except Exception as e:
                 tb = traceback.format_exc()
+                last_category = self._classify_error(e)
                 self.logger.error(
-                    f"[python_execute] Code execution failed on attempt {attempt+1}: {e}\n{tb}"
+                    f"[python_execute] Code execution failed on attempt {attempt + 1}: {e}\n{tb}"
                 )
                 last_error = f"{e}\n\nTraceback:\n{tb}"
 
-        return last_code, None, last_plots, last_error
+                # Generic extras for ReAct
+                error_extras = build_error_extras(e, tb)
+
+                # Optionally: early exit for clearly non-code issues
+                if isinstance(e, (FileNotFoundError, ImportError)):
+                    break
+
+                # For hard environment errors, retrying code is pointless
+                if last_category == "missing_dependency":
+                    break
+
+        return last_code, None, last_plots, last_error, error_extras, last_category
 
 
     def _exec_code(
@@ -464,28 +356,13 @@ class PythonExecTool(BaseTool):
         finally:
             os.chdir(cwd)
 
-    def _format_result(self, result: Any) -> str:
-        # Import here to avoid hard dependency at module import time
-        try:
-            import pandas as pd
-        except Exception:  # pragma: no cover
-            pd = None
-
-        if pd is not None:
-            import pandas as _pd
-
-            if isinstance(result, _pd.DataFrame):
-                if len(result) > self.config.max_table_rows:
-                    result = result.head(self.config.max_table_rows)
-                return result.to_markdown(index=False)
-            if isinstance(result, _pd.Series):
-                if len(result) > self.config.max_table_rows:
-                    result = result.head(self.config.max_table_rows)
-                return result.to_markdown()
-
-        if isinstance(result, (list, dict)):
-            import json
-
-            return json.dumps(result, indent=2, default=str)
-
-        return str(result)
+    def _classify_error(self, e: Exception) -> str:
+        """
+        Rough error categories, used to decide whether retrying makes sense.
+        """
+        msg = str(e)
+        if isinstance(e, ModuleNotFoundError) or "No module named" in msg:
+            return "missing_dependency"
+        if "not available and cannot be installed in this environment" in msg:
+            return "missing_dependency"
+        return "generic"

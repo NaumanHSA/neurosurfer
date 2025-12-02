@@ -29,6 +29,7 @@ from datetime import datetime
 import time
 from abc import ABC, abstractmethod
 from threading import RLock
+from jinja2.exceptions import TemplateError
 
 # Import Pydantic models
 from neurosurfer.server.schemas import (
@@ -103,17 +104,20 @@ class BaseChatModel(ABC):
             logger (logging.Logger): Logger instance for debugging
             **kwargs: Additional model-specific parameters
         """
-        self.model_name = "local-gpt"
+        self.max_seq_length = max_seq_length
+        self.stop_words = stop_words or []
+        self.enable_thinking = enable_thinking
         self.verbose = verbose
-        self.logger = logger
+        self.logger = logger or logging.getLogger(__name__)
         self.call_id = None
         self.lock = Lock()
-        self.model = None
-        self.max_seq_length = max_seq_length
-        self.enable_thinking = enable_thinking
-        self.stop_words = stop_words or []
         self._stop_signal = False
-        self.lock = RLock()
+
+        # To be set by subclasses
+        self.model_name: str = getattr(self, "model_name", "unknown-model")
+        self.model = getattr(self, "model", None)
+        self.tokenizer = getattr(self, "tokenizer", None)
+
 
     def set_stop_signal(self):
         """Set stop signal to halt generation"""
@@ -309,31 +313,261 @@ class BaseChatModel(ABC):
             )
         )
 
-    def _format_messages(
+    # ------------------------------------------------------------------
+    # Message construction & formatting
+    # ------------------------------------------------------------------
+    def _normalize_for_chat_template(
         self,
-        tokenizer,
-        system_prompt: str,
-        chat_history: List[dict],
+        *,
+        system_prompt: Optional[str],
+        chat_history: List[Dict[str, Any]],
         user_prompt: str,
-        return_string: bool = False,
-        return_list: bool = False,
-    ) -> Union[str, List[Dict[str, str]]]:
-        messages = []
+    ) -> Tuple[Optional[str], List[Dict[str, str]]]:
+        """
+        Normalize conversation for chat_template.
+
+        - Ensures final user message is part of the message list.
+        - You can extend this to:
+            * merge multiple system messages
+            * drop tool messages
+            * enforce allowed roles, etc.
+
+        Returns:
+            (normalized_system_prompt, normalized_history_messages)
+            where `normalized_history_messages` ALREADY includes the final
+            user message.
+        """
+        system_prompt = system_prompt or ""
+        history: List[Dict[str, str]] = []
+
+        # Make a shallow copy of existing history
+        if chat_history:
+            for m in chat_history:
+                # assume well-formed {role, content}
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                history.append({"role": role, "content": content})
+
+        # Append the current user prompt as the last user message
+        history.append({"role": "user", "content": user_prompt})
+
+        return system_prompt, history
+
+    def _build_messages(
+        self,
+        system_prompt: str,
+        chat_history: List[Dict[str, Any]],
+        user_prompt: str,
+    ) -> List[Dict[str, str]]:
+        """
+        Build a list of {'role', 'content'} messages in OpenAI style.
+
+        This is the single source of truth for how messages are constructed.
+        All backends (Unsloth, Transformers, vLLM, etc.) should build on this.
+        """
+
+        # Qwen thinking toggle (works for qwen/qwen3/etc.)
+        if "qwen" in self.model_name.lower() and not self.enable_thinking:
+            system_prompt = (system_prompt or "") + "/nothink"
+
+        system_prompt, normalized_history = self._normalize_for_chat_template(
+            system_prompt=system_prompt,
+            chat_history=chat_history or [],
+            user_prompt=user_prompt,
+        )
+
+        messages: List[Dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.extend(chat_history)
-        messages.append({"role": "user", "content": user_prompt})
-        
-        if return_string:
-            return self._format_chat_to_string(messages)
-        elif return_list:
-            return messages
+        messages.extend(normalized_history)
+        return messages
+
+    def _supports_tokenizer_param(self, param: str) -> bool:
+        """
+        Check if tokenizer's chat_template references a given jinja variable,
+        e.g. 'reasoning_effort'. If it's not in the template, passing it as a
+        kwarg will raise a Jinja UndefinedError, so we skip it.
+        """
+        if not getattr(self, "tokenizer", None):
+            return False
+        template = getattr(self.tokenizer, "chat_template", "") or ""
+        return param in template
+
+    def _fallback_plain_prompt(self, messages: List[Dict[str, str]]) -> str:
+        """
+        Simple, readable fallback formatting if chat_template fails or doesn't exist.
+
+        Produces prompts like:
+
+            [SYSTEM]
+            ...
+            [USER]
+            ...
+            [ASSISTANT]
+
+        So generation naturally continues as the assistant.
+        """
+        system_prompt: Optional[str] = None
+        rest: List[Dict[str, str]] = []
+
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "system" and system_prompt is None:
+                system_prompt = content
+            else:
+                rest.append({"role": role, "content": content})
+
+        parts: List[str] = []
+        if system_prompt:
+            parts.append(f"[SYSTEM]\n{system_prompt}\n")
+
+        for m in rest:
+            role = m.get("role", "user").upper()
+            content = m.get("content", "")
+            parts.append(f"[{role}]\n{content}\n")
+
+        parts.append("[ASSISTANT]\n")
+        return "\n".join(parts)
+
+    def _apply_chat_template(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        tokenize: bool,
+        add_generation_prompt: bool = True,
+        **template_kwargs: Any,   # <─ NEW: params from subclass
+    ):
+        """
+        Centralized wrapper around tokenizer.apply_chat_template.
+
+        - If tokenizer has a chat_template, use it.
+        - Accepts arbitrary kwargs from subclasses (e.g. reasoning_effort="low").
+        - For each kw:
+            * If it's a Python-level param we know (e.g. enable_thinking), we
+            handle it explicitly.
+            * If it's a Jinja variable and the template references it, we pass it.
+            * Otherwise we drop it (to avoid weird side effects).
+        - On TypeError (e.g. tokenizer does not accept enable_thinking), we retry
+        without that param.
+        - On TemplateError or no chat_template → fall back to plain text.
+
+        Returns either:
+            - tokenized tensors (if tokenize=True)
+            - or a raw prompt string (if tokenize=False)
+        """
+        if not getattr(self, "tokenizer", None):
+            # No tokenizer? Only plain text makes sense.
+            text = self._fallback_plain_prompt(messages)
+            if tokenize:
+                raise RuntimeError("Tokenizer is not set; cannot tokenize inputs.")
+            return text
+
+        tok = self.tokenizer
+        has_chat_template = hasattr(tok, "apply_chat_template") and getattr(tok, "chat_template", None)
+
+        # Base kwargs that always go to apply_chat_template
+        base_kwargs: Dict[str, Any] = {
+            "add_generation_prompt": add_generation_prompt,
+        }
+        if tokenize:
+            base_kwargs.update({
+                "return_tensors": "pt",
+                "return_dict": True,
+            })
         else:
-            return tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+            base_kwargs["tokenize"] = False
+
+        # -----------------------------
+        # Split incoming template_kwargs
+        # -----------------------------
+        # 1) Python-side known params (currently only enable_thinking)
+        enable_thinking_val = template_kwargs.pop("enable_thinking", self.enable_thinking)
+
+        # 2) Jinja context variables (reasoning_effort, target_length, etc.)
+        #    Only pass them if the template actually uses them.
+        jinja_kwargs: Dict[str, Any] = {}
+        for key, value in template_kwargs.items():
+            if self._supports_tokenizer_param(key):
+                jinja_kwargs[key] = value
+            else:
+                # Not referenced in template, safely ignore
+                if self.verbose:
+                    self.logger.debug(
+                        "Dropping chat_template kwarg '%s'; not referenced in template.",
+                        key,
+                    )
+
+        call_kwargs = {**base_kwargs, **jinja_kwargs}
+
+        # -----------------------------
+        # Main path: use chat_template
+        # -----------------------------
+        if has_chat_template:
+            try:
+                # First try with enable_thinking if we have a value
+                return tok.apply_chat_template(
+                    messages,
+                    enable_thinking=enable_thinking_val,
+                    **call_kwargs,
+                )
+            except TypeError as e:
+                # Tokenizer does not accept `enable_thinking` as a Python arg.
+                # Retry WITHOUT enable_thinking but keep the Jinja kwargs.
+                self.logger.warning(
+                    "apply_chat_template does not accept 'enable_thinking'; "
+                    "retrying without it. Error: %s",
+                    e,
+                )
+                try:
+                    return tok.apply_chat_template(
+                        messages,
+                        **call_kwargs,
+                    )
+                except TemplateError as e2:
+                    self.logger.warning(
+                        "Chat template failed (%s). Falling back to plain formatting.",
+                        e2,
+                    )
+            except TemplateError as e:
+                self.logger.warning(
+                    "Chat template failed (%s). Falling back to plain formatting.",
+                    e,
+                )
+            # Fall through to fallback if we hit any of the above
+
+        # -----------------------------
+        # Fallback path: plain prompt
+        # -----------------------------
+        text = self._fallback_plain_prompt(messages)
+        if tokenize:
+            return tok(text, return_tensors="pt", return_dict=True)
+        return text
+
+
+    def _format_messages(
+        self,
+        system_prompt: str,
+        chat_history: List[Dict[str, Any]],
+        user_prompt: str,
+        enable_thinking: bool = False,
+    ) -> str:
+        """
+        DEFAULT: build messages and return a single prompt string.
+
+        Backends like `TransformersModel` can call this and then feed the prompt
+        into `tokenizer(prompt, return_tensors="pt")` if they don't want to use
+        chat_template tokenization directly.
+        """
+        messages = self._build_messages(system_prompt, chat_history, user_prompt)
+        prompt_text = self._apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=enable_thinking,
+        )
+        assert isinstance(prompt_text, str), "Expected prompt_text to be a string."
+        return prompt_text
 
     def _format_chat_to_string(self, messages: List[Dict[str, str]]) -> str:
         prompt = ""

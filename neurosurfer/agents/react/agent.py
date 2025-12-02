@@ -268,10 +268,6 @@ class ReActAgent(BaseAgent):
                 agent_id=self.id,
                 kind="tool.execute",
                 label="react_agent.loop.tool_execute",
-                inputs={
-                    "tool_name": tool_call.tool,
-                    "tool_inputs": tool_call.inputs
-                },
             ).start()
 
             history.append(response)
@@ -438,10 +434,7 @@ class ReActAgent(BaseAgent):
             try:
                 tool_tracer.log(f"[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {str(tool_call.inputs)[:150]}...", type="info")
                 # NEW: extract any requested memory keys
-                print("tool_call -------- ", tool_call)
                 inputs = dict(tool_call.inputs)
-
-                # mem_keys = inputs.pop("memory_keys", None)
                 mem_keys = tool_call.memory_keys
                 mem_injected: Dict[str, Any] = {}
 
@@ -453,22 +446,26 @@ class ReActAgent(BaseAgent):
 
                 # Normal runtime memory (if you still want a global fallback)
                 # mem_snapshot = self.memory.snapshot_for_tool()
-                # runtime_injected = mem_snapshot.as_flat_dict()
-
+                persistent_memory = self.memory.get_memory(mode="persistent")
                 all_inputs = {
                     **inputs,
-                    **mem_injected,      # memory selected by LLM
-                    # **runtime_injected # optional: global injection
+                    **persistent_memory, # optional: global injection
+                    "context": mem_injected,      # memory selected by LLM
                 }
-                print("all_inputs ----------- ", all_inputs)
-
-                # mem_snapshot = self.memory.snapshot_for_tool()
-                # all_inputs = {**tool_call.inputs, **mem_snapshot.as_flat_dict()}
+                tool_tracer.inputs(
+                    llm_generated_inputs=tool_call.inputs,
+                    persistent_memory=persistent_memory,
+                    mem_injected=mem_injected
+                )
                 tool_response: ToolResponse = tool(**all_inputs)
+                # print("Tool response:\n", tool_response)
                 self.memory.clear_ephemeral()
-                print("tool_response.extras -------- ", tool_response.extras)
                 # Update memory from extras, including metadata
-                self.memory.update_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_name)
+                self._update_memory_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_name)
+                tool_tracer.outputs(
+                    memory_update=tool_response.extras
+                )
+                # print("Current ephemeral memory:\n", self.memory.get_memory(mode="ephemeral"))
                 return tool_response
 
             except Exception as e:
@@ -514,7 +511,7 @@ class ReActAgent(BaseAgent):
         prompt += history.to_prompt()
 
         # NEW: memory listing for the LLM
-        memory_block = self.memory.llm_visible_summary()
+        memory_block = self.memory.llm_visible_summary(mode="ephemeral")
         prompt += (
             "\n# Working Memory:\n"
             "You have access to the following memory slots from previous tool calls.\n"
@@ -535,3 +532,67 @@ class ReActAgent(BaseAgent):
 
     def _sort_tracing_results(self):
         self.tracer.results.steps = sorted(self.tracer.results.steps, key=lambda s: s.step_id)
+
+    def _update_memory_from_extras(
+        self,
+        extras: Dict[str, Any],
+        scope: str = "ephemeral",
+        created_by: Optional[str] = None,
+    ) -> None:
+        """
+        Generic adapter: take `ToolResponse.extras` and populate AgentMemory.
+
+        Convention for rich slots (tool-controlled):
+
+            extras["some_key"] = {
+                "value": <any python object / JSON-ish>,
+                "description": "short human description",
+                "visible_to_llm": True/False,        # default: False
+                # optional:
+                # "scope": "ephemeral" | "persistent"
+                # "created_by": "<tool_name>"
+            }
+
+        Anything that is NOT of this shape is treated as a raw runtime value
+        (stored but not visible to the LLM by default).
+        """
+        if not extras:
+            return
+
+        for key, raw in extras.items():
+            # Defaults
+            slot_scope = scope
+            slot_created_by = created_by
+
+            if isinstance(raw, dict) and "value" in raw:
+                value = raw["value"]
+                description = str(raw.get("description", "")).strip()
+                visible_to_llm = bool(raw.get("visible_to_llm", False))
+
+                # Allow per-slot overrides
+                if "scope" in raw:
+                    slot_scope = str(raw["scope"])
+                if raw.get("created_by"):
+                    slot_created_by = str(raw["created_by"])
+            else:
+                # Bare value → runtime-only, hidden from LLM by default
+                value = raw
+                description = ""
+                visible_to_llm = False
+
+            if slot_scope == "persistent":
+                self.memory.set_persistent(
+                    key=key,
+                    value=value,
+                    description=description,
+                    visible_to_llm=visible_to_llm,
+                    created_by=slot_created_by,
+                )
+            else:
+                self.memory.set_ephemeral(
+                    key=key,
+                    value=value,
+                    description=description,
+                    visible_to_llm=visible_to_llm,
+                    created_by=slot_created_by,
+                )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Mapping, List
+from typing import Any, Dict, Literal, Optional, Mapping, List
 
 
 @dataclass
@@ -80,13 +80,11 @@ class AgentMemory:
     """
 
     def __init__(self) -> None:
-        self._persistent: Dict[str, Any] = {}
-        self._ephemeral: Dict[str, Any] = {}
-        self._slots: Dict[str, MemorySlot] = {}
+        self._memory_slots: Dict[str, MemorySlot] = {}
 
     # -------- Persistent API --------
     def set_persistent(self, key: str, value: Any, description: str = "", visible_to_llm: bool = True, created_by: str | None = None) -> None:
-        self._slots[key] = MemorySlot(
+        self._memory_slots[key] = MemorySlot(
             key=key,
             value=value,
             scope="persistent",
@@ -95,33 +93,34 @@ class AgentMemory:
             created_by=created_by,
         )
 
-    # def set_persistent(self, key: str, value: Any) -> None:
-    #     """
-    #     Set a persistent key. Overwrites existing value if present.
-    #     """
-    #     self._persistent[key] = value
-
     def get_persistent(self, key: str, default: Optional[Any] = None) -> Any:
         """
         Get a value from persistent scope.
         """
-        return self._persistent.get(key, default)
+        slot = self._memory_slots.get(key)
+        if slot is not None and slot.scope == "persistent":
+            return slot.value
+        return default
 
     def remove_persistent(self, key: str) -> None:
         """
         Remove a persistent key if it exists.
         """
-        self._persistent.pop(key, None)
+        item = self._memory_slots.get(key, None)
+        if item is not None and item.scope == "persistent":
+            del self._memory_slots[key]
 
     def clear_persistent(self) -> None:
         """
         Clear ALL persistent memory.
         """
-        self._persistent.clear()
+        to_remove = [k for k, v in self._memory_slots.items() if v.scope == "persistent"]
+        for k in to_remove:
+            del self._memory_slots[k]
 
     # -------- Ephemeral API --------
     def set_ephemeral(self, key: str, value: Any, description: str = "", visible_to_llm: bool = True, created_by: str | None = None) -> None:
-        self._slots[key] = MemorySlot(
+        self._memory_slots[key] = MemorySlot(
             key=key,
             value=value,
             scope="ephemeral",
@@ -130,47 +129,45 @@ class AgentMemory:
             created_by=created_by,
         )
 
-    # def set_ephemeral(self, key: str, value: Any) -> None:
-    #     """
-    #     Set an ephemeral key (per-step scratch).
-    #     """
-    #     self._ephemeral[key] = value
-
     def get_ephemeral(self, key: str, default: Optional[Any] = None) -> Any:
         """
         Get a value from ephemeral scope.
         """
-        return self._ephemeral.get(key, default)
+        slot = self._memory_slots.get(key)
+        if slot is not None and slot.scope == "ephemeral":
+            return slot.value
+        return default
 
     def remove_ephemeral(self, key: str) -> None:
         """
         Remove an ephemeral key if it exists.
         """
-        self._ephemeral.pop(key, None)
+        item = self._memory_slots.get(key, None)
+        if item is not None and item.scope == "ephemeral":
+            del self._memory_slots[key]
 
     def clear_ephemeral(self) -> None:
         """
         Clear ALL ephemeral memory.
         """
-        self._slots = {k: v for k, v in self._slots.items() if v.scope != "ephemeral"}
-        # self._ephemeral.clear()
+        to_remove = [k for k, v in self._memory_slots.items() if v.scope == "ephemeral"]
+        for k in to_remove:
+            del self._memory_slots[k]
+
+    def get_memory(self, mode: Literal["ephemeral", "persistent", "all"] = "all") -> Dict[str, Any]:
+        """
+        Get all memory slots (ephemeral + persistent) that are runtime-available.
+        """
+        if mode == "ephemeral":
+            return {k: v.value for k, v in self._memory_slots.items() if v.scope == "ephemeral"}
+        if mode == "persistent":
+            return {k: v.value for k, v in self._memory_slots.items() if v.scope == "persistent"}
+        return {k: v.value for k, v in self._memory_slots.items()}
 
     # -------- Combined / convenience --------
     def snapshot_for_tool(self) -> List[MemorySlot]:
         """All slots (ephemeral + persistent) that are runtime-available."""
-        return list(self._slots.values())
-
-    # def snapshot_for_tool(self) -> MemorySnapshot:
-    #     """
-    #     Take a snapshot of the current memory state for tool invocation.
-
-    #     This is the main entry point for agents when they want to pass memory
-    #     into tools as kwargs.
-    #     """
-    #     return MemorySnapshot(
-    #         persistent=dict(self._persistent),
-    #         ephemeral=dict(self._ephemeral),
-    #     )
+        return list(self._memory_slots.values())
 
     def update_from_extras(self, extras: Dict[str, Any], scope: str = "ephemeral", created_by: str | None = None) -> None:
         """
@@ -204,58 +201,6 @@ class AgentMemory:
                     created_by=created_by,
                 )
 
-    # def update_from_extras(
-    #     self,
-    #     extras: Mapping[str, Any],
-    #     *,
-    #     scope: str = "ephemeral",
-    # ) -> None:
-    #     """
-    #     Update memory from a tool's `extras` dict.
-
-    #     By default, extras go into the ephemeral scope (i.e. valid for the next step).
-    #     You can choose `scope="persistent"` if you want a tool to store
-    #     long-lived state.
-    #     """
-    #     if not extras:
-    #         return
-
-    #     if scope not in ("ephemeral", "persistent"):
-    #         raise ValueError("scope must be 'ephemeral' or 'persistent'")
-
-    #     target = self._ephemeral if scope == "ephemeral" else self._persistent
-    #     for k, v in extras.items():
-    #         target[k] = v
-
-    def get(self, key: str, default: Optional[Any] = None) -> Any:
-        """
-        Convenience accessor:
-
-        1) Check ephemeral (highest priority),
-        2) then persistent.
-        """
-        if key in self._ephemeral:
-            return self._ephemeral[key]
-        return self._persistent.get(key, default)
-
-    def as_debug_dict(self) -> Dict[str, Dict[str, Any]]:
-        """
-        For debugging/logging: shows both scopes without exposing object reprs too deeply.
-        """
-        def _safe_repr_map(src: Dict[str, Any]) -> Dict[str, str]:
-            out: Dict[str, str] = {}
-            for k, v in src.items():
-                try:
-                    out[k] = repr(v)
-                except Exception:
-                    out[k] = f"<unreprable {type(v).__name__}>"
-            return out
-
-        return {
-            "persistent": _safe_repr_map(self._persistent),
-            "ephemeral": _safe_repr_map(self._ephemeral),
-        }
-
     # -------- Legacy-ish helpers --------
     def set(self, key: str, value: Any, *, persistent: bool = False) -> None:
         """
@@ -275,23 +220,26 @@ class AgentMemory:
         """
         return self.snapshot_for_tool().as_flat_dict()
 
-
     def resolve_keys(self, keys: List[str]) -> Dict[str, Any]:
         """Return a dict of {key: value} for the given slot keys."""
         out: Dict[str, Any] = {}
         for k in keys:
-            slot = self._slots.get(k)
+            slot = self._memory_slots.get(k)
             if slot is not None:
                 out[k] = slot.value
         return out
 
-    def llm_visible_summary(self) -> str:
+    def llm_visible_summary(self, mode: Literal["ephemeral", "persistent", "all"] = "all") -> str:
         """
         Short textual listing of memory for the ReAct prompt.
         Does NOT leak raw values; only names + descriptions.
         """
         lines = []
-        for slot in self._slots.values():
+        for slot in self._memory_slots.values():
+            if mode == "ephemeral" and slot.scope != "ephemeral":
+                continue
+            if mode == "persistent" and slot.scope != "persistent":
+                continue
             if not slot.visible_to_llm:
                 continue
             scope = "ephemeral" if slot.scope == "ephemeral" else "persistent"

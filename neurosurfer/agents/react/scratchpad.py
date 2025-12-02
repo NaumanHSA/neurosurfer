@@ -40,7 +40,7 @@ Rules:
 - Do not include trailing commas.
 - If inputs are unknown or ambiguous, ask a clarification question instead of guessing.
 - If a tool fails, reflect and adjust inputs or choose a different tool (do not retry unchanged).
-- If a tool's output fully answers the user, set "final_answer": true.
+- If a tool's output fully answers the user, set "final_answer": true. If you think the tool call will further be processed, set "final_answer": false.
 
 ## Allowed Output Shapes for a SINGLE step
 
@@ -55,7 +55,7 @@ Action: {{
     "...": ...
   }},
   "memory_keys": ["key1", "key2", ...],
-  "final_answer": false
+  "final_answer": "true" | "false" (whether the tool call will be the final answer)
 }}
 
 (Exactly one Thought and one Action block for this step.)
