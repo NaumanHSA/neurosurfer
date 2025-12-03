@@ -12,3 +12,4 @@ class ReActConfig:
     skip_special_tokens: bool = False
     return_stream_by_default: bool = False
     log_internal_thoughts: bool = True
+    return_internal_thoughts: bool = False

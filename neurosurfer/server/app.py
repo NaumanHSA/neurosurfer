@@ -18,14 +18,16 @@ from neurosurfer.agents.react import ReActAgent, ReActConfig
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.code_execution.python_exec_tool import PythonExecTool
 
-from .services.rag import RAGOrchestrator, GateDecision, RAGResult, RAGRetrieveTool
+from .services.rag import RAGOrchestrator, GateDecision, RAGResult
+from .tools import RAGRetrieveTool, CodeAgentTool
 from .runtime import RequestContext
 from .schemas import ModelList, AppResponseModel, ChatHandlerModel
+from .db.models import NSFile
 from .security import get_current_user, get_db
 from .models_registry import ModelRegistry
 from .api import _auth_router, _chats_router, chat_completion_router, _files_router
 from .config import CORS_ORIGINS, SECRET_KEY
-from .utils import build_files_context
+from .utils import build_files_context, stream_chat_completion, non_stream_chat_completion
 
 # ---------- Neurosurfer app builder ----------
 class NeurosurferApp:
@@ -199,7 +201,7 @@ class NeurosurferApp:
     def _init_agent(self):
         self._toolkit = Toolkit(
             tools=[
-                PythonExecTool(llm=self._llm, logger=self.logger),
+                CodeAgentTool(llm=self._llm, log_traces=True, logger=self.logger),
                 RAGRetrieveTool(rag_orchestrator=self._rag_orchestrator, logger=self.logger)
             ]
         )
@@ -209,12 +211,8 @@ class NeurosurferApp:
             toolkit=self._toolkit,
             specific_instructions="",
             logger=self.logger,
-            config=ReActConfig()
+            config=ReActConfig(return_internal_thoughts=True)
         )
-        # self._agent.memory.set_persistent("user_id", args.user_id)
-        # self._agent.memory.set_persistent("thread_id", args.thread_id)
-        # self._agent.memory.set_persistent("files_context", files_ctx)
-        # self._agent.memory.set_persistent("workdir", code_workdir)
     
     def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):
         self._rag_orchestrator = RAGOrchestrator(
@@ -225,10 +223,17 @@ class NeurosurferApp:
             logger=self.logger,
         )
 
-    def run_agent(self, user_id: int, thread_id: int, message_id: int, user_query: str, has_files_message: bool):
-        
+    def run_agent(
+        self, 
+        user_id: int, 
+        thread_id: int, 
+        message_id: int, 
+        user_query: str, 
+        has_files_message: bool,
+        stream: bool = True,
+    ):
         # Ingest new files if any to the chroma db
-        ingestion_summaries = self._rag_orchestrator.ingest(
+        ingestion_summaries, files, files_summaries_block = self._rag_orchestrator.ingest(
             user_id=user_id,
             thread_id=thread_id,
             message_id=message_id,
@@ -245,14 +250,26 @@ class NeurosurferApp:
             files_context=files_context
         )
 
+        # set files_context in agent memory so it's available for tools to use
+        self._agent.set_persistent_memory(files_context=files_context)
+        user_prompt = (
+            "# User query:\n"
+            f"{user_query}\n\n"
+            "# Uploaded files for this thread (with summaries):\n"
+            f"{files_summaries_block}\n"
+        )
         # Run agent
-        return self._agent.run(
-            query=user_query,
-            stream=True,
+        agent_return = self._agent.run(
+            query=user_prompt,
+            stream=stream,
             specific_instructions="",
             _route_extra_instructions="",
             reset_tracer=True,
         )
+        if stream:
+            return stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
+        else:
+            return non_stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
 
     def register_model(self, model: Union[BaseChatModel, BaseEmbedder], provider: str = None, family: str = "Unknown", description: str = None):
         if isinstance(model, BaseChatModel):

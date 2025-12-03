@@ -18,7 +18,7 @@ from neurosurfer.agents.react.types import ReactAgentResponse
 from neurosurfer.tracing import Tracer, TracerConfig
 
 from .config import CodeAgentConfig
-from .scratchpad import CODE_AGENT_SPECIFIC_INSTRUCTIONS
+from .scratchpad import CODE_AGENT_SPECIFIC_INSTRUCTIONS, ANALYSIS_ONLY_MODE, DELEGATE_FINAL_MODEL
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ class CodeAgent(ReActAgent):
         llm: BaseChatModel,
         toolkit: Optional[Toolkit] = None,
         config: Optional[CodeAgentConfig] = None,
+        mode: Literal["delegate_final", "analysis_only"] = "delegate_final",
         tracer: Optional[Tracer] = None,
         log_traces: bool = True,
         logger_: Optional[logging.Logger] = None,
@@ -49,6 +50,7 @@ class CodeAgent(ReActAgent):
             raise ValueError("CodeAgent requires an llm")
 
         self.code_config = config or CodeAgentConfig(skip_special_tokens=True)
+        self.mode = mode
         logger_local = logger_ or logger
 
         # Default toolkit: just PythonExecTool for now, but can be extended
@@ -68,11 +70,12 @@ class CodeAgent(ReActAgent):
             logger_=logger_local,
         )
 
+        mode_instructions = ANALYSIS_ONLY_MODE if self.mode == "analysis_only" else DELEGATE_FINAL_MODEL
         super().__init__(
             id=self.code_config.agent_name,
             llm=llm,
             toolkit=toolkit,
-            specific_instructions=CODE_AGENT_SPECIFIC_INSTRUCTIONS,
+            specific_instructions=CODE_AGENT_SPECIFIC_INSTRUCTIONS.format(mode_instructions=mode_instructions),
             config=self.code_config,
             logger=logger_local,
             tracer=tracer,
@@ -80,7 +83,6 @@ class CodeAgent(ReActAgent):
         )
 
     # ---------- Toolkit wiring ----------
-
     def _build_default_toolkit(self, llm: BaseChatModel) -> Toolkit:
         """
         Build a default Toolkit for CodeAgent.
@@ -99,7 +101,6 @@ class CodeAgent(ReActAgent):
         tk.register_tool(py_tool)
         return tk
 
-    # ---------- Public API: run ----------
     def run(
         self,
         *,
@@ -137,6 +138,12 @@ class CodeAgent(ReActAgent):
                 - "summarize": after the ReAct run completes (non-streaming), do one
                   extra LLM call to rewrite the raw answer into a cleaner explanation.
                   Ignored when stream=True.
+            mode:
+                - "delegate_final": CodeAgent is talking directly to the end user.
+                  It should produce a complete, user-facing final answer.
+                - "analysis_only": CodeAgent is being used as a sub-tool by another
+                  agent. It should focus on correct computation and memory/extras,
+                  and keep the final answer short and technical.
             reset_tracer:
                 If True, resets tracing results before this run.
 
@@ -159,7 +166,7 @@ class CodeAgent(ReActAgent):
             max_new_tokens=max_new_tokens,
             specific_instructions=None,   # we already injected CodeAgent instructions at init
             context=None,
-            _route_extra_instructions="",
+            _route_extra_instructions=None,
             reset_tracer=reset_tracer,
         )
 
@@ -167,7 +174,9 @@ class CodeAgent(ReActAgent):
         if stream:
             return base_resp
 
-        # Optional final summarization pass (non-streaming only)
+        # Optional final summarization pass (non-streaming only).
+        # NOTE: we keep this independent of `mode` for now; you can later decide
+        # to disable summarization for `analysis_only` if you want super-short outputs.
         if (
             post_process == "summarize"
             and self.code_config.enable_post_processing

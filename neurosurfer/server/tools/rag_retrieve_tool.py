@@ -123,14 +123,12 @@ class RAGRetrieveTool(BaseTool):
                 results="[RAG] No user_id/thread_id provided; skipping retrieval.",
                 extras={"rag_used": False, "reason": "missing_ids"},
             )
-
         result: RAGResult = self.rag_orchestrator.retrieve(
             user_id=user_id,
             thread_id=thread_id,
             user_query=query,
             files=[],
         )
-
         return ToolResponse(
             final_answer=False,
             results=result.augmented_query,

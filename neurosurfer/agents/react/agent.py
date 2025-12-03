@@ -169,6 +169,8 @@ class ReActAgent(BaseAgent):
                 "scratchpad": system_prompt,
             },
         ).start()
+        reason_tracer: Optional[TraceStepContext] = None 
+        tool_tracer: Optional[TraceStepContext] = None
 
         history = History()
         self.stop_event = False
@@ -201,7 +203,8 @@ class ReActAgent(BaseAgent):
                 stream=True
             )
 
-            response, final_started, thoughts = "", False, ""
+            response, thoughts = "", ""
+            final_started, thought_started, thought_finished = False, False, False
             for chunk in streaming_response:
                 if chunk.choices[0].finish_reason == "stop":
                     break
@@ -210,6 +213,9 @@ class ReActAgent(BaseAgent):
 
                 # stream final answer if the marker appears
                 if not final_started and self.delims.sof in response:
+                    # assuming end of thought when sof appears - `Thought:` appeared but `Action:` didn't
+                    if thought_started and not thought_finished:
+                        yield self.delims.eot + "\n"
                     reason_tracer.stream("Final Response:\n")
                     final_started = True
                     prefix, suffix = response.split(self.delims.sof, 1)
@@ -222,8 +228,7 @@ class ReActAgent(BaseAgent):
                         final_answer += to_emit
                 elif final_started:
                     if self.delims.eof in part:
-                        before, _after = part.split(self.delims.eof, 1)
-                        to_emit = self.delims.eof + before
+                        to_emit, _after = part.split(self.delims.eof, 1)
                         if self.config.skip_special_tokens:
                             to_emit = to_emit.strip(self.delims.eof)
                         yield to_emit
@@ -234,11 +239,24 @@ class ReActAgent(BaseAgent):
                         reason_tracer.stream(part, type="whiteb")
                         final_answer += part
                 else:
+                    if self.config.return_internal_thoughts:
+                        to_emit = part
+                        if not thought_started and "Thought:" in response:
+                            thought_started = True
+                            prefix, suffix = response.split("Thought:", 1)
+                            to_emit = suffix if self.config.skip_special_tokens else self.delims.sot + suffix
+                        if not thought_finished and "Action:" in response:
+                            thought_finished = True
+                            to_emit, _after = part.split("Action:", 1)
+                            if not self.config.skip_special_tokens:
+                                to_emit = to_emit.strip() + self.delims.eot + "\n"
+                        if not thought_finished:
+                            yield to_emit
                     thoughts += part
                     # collect internal thoughts for tracing, no yeilding here
                     if self.log_traces and self.log_internal_thoughts:
                         reason_tracer.stream(part, type="thought")
-
+            
             reason_tracer.outputs(final_answer=final_answer, thoughts=thoughts)
             if final_started:
                 if not self.config.skip_special_tokens:
@@ -314,9 +332,9 @@ class ReActAgent(BaseAgent):
             reason_tracer.close()
             iteration += 1
 
-        if not tool_tracer.is_closed(): tool_tracer.close()
-        if not reason_tracer.is_closed(): reason_tracer.close()
-        if not main_tracer.is_closed():
+        if tool_tracer and not tool_tracer.is_closed(): tool_tracer.close()
+        if reason_tracer and not reason_tracer.is_closed(): reason_tracer.close()
+        if main_tracer and not main_tracer.is_closed():
             main_tracer.outputs(final_answer=final_answer, total_iterations=iteration)
             main_tracer.close()
         if self.log_traces:

@@ -1,6 +1,10 @@
-from typing import Dict, Any
-from pathlib import Path
+from typing import Dict, Any, Generator, Optional
+from pathlib import Path    
 import os
+import uuid
+
+from neurosurfer.models.chat_models import BaseChatModel
+
 from .config import APP_DATA_PATH
 from .db.db import SessionLocal
 from .db.models import NSFile
@@ -48,3 +52,19 @@ def build_files_context(user_id: int, thread_id: int) -> Dict[str, Dict[str, Any
         }
     db.close()
     return ctx
+
+def stream_chat_completion(response: Generator[str, None, None], model_name: Optional[str] = None):
+    call_id = str(uuid.uuid1())
+    for chunk in response:
+        yield BaseChatModel._delta_chunk(call_id=call_id, model=model_name or "local-gpt", content=chunk)
+    yield BaseChatModel._stop_chunk(call_id=call_id, model=model_name or "local-gpt", finish_reason="stop")
+
+def non_stream_chat_completion(response: str, model_name: Optional[str] = None, prompt_tokens: int = 0, completion_tokens: int = 0):
+    call_id = str(uuid.uuid1())
+    yield BaseChatModel._final_nonstream_response(
+        call_id=call_id, 
+        model=model_name or "local-gpt", 
+        content=response,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens
+    )

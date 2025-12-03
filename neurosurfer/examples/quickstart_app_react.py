@@ -47,7 +47,6 @@ from neurosurfer.server.services.rag import RAGResult
 
 from neurosurfer.tools import Toolkit
 from neurosurfer.tools.code_execution.python_exec_tool import PythonExecTool
-from neurosurfer.server.services.rag.rag_retrieve_tool import RAGRetrieveTool
 
 from neurosurfer.config import config
 from neurosurfer import CACHE_DIR
@@ -102,7 +101,7 @@ async def load_model():
         LOGGER.warning("Torch not found...")
 
     from neurosurfer.models.chat_models.transformers import TransformersModel
-    MODEL_SOURCE = os.getenv("NEUROSURF_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Mistral-Nemo-Instruct-2407-bnb-4bit")
+    MODEL_SOURCE = os.getenv("NEUROSURF_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit")
     llm = TransformersModel(
         # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
         model_name=MODEL_SOURCE,
@@ -192,39 +191,6 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
 
     # Prepare inputs
     user_query = args.messages.user_query    # Last user message
-
-    # ingest files if any
-    ingestion_summaries = ns._rag_orchestrator.ingest(
-        user_id=args.user_id,
-        thread_id=args.thread_id,
-        message_id=args.message_id,
-        has_files_message=args.has_files_message,
-    )
-
-    final_answer = ns._agent.run(
-        query=user_query,
-        stream=args.stream,
-        temperature=args.temperature,
-        max_new_tokens=args.max_tokens,
-        specific_instructions="",
-        _route_extra_instructions="",
-        reset_tracer=True,
-    )
-    
-    rag_res: RAGResult = ns.apply_rag(
-        user_id=args.user_id,
-        thread_id=args.thread_id,
-        message_id=args.message_id,
-        user_query=user_query,
-        has_files_message=args.has_files_message,
-    )
-    user_query = rag_res.augmented_query
-    if rag_res.used:
-        LOGGER.info(f"[RAG] used context (top_sim={rag_res.meta.get('top_similarity', 0):.3f})")
-    else:
-        LOGGER.info(f"[RAG] no context (reason={rag_res.meta.get('reason')})")
-
-    llm = ns.get_model(args.model).llm
     # Minimal chat history excluding system messages, max 10
     num_recent = 10
     conversation_messages = args.messages.converstaion
@@ -232,13 +198,15 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
 
     # Model call (stream or non-stream handled by router)
     kwargs = {"temperature": args.temperature, "max_new_tokens": args.max_tokens}
-    return llm.ask(
-        user_prompt=user_query,
-        system_prompt=args.system_prompt,
-        chat_history=chat_history,
-        stream=args.stream,
-        **kwargs
+
+    final_answer = ns.run_agent(
+        user_id=args.user_id,
+        thread_id=args.thread_id,
+        message_id=args.message_id,
+        user_query=user_query,
+        has_files_message=args.has_files_message,
     )
+    return final_answer
 
 def create_app():
     return ns.app

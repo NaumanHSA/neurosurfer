@@ -10,7 +10,13 @@ import {
     listChatMessages
 } from '../lib/api';
 import { loadSettings, type ChatSettings } from '../components/SettingsDialog';
-import { extractThinking } from '../lib/thinkParser';
+// import { extractThinking } from '../lib/thinkParser';
+import {
+    createReasoningState,
+    consumeReasoningDelta,
+    ReasoningParseState,
+} from '../lib/thinkParser';
+
 import { useModels } from './useModels';
 import { getRandomFollowUps } from '../lib/constants';
 
@@ -224,23 +230,30 @@ export function useChat(opts: UseChatOpts = {}) {
         setOpId(op_id);
         completionBody.op_id = op_id;
 
-        let accum = '';
+        let parseState: ReasoningParseState = createReasoningState();
         try {
             // NOTE: streamCompletions now only takes (body, controller)
             for await (const chunk of streamCompletions(completionBody, controller)) {
                 if (chunk.error) throw new Error(chunk.error);
+
                 if (chunk.delta) {
-                    accum += chunk.delta;
-                    const { thinking, visible } = extractThinking(accum);
+                    // Feed chunk.delta into the parser instead of just concatenating
+                    parseState = consumeReasoningDelta(parseState, chunk.delta);
                     const updated: ChatMessage = {
                         ...assistantMsg,
-                        content: visible,
-                        thinking,
+                        content: parseState.visible,       // what Markdown sees / user sees
+                        thinking: parseState.thinking,     // internal reasoning (if you show it somewhere)
+                        // finalAnswer: parseState.finalAnswer, // optional extra field
                     };
                     assistantMessageRef.current = updated;
                     setMessages(prev =>
                         prev.map(m => (m.id === assistantMsg.id ? updated : m)),
                     );
+                    if (parseState.done) {
+                        // if your backend still sends finish_reason later, you can ignore or continue
+                        // but breaking here feels natural.
+                        break;
+                    }
                 }
                 if (chunk.finish_reason) break;
             }

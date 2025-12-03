@@ -211,16 +211,16 @@ class RAGOrchestrator:
         thread_id: int,
         message_id: int,
         has_files_message: bool = False,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], str]:
         """
         Main entry point.
         - user_id, thread_id: scope for both SQL and vectorstore collection
         - message_id: latest user message text
         - has_files_message: whether the message contains files
         """
-        summaries, files = [], []
+        ingestion_summaries, files, files_summary = [], [], ""
         if not user_id or not thread_id:
-            return summaries, files
+            return ingestion_summaries, files, files_summary
         
         # switch the path to the user's thread
         self._set_path(user_id, thread_id)
@@ -230,36 +230,37 @@ class RAGOrchestrator:
         # db: SQLAlchemy Session (injected from FastAPI)
         db = SessionLocal()
         # Ingest files if provided
-        if has_files_message and message_id:
-            files = (
-                db.query(NSFile)
-                .filter(
-                    NSFile.user_id == user_id,
-                    NSFile.thread_id == thread_id,
-                    NSFile.message_id == message_id,
-                    NSFile.collection == collection_name,
-                    NSFile.ingested == False,
-                )
-                .all()
+        files = (
+            db.query(NSFile)
+            .filter(
+                NSFile.user_id == user_id,
+                NSFile.thread_id == thread_id,
+                NSFile.message_id == message_id,
+                NSFile.collection == collection_name,
+                NSFile.ingested == False,
             )
-            if files:
-                if self.verbose:
-                    self.logger.info(f"Ingesting files for thread {user_id}/{thread_id}, num files: {len(files)}")
+            .all()
+        )
+        if files and has_files_message and message_id:   
+            if self.verbose:
+                self.logger.info(f"Ingesting files for thread {user_id}/{thread_id}, num files: {len(files)}")
 
-                summaries = self.ingestion.ingest_files(
-                    db,
-                    user_id=user_id,
-                    thread_id=thread_id,
-                    collection_name=collection_name,
-                    files=files,
-                )
-                if self.verbose:
-                    self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
-                    if summaries:
-                        self.logger.info(f"Ingested files summaries:")
-                        for summary in summaries:
-                            self.logger.info(summary)
-        return summaries, files
+            ingestion_summaries = self.ingestion.ingest_files(
+                db,
+                user_id=user_id,
+                thread_id=thread_id,
+                collection_name=collection_name,
+                files=files,
+            )
+            if self.verbose:
+                self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
+                if ingestion_summaries:
+                    self.logger.info(f"Ingested files summaries:")
+                    for summary in ingestion_summaries:
+                        self.logger.info(summary)
+        files_summary = self._build_files_summaries_block(message_id, files)
+        db.close()
+        return ingestion_summaries, files, files_summary
         
     # -------- public API --------
     def apply(
@@ -278,7 +279,7 @@ class RAGOrchestrator:
         - files: base64-encoded upload metadata from request (if any)
         """
         # ingest files if any
-        summaries, files = self.ingest(
+        ingestion_summaries, files, files_summary = self.ingest(
             user_id=user_id,
             thread_id=thread_id,
             message_id=message_id,
@@ -291,6 +292,18 @@ class RAGOrchestrator:
             user_query=user_query,
             files=files,
         )
+
+    def _build_files_summaries_block(self, message_id: int, files: List[NSFile]) -> str:
+        files_block_lines: List[str] = []
+        for f in files:
+            flag = "yes" if f.message_id == message_id else "no"
+            files_block_lines.append(
+                f"Filename: {f.filename}\n"
+                f"Attached_to_current_message: {flag}\n"
+                f"Summary:\n{f.summary or '(no summary)'}\n"
+            )
+        files_block = "\n\n".join(files_block_lines)
+        return files_block
 
     # -------- internals --------
     def _set_path(self, user_id: int, thread_id: int) -> None:

@@ -214,7 +214,8 @@ class BaseChatModel(ABC):
         """Must yield ChatCompletionChunk Pydantic models"""
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def _delta_chunk(self, call_id: str, model: str, content: str) -> ChatCompletionChunk:
+    @staticmethod
+    def _delta_chunk(call_id: str, model: str, content: str) -> ChatCompletionChunk:
         """
         Create a streaming delta chunk (Pydantic model).
         
@@ -242,7 +243,8 @@ class BaseChatModel(ABC):
             ]
         )
 
-    def _stop_chunk(self, call_id: str, model: str, finish_reason: str = "stop") -> ChatCompletionChunk:
+    @staticmethod
+    def _stop_chunk(call_id: str, model: str, finish_reason: str = "stop") -> ChatCompletionChunk:
         """
         Create a final streaming chunk indicating completion (Pydantic model).
         
@@ -271,8 +273,8 @@ class BaseChatModel(ABC):
             ]
         )
 
+    @staticmethod
     def _final_nonstream_response(
-        self, 
         call_id: str, 
         model: str, 
         content: str,
