@@ -177,6 +177,8 @@ class ReActAgent(BaseAgent):
         iteration = 0
         final_answer = ""
         while not self.stop_event:
+            # set persistent memory for the history
+            self.set_persistent_memory(history=history.to_prompt())
             reasoning_prompt = self._build_prompt(query, history)
             reason_tracer = self.tracer(
                 agent_id=self.id,
@@ -373,7 +375,7 @@ class ReActAgent(BaseAgent):
                 if self.config.repair_with_llm:
                     return self._repair_action(user_query, history, error_message=str(err))
                 return None
-            if dropped and self.config.verbose:
+            if dropped:
                 rprint(f"[yellow][agent] Dropped extra inputs for '{tc.tool}': {sorted(dropped)}[/yellow]")
             tc.inputs = sanitized
         return tc

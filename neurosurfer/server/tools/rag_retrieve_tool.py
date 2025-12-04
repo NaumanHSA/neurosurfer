@@ -33,7 +33,7 @@ class RAGRetrieveTool(BaseTool):
     """
 
     spec = ToolSpec(
-        name="rag_retrieve",
+        name="rag_retriever",
         description=(
             "Retrieve relevant context from the user's uploaded files using a "
             "vector store and a routing (gate) model. "

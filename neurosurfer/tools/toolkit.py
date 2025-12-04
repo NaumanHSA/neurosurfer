@@ -145,7 +145,6 @@ class Toolkit:
         tools_descriptions.extend([t.get_tool_description() for t in self.registry.values()])
         return "\n".join(tools_descriptions).strip()
 
-
     def build_tool_args(
         tool_spec: ToolSpec,
         llm_args: Dict[str, Any],

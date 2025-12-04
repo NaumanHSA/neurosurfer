@@ -19,7 +19,7 @@ from neurosurfer.tools import Toolkit
 from neurosurfer.agents.code import CodeAgentConfig, CodeAgent
 
 from .services.rag import RAGOrchestrator, GateDecision, RAGResult
-from .tools import RAGRetrieveTool, CodeAgentTool
+from .tools import RAGRetrieveTool, CodeAgentTool, FinalAnswerTool, FinalAnswerToolConfig
 from .runtime import RequestContext
 from .schemas import ModelList, AppResponseModel, ChatHandlerModel
 from .db.models import NSFile
@@ -211,6 +211,15 @@ class NeurosurferApp:
                 RAGRetrieveTool(
                     rag_orchestrator=self._rag_orchestrator, 
                     logger=self.logger
+                ),
+                FinalAnswerTool(
+                    llm=self._llm,
+                    config=FinalAnswerToolConfig(
+                        default_language="english",
+                        default_answer_length="detailed",
+                        max_history_chars=12000
+                    ),
+                    logger=self.logger
                 )
             ]
         )
@@ -262,7 +271,9 @@ class NeurosurferApp:
             thread_id=thread_id,
             message_id=message_id,
             has_files_message=has_files_message,
-            files_context=files_context
+            user_query=user_query,
+            files_context=files_context,
+            files_summaries_block=files_summaries_block
         )
         user_prompt = (
             "# User query:\n"
@@ -280,11 +291,11 @@ class NeurosurferApp:
             _route_extra_instructions="",
             reset_tracer=True,
         )
-        # return agent_return
-        if stream:
-            return stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
-        else:
-            return non_stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
+        return agent_return
+        # if stream:
+        #     return stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
+        # else:
+        #     return non_stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
 
     def register_model(self, model: Union[BaseChatModel, BaseEmbedder], provider: str = None, family: str = "Unknown", description: str = None):
         if isinstance(model, BaseChatModel):
