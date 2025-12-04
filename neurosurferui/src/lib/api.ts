@@ -237,7 +237,7 @@ export type StreamOpts = {
 // into the body.
 // -------------------------------------------------------------
 export async function* streamCompletions(body: any, controller: AbortController): AsyncGenerator<ChatCompletionChunk> {
-  console.log(body)
+  // console.log(body)
   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
     method: 'POST',
     credentials: 'include',
@@ -299,83 +299,6 @@ export async function* streamCompletions(body: any, controller: AbortController)
   }
 }
 
-
-// export async function* streamCompletions(
-//   body: any,
-//   controller: AbortController,
-//   opts: StreamOpts = {}
-// ): AsyncGenerator<ChatCompletionChunk> {
-//   const { file = null, threadId = null } = opts
-//   // put thread id into the JSON body (backend expects this now)
-//   if (threadId != null) body.thread_id = Number(threadId)
-
-//   // if a file is present, convert -> base64 and attach to body.files (JSON)
-//   if (file) {
-//     try {
-//       const b64 = await fileToBase64(file)
-//       const fileEntry = {
-//         name: file.name,
-//         content: b64,          // base64 payload
-//         type: file.type || undefined,
-//       }
-//       // preserve any existing files[] caller added; else create it
-//       if (Array.isArray(body.files)) body.files.push(fileEntry)
-//       else body.files = [fileEntry]
-//     } catch (e) {
-//       console.warn('Failed to base64-encode file, sending without files[]:', e)
-//     }
-//   }
-
-//   const res = await fetch(`${API_BASE}/v1/chat/completions`, {
-//     method: 'POST',
-//     credentials: 'include',
-//     headers: {
-//       ...baseHeaders(true, {}), // IMPORTANT: JSON headers
-//     },
-//     body: JSON.stringify(body),
-//     signal: controller.signal,
-//   })
-//   if (!res.ok) throw new Error(await res.text())
-
-//   const reader = res.body!.getReader()
-//   const decoder = new TextDecoder('utf-8')
-//   let buf = ''
-
-//   for (; ;) {
-//     const { done, value } = await reader.read()
-//     if (done) break
-//     buf += decoder.decode(value, { stream: true })
-
-//     const lines = buf.split('\n')
-//     for (let i = 0; i < lines.length - 1; i++) {
-//       const line = lines[i].trim()
-//       if (!line.startsWith('data:')) continue
-//       const payload = line.slice(5).trim()
-//       if (payload === '[DONE]') {
-//         yield { finish_reason: 'stop' }
-//         continue
-//       }
-//       try {
-//         const json = JSON.parse(payload)
-//         if (Array.isArray(json?.choices)) {
-//           const ch0 = json.choices[0] || {}
-//           const d = ch0?.delta?.content || ''
-//           const fr = ch0?.finish_reason
-//           if (d) yield { delta: d }
-//           if (fr) yield { finish_reason: fr }
-//         } else if (json?.delta || json?.finish_reason) {
-//           yield json
-//         } else if (typeof json === 'string') {
-//           yield { delta: json }
-//         }
-//       } catch {
-//         // ignore malformed line
-//       }
-//     }
-//     buf = lines[lines.length - 1]
-//   }
-// }
-
 // -------------------------------------------------------------
 // Stop (compat with both /stop and /stop/{op_id})
 // -------------------------------------------------------------
@@ -397,7 +320,6 @@ export async function fetchFollowups(model: string, messages: { role: string; co
         model,
         stream: false,
         temperature: 0.7,
-        // messages: [{ role: "system", content: FOLLOWUPS_SYSTEM_PROMPT }, ...messages],
         messages: messages,
         metadata: { "follow_up_questions": true }
       }),
@@ -450,6 +372,7 @@ export async function fetchTitle(
         stream: false,
         temperature: 0.7,
         messages: [{ role: 'system', content: TITLE_SYSTEM_PROMPT }, ...toLLMMessages(messages)],
+        metadata: { "generate_title": true }
       }),
     })
     const content = data?.choices?.[0]?.message?.content || ''

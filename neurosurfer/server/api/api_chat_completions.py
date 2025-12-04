@@ -56,6 +56,7 @@ from ..runtime import op_manager, RequestContext
 from ..models_registry import ModelRegistry
 from ..security import maybe_current_user, resolve_actor_id
 from ..services.follow_up_questions import FollowUpQuestions
+from ..services.thread_title_generator import ThreadTitleGenerator
 from neurosurfer.config import config
 
 
@@ -147,6 +148,7 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
     """
     router = APIRouter(prefix="", tags=["Chat"])
     follow_up_questions_service = FollowUpQuestions()
+    thread_title_generator = ThreadTitleGenerator()
 
     @router.post("/chat/completions")
     async def chat_completions(
@@ -194,6 +196,12 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
                 follow_up_questions_service.set_llm(model_registry.get_first_available().llm)
             return follow_up_questions_service.generate(body.messages)
 
+        # Add follow-up questions if requested from the UI - handle accordingly
+        if body.metadata and body.metadata.get("generate_title", False):
+            # lazy init
+            thread_title_generator.set_llm(model_registry.get_first_available().llm)
+            return thread_title_generator.generate(body.messages)
+
         # Create request context
         ctx: RequestContext = op_manager.create()
         ctx.headers = dict(req.headers)
@@ -211,18 +219,6 @@ def chat_completion_router(_chat_handler, model_registry: ModelRegistry):
         user_msgs = [m["content"] for m in body.messages if m["role"] == "user"]
         conversation_messages = [msg for msg in body.messages if msg["role"] != "system"]
         system_prompt = system_msgs[0] if system_msgs else config.base_model.system_prompt    # First system message or default
-
-        # print("User ID:", user.id)
-        # print("Thread ID:", body.thread_id)
-        # print("Message ID:", body.message_id)
-        # print("Has files message:", body.has_files)
-        # print("Model:", body.model)
-        # print("Temperature:", body.temperature)
-        # print("Max tokens:", body.max_tokens)
-        # print("Stream:", body.stream)
-        # print("System prompt:", system_prompt)
-        # print("User messages:", user_msgs)
-        # print("Conversation messages:", conversation_messages)
 
         handler_args = ChatHandlerModel(
             user_id=user.id if user else None,

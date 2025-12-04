@@ -18,7 +18,7 @@ from neurosurfer.agents.react.types import ReactAgentResponse
 from neurosurfer.tracing import Tracer, TracerConfig
 
 from .config import CodeAgentConfig
-from .scratchpad import CODE_AGENT_SPECIFIC_INSTRUCTIONS, ANALYSIS_ONLY_MODE, DELEGATE_FINAL_MODEL
+from .scratchpad import CODE_AGENT_SPECIFIC_INSTRUCTIONS
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,6 @@ class CodeAgent(ReActAgent):
         llm: BaseChatModel,
         toolkit: Optional[Toolkit] = None,
         config: Optional[CodeAgentConfig] = None,
-        mode: Literal["delegate_final", "analysis_only"] = "delegate_final",
         tracer: Optional[Tracer] = None,
         log_traces: bool = True,
         logger_: Optional[logging.Logger] = None,
@@ -50,7 +49,7 @@ class CodeAgent(ReActAgent):
             raise ValueError("CodeAgent requires an llm")
 
         self.code_config = config or CodeAgentConfig(skip_special_tokens=True)
-        self.mode = mode
+        print(f"Code Agent Cofig:\n{self.code_config}\n")
         logger_local = logger_ or logger
 
         # Default toolkit: just PythonExecTool for now, but can be extended
@@ -69,13 +68,11 @@ class CodeAgent(ReActAgent):
             },
             logger_=logger_local,
         )
-
-        mode_instructions = ANALYSIS_ONLY_MODE if self.mode == "analysis_only" else DELEGATE_FINAL_MODEL
         super().__init__(
             id=self.code_config.agent_name,
             llm=llm,
             toolkit=toolkit,
-            specific_instructions=CODE_AGENT_SPECIFIC_INSTRUCTIONS.format(mode_instructions=mode_instructions),
+            specific_instructions=CODE_AGENT_SPECIFIC_INSTRUCTIONS,
             config=self.code_config,
             logger=logger_local,
             tracer=tracer,

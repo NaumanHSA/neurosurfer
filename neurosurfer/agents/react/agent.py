@@ -15,7 +15,7 @@ from .parser import ToolCallParser
 from .types import ToolCall, ReactAgentResponse
 from .exceptions import ToolCallParseError, ToolExecutionError
 from .history import History
-from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT
+from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT, ANALYSIS_ONLY_MODE, DELEGATE_FINAL_MODEL
 from .config import ReActConfig
 
 
@@ -69,8 +69,7 @@ class ReActAgent(BaseAgent):
         )
         self.parser = ToolCallParser()
         self.memory = AgentMemory()
-        self.raw_results = ""
-        self.schema_context = ""  # keep if you want to inject schemas
+        self.tool_calls = []
         self._last_error: Optional[str] = None
 
     # ---------- Public API ----------
@@ -88,7 +87,6 @@ class ReActAgent(BaseAgent):
     ) -> ReactAgentResponse:
         """
         Run the ReAct agent.
-
         - If stream=True: returns ReactAgentResponse with a Generator[str]
           that yields tokens as they are produced.
         - If stream=False: returns ReactAgentResponse with the full string
@@ -96,6 +94,8 @@ class ReActAgent(BaseAgent):
         """
         if reset_tracer:
             self.tracer.reset()
+        self.tool_calls = []
+        self._last_error = None
 
         # Resolve config defaults
         stream = self.config.return_stream_by_default if stream is None else bool(stream)
@@ -127,7 +127,7 @@ class ReActAgent(BaseAgent):
                 specific_instructions=specific_instructions,
             ):
                 final_response += chunk
-        return ReactAgentResponse(response=final_response, traces=self.tracer.results)
+        return ReactAgentResponse(response=final_response, traces=self.tracer.results, tool_calls=self.tool_calls)
 
     def stop_generation(self):
         self.logger.info("[ReActAgent] Stopping generation...")
@@ -220,11 +220,11 @@ class ReActAgent(BaseAgent):
                     final_started = True
                     prefix, suffix = response.split(self.delims.sof, 1)
                     if suffix.strip():
+                        reason_tracer.stream(suffix, type="whiteb")
                         to_emit = self.delims.sof + suffix
                         if self.config.skip_special_tokens:
                             to_emit = to_emit.strip(self.delims.sof)
                         yield to_emit
-                        reason_tracer.stream(to_emit, type="whiteb")
                         final_answer += to_emit
                 elif final_started:
                     if self.delims.eof in part:
@@ -261,6 +261,7 @@ class ReActAgent(BaseAgent):
             if final_started:
                 if not self.config.skip_special_tokens:
                     yield self.delims.eof
+                    # reason_tracer.stream(self.delims.eof, type="whiteb")
                 break
             
             # No final answer yet, try to parse an Action
@@ -326,6 +327,10 @@ class ReActAgent(BaseAgent):
                     break
                 history.append(f"results: {results_text}")
 
+            # update tool call
+            tool_call.output = results_text
+            self.tool_calls.append(tool_call)
+            
             tool_tracer.outputs(tool_return=results_text)
             tool_tracer.log(f"[🔧] Tool Result: {results_text[:150]}...", type="info")
             tool_tracer.close()
@@ -518,10 +523,12 @@ class ReActAgent(BaseAgent):
 
     # ---------- Prompts ----------
     def _system_prompt(self, specific_instructions: str) -> str:
-        tool_desc = self.toolkit.get_tools_description().strip()
+        tool_descriptions = self.toolkit.get_tools_description() if self.toolkit else "No tools."
+        mode_instructions = ANALYSIS_ONLY_MODE if self.config.mode == "analysis_only" else DELEGATE_FINAL_MODEL
         return REACT_AGENT_PROMPT.format(
-            tool_descriptions=tool_desc,
-            specific_instructions=specific_instructions
+            tool_descriptions=tool_descriptions,
+            specific_instructions=specific_instructions,
+            mode_instructions=mode_instructions,
         )
 
     def _build_prompt(self, user_query: str, history: History) -> str:

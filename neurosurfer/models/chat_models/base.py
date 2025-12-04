@@ -438,18 +438,18 @@ class BaseChatModel(ABC):
         *,
         tokenize: bool,
         add_generation_prompt: bool = True,
-        **template_kwargs: Any,   # <─ NEW: params from subclass
+        **template_kwargs: Any,   # <─ params from subclass
     ):
         """
         Centralized wrapper around tokenizer.apply_chat_template.
 
-        - If tokenizer has a chat_template, use it.
+        - If tokenizer has a chat_template, use it (unless we explicitly skip it).
         - Accepts arbitrary kwargs from subclasses (e.g. reasoning_effort="low").
         - For each kw:
             * If it's a Python-level param we know (e.g. enable_thinking), we
             handle it explicitly.
             * If it's a Jinja variable and the template references it, we pass it.
-            * Otherwise we drop it (to avoid weird side effects).
+            * Otherwise we drop it.
         - On TypeError (e.g. tokenizer does not accept enable_thinking), we retry
         without that param.
         - On TemplateError or no chat_template → fall back to plain text.
@@ -466,6 +466,40 @@ class BaseChatModel(ABC):
             return text
 
         tok = self.tokenizer
+
+        # ------------------------------------------------------------------
+        # 0) Model-specific overrides (Falcon: skip chat_template entirely)
+        # ------------------------------------------------------------------
+        model_id = (
+            getattr(self, "model_name", None)
+            or getattr(getattr(self, "model", None), "name_or_path", "")
+            or ""
+        ).lower()
+
+        if "falcon" in model_id:
+            # Extract system + last user
+            system_msg = next(
+                (m for m in messages if m["role"] == "system"),
+                None,
+            )
+            user_msg = next(
+                (m for m in reversed(messages) if m["role"] == "user"),
+                None,
+            )
+            parts = []
+            if system_msg:
+                parts.append(system_msg["content"].strip())
+            if user_msg:
+                parts.append(user_msg["content"].strip())
+
+            prompt = "\n\n".join(parts) if parts else ""
+            if tokenize:
+                return tok(prompt, return_tensors="pt")
+            return prompt
+
+        # ------------------------------------------------------------------
+        # 1) Normal path for all other models
+        # ------------------------------------------------------------------
         has_chat_template = hasattr(tok, "apply_chat_template") and getattr(tok, "chat_template", None)
 
         # Base kwargs that always go to apply_chat_template

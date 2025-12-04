@@ -105,28 +105,18 @@ class TraceStepContext:
         - Printed at the same indentation level as the step spans
           when `log_steps=True`.
         """
-        ts = time.time()
-        # store in structured trace
-        # logs: list = self._step_data.setdefault("logs", [])
-        # logs.append(
-        #     {
-        #         "ts": ts,
-        #         "message": message,
-        #         "data": data or {},
-        #         "type": type,
-        #     }
-        # )
-        # print as a log line (aligned with this step)
-        indent_level = max(self._tracer._depth - 1, 0)
-        self._tracer._log_line(
-            step_id=self._step_data["step_id"],
-            indent_level=indent_level,
-            message=message,
-            type=type,
-            type_keyword=False,
-            stream=True
-        )
-
+        try:
+            indent_level = max(self._tracer._depth - 1, 0)
+            self._tracer._log_line(
+                step_id=self._step_data["step_id"],
+                indent_level=indent_level,
+                message=message,
+                type=type,
+                type_keyword=False,
+                stream=True
+            )
+        except:
+            pass
 
     def log(
         self, 

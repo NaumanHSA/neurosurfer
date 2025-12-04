@@ -230,35 +230,36 @@ class RAGOrchestrator:
         # db: SQLAlchemy Session (injected from FastAPI)
         db = SessionLocal()
         # Ingest files if provided
-        files = (
-            db.query(NSFile)
-            .filter(
-                NSFile.user_id == user_id,
-                NSFile.thread_id == thread_id,
-                NSFile.message_id == message_id,
-                NSFile.collection == collection_name,
-                NSFile.ingested == False,
-            )
-            .all()
-        )
-        if files and has_files_message and message_id:   
+        if has_files_message and message_id:   
             if self.verbose:
                 self.logger.info(f"Ingesting files for thread {user_id}/{thread_id}, num files: {len(files)}")
-
-            ingestion_summaries = self.ingestion.ingest_files(
-                db,
-                user_id=user_id,
-                thread_id=thread_id,
-                collection_name=collection_name,
-                files=files,
+            
+            files = (
+                db.query(NSFile)
+                .filter(
+                    NSFile.user_id == user_id,
+                    NSFile.thread_id == thread_id,
+                    NSFile.message_id == message_id,
+                    NSFile.collection == collection_name,
+                    NSFile.ingested == False,
+                )
+                .all()
             )
-            if self.verbose:
-                self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
-                if ingestion_summaries:
-                    self.logger.info(f"Ingested files summaries:")
-                    for summary in ingestion_summaries:
-                        self.logger.info(summary)
-        files_summary = self._build_files_summaries_block(message_id, files)
+            if files:
+                ingestion_summaries = self.ingestion.ingest_files(
+                    db,
+                    user_id=user_id,
+                    thread_id=thread_id,
+                    collection_name=collection_name,
+                    files=files,
+                )
+                if self.verbose:
+                    self.logger.info(f"Ingested files for thread {user_id}/{thread_id}")
+                    if ingestion_summaries:
+                        self.logger.info(f"Ingested files summaries:")
+                        for summary in ingestion_summaries:
+                            self.logger.info(summary)
+        files_summary = self._build_files_summaries_block(user_id, thread_id, collection_name, message_id)
         db.close()
         return ingestion_summaries, files, files_summary
         
@@ -293,10 +294,22 @@ class RAGOrchestrator:
             files=files,
         )
 
-    def _build_files_summaries_block(self, message_id: int, files: List[NSFile]) -> str:
+    def _build_files_summaries_block(self, user_id: int, thread_id: int, collection_name: str, message_id: int = None) -> str:
+        db = SessionLocal()
+        # retrieve all igensted files for current thread
+        files = (
+            db.query(NSFile)
+            .filter(
+                NSFile.user_id == user_id,
+                NSFile.thread_id == thread_id,
+                NSFile.collection == collection_name,
+                NSFile.ingested == True,
+            )
+            .all()
+        )
         files_block_lines: List[str] = []
         for f in files:
-            flag = "yes" if f.message_id == message_id else "no"
+            flag = "yes" if message_id and f.message_id == message_id else "no"
             files_block_lines.append(
                 f"Filename: {f.filename}\n"
                 f"Attached_to_current_message: {flag}\n"

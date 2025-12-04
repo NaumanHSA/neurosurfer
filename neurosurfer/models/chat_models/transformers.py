@@ -230,9 +230,9 @@ class TransformersModel(BaseChatModel):
             top_p=0.9 if not self.enable_thinking else 0.95,
             streamer=streamer,
             stopping_criteria=stopping_criteria,
+            do_sample=True,
         )
         gen_kwargs.update(kwargs)
-
         with self.lock:
             self.generation_thread = threading.Thread(
                 target=self.model.generate,

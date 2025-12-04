@@ -21,9 +21,9 @@ Guidelines:
 Respond only in JSON:
 {{
     "suggestions": [
-        "Question 1",
-        "Question 2",
-        "Question 3"
+        <Question 1>,
+        <Question 2>,
+        <Question 3>
     ]
 }}
 
@@ -47,6 +47,24 @@ def _try_json(s: str) -> Optional[Dict[str, Any]]:
         return json.loads(s)
     except Exception:
         return None
+
+def _clean_suggestion_text(text: str) -> str:
+    """
+    Normalize one suggestion string by:
+    - stripping whitespace
+    - removing trailing commas
+    - unescaping \" -> "
+    - removing outer quotes if present
+    """
+    t = str(text).strip()
+    # Remove trailing commas and spaces
+    t = re.sub(r'[,\s]+$', '', t)
+    # Unescape JSON-style quotes
+    t = t.replace('\\"', '"')
+    # Strip outer quotes once
+    if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
+        t = t[1:-1].strip()
+    return t.strip()
 
 def _extract_suggestions_array_text(s: str) -> Optional[List[str]]:
     m = re.search(r'"suggestions"\s*:\s*\[([\s\S]*?)(\]|\Z)', s, flags=re.IGNORECASE)
@@ -88,18 +106,41 @@ def robust_parse_followups(raw: str) -> str:
     text = _strip_code_fences(raw)
     sliced = _between_braces(text)
 
-    obj = _try_json(sliced) or _try_json(text)
-    if obj and isinstance(obj, dict):
-        arr = obj.get("suggestions")
-        if isinstance(arr, list):
-            cleaned = [str(x).strip() for x in arr if str(x).strip()]
-            if cleaned:
-                return json.dumps({"suggestions": cleaned[:3]})
-
+    # ---------- 1) Try strict JSON paths ----------
+    for candidate in (sliced, text):
+        obj = _try_json(candidate)
+        if obj and isinstance(obj, dict):
+            arr = obj.get("suggestions")
+            if isinstance(arr, list):
+                cleaned: List[str] = []
+                for x in arr:
+                    t = _clean_suggestion_text(x)
+                    if t:
+                        cleaned.append(t)
+                if cleaned:
+                    return json.dumps({"suggestions": cleaned[:3]})
+    # ---------- 2) Try approximate array extraction ----------
     approx = _extract_suggestions_array_text(sliced) or _extract_suggestions_array_text(text)
     if approx:
-        return json.dumps({"suggestions": approx[:3]})
-    return _fallback_questions(sliced or text)
+        cleaned: List[str] = []
+        for x in approx:
+            t = _clean_suggestion_text(x)
+            if t:
+                cleaned.append(t)
+        if cleaned:
+            return json.dumps({"suggestions": cleaned[:3]})
+    # ---------- 3) Fallback: heuristic questions ----------
+    fallback_json = _fallback_questions(sliced or text)
+    # Make sure fallback also has clean strings
+    try:
+        obj = json.loads(fallback_json)
+        if isinstance(obj, dict) and isinstance(obj.get("suggestions"), list):
+            cleaned = [_clean_suggestion_text(x) for x in obj["suggestions"] if _clean_suggestion_text(x)]
+            return json.dumps({"suggestions": cleaned[:3]})
+    except Exception:
+        pass
+    # Absolute last resort
+    return fallback_json
 
 
 class FollowUpQuestions:
@@ -145,6 +186,7 @@ class FollowUpQuestions:
         ).choices[0].message.content
 
         parsed = robust_parse_followups(response)
+        print("Foolow up Qustions  --: ----", parsed)
         return self.llm._final_nonstream_response(
             call_id=self.llm.call_id,
             model=self.llm.model_name,

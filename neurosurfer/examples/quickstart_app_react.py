@@ -196,6 +196,7 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
     conversation_messages = args.messages.converstaion
     chat_history = conversation_messages[-num_recent:-1]
 
+    print(f"\nChat History:\n{chat_history}\n\n")
     # Model call (stream or non-stream handled by router)
     kwargs = {"temperature": args.temperature, "max_new_tokens": args.max_tokens}
 

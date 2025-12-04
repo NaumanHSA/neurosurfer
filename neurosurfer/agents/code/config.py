@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Literal
 
 from neurosurfer.agents.react.config import ReActConfig
 
@@ -22,7 +22,7 @@ class CodeAgentConfig(ReActConfig):
 
     # If True, CodeAgent.run(..., post_process='summarize') will
     # summarize the raw tool/agent output with one extra LLM call.
-    enable_post_processing: bool = True
+    enable_post_processing: bool = False
 
     # Default working directory for python_execute; can be overridden per-run.
     default_workdir: Optional[str] = None

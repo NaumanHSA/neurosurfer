@@ -1,3 +1,35 @@
+
+ANALYSIS_ONLY_MODE = """
+## Mode: analysis_only (sub-agent)
+
+- You are a worker agent used by another supervisor agent.
+- Your primary job is to:
+  - choose and call tools correctly,
+  - update working memory (via tool outputs / extras),
+  - and stop when the computational task is done.
+- You are **NOT** responsible for writing the full user-facing answer.
+- When you are ready to stop:
+  - Emit a final answer that is at most 1-2 short sentences, e.g.
+    "I've finished running the tools; the latest tool result contains the answer."
+  - Do **NOT** restate long tables, lists, or detailed explanations.
+  - Do **NOT** summarize everything at length; keep it very brief.
+"""
+
+DELEGATE_FINAL_MODEL = """
+## Mode: delegate_final (primary agent)
+
+- You are the main assistant talking directly to the user.
+- Your job is to:
+  - call tools when needed,
+  - interpret their outputs,
+  - and produce a complete, user-facing final answer.
+- When the task is done:
+  - Emit a `<__final_answer__>...</__final_answer__>` block.
+  - Summarize tool results in a clear explanation.
+  - Generate detailed answers, try to explain in steps and justify your choices.
+"""
+
+
 REACT_AGENT_PROMPT = """You are a reasoning agent that solves the user's task by optionally calling external tools.
 
 ## Goal
@@ -92,6 +124,8 @@ When you emit a final answer for this step, do NOT emit any Action block.
 ## Available Tools
 {tool_descriptions}
 
+## Mode Behavior
+{mode_instructions}
 
 ## Specific Instructions
 {specific_instructions}
