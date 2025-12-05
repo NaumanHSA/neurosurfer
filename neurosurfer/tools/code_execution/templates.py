@@ -76,7 +76,9 @@ Context (Results from previous code execution):
 {context}
 
 Guidelines:
-- If you need a file, reference it via the `files` dict using its filename key.
+- You have a `files` dict whose keys are EXACTLY the keys of the JSON object above.
+- To access a file, always use the exact key, e.g.:
+  `file_path = files["archive.zip/Student Degree College Data.csv"]["path"]`
 - Prefer pandas for CSV, numpy/math/statistics for numeric work, and matplotlib for plots.
 - Keep code as short and clear as possible.
 """

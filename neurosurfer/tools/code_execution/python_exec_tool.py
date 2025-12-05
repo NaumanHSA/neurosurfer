@@ -6,7 +6,7 @@ import os, io
 import traceback
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 import logging
 
@@ -23,14 +23,7 @@ from .utils import (
     build_user_prompt,
     extract_code_block
 )
-
-
-@dataclass
-class PythonExecToolConfig:
-    max_code_retries: int = 3
-    include_code_in_answer: bool = True
-    max_table_rows: int = 20   # for DataFrame/Series pretty printing
-
+from .config import PythonExecToolConfig
 
 class PythonExecTool(BaseTool):
     """
@@ -141,6 +134,7 @@ class PythonExecTool(BaseTool):
 
         # Build a human-readable listing for the prompt
         files_listing = format_files_listing(files_context, file_names)
+
         code, result, generated_plots, error, error_extras, error_category = self._run_code_with_retries(
             task=task,
             files_context=files_context,
@@ -188,8 +182,10 @@ class PythonExecTool(BaseTool):
             answer += "\n```"
 
         # build extras that can be used as memory for the next tool call
+        results_extras = build_memory_extras_for_result(result, style=self.config.memory_style)
+        print(f"\n\nResults extras: {results_extras}\n\n")
         extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
-        extras.update(build_memory_extras_for_result(result))
+        extras.update(results_extras)
 
         # add code to the extras
         extras["python_last_code"] = {
@@ -227,7 +223,12 @@ class PythonExecTool(BaseTool):
             stream=False,
         )
         raw = resp.choices[0].message.content or ""
-        return extract_code_block(raw)
+        code_block = extract_code_block(raw)
+
+        print(f"\nUser Prompt for Code Generation:\n{user_prompt}\n\n")
+        print(f"\nPython Code Generated:\n{code_block}\n\n")
+
+        return code_block
 
     def _run_code_with_retries(
         self,

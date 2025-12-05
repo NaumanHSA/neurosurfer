@@ -3,27 +3,54 @@ import json
 import textwrap
 
 from .templates import PYTHON_EXEC_USER_PROMPT_TEMPLATE
+from .config import MemoryStyle, PythonExecToolConfig
 
+def build_user_prompt(
+    task: str,
+    files_listing: str,
+    context: Optional[Dict[str, Any]],
+    *,
+    max_snippet_len: int = 1200,
+) -> str:
+    """
+    Build the user prompt for the code-generation LLM.
 
-def build_user_prompt(task: str, files_listing: str, context: Optional[Dict[str, Any]]) -> str:
-    # Pretty-print context (memory) for the code-LLM, but keep it bounded.
+    - `files_listing` is already a JSON string of available files.
+    - `context` is a dict of memory slots (e.g. python_last_result_summary).
+      For strings, we print them as-is (no json.dumps to avoid \"\\n\" spam).
+      For non-strings, we pretty-print JSON.
+    """
     ctx_text = "(none)"
     if context:
         parts: List[str] = []
         for key, value in context.items():
-            # Try to turn the value into a JSON-like string
-            try:
-                snippet = json.dumps(value, indent=2, default=str)
-            except Exception:
-                snippet = str(value)
+            # 1) Choose a human-friendly representation
+            if isinstance(value, str):
+                # Already a nice multi-line description (from extras builder)
+                snippet = value
+            else:
+                # Fallback: JSON pretty-print for structures
+                try:
+                    snippet = json.dumps(
+                        value,
+                        indent=2,
+                        ensure_ascii=False,
+                        default=str,
+                    )
+                except Exception:
+                    snippet = str(value)
 
-            # Truncate very large snippets to avoid blowing up the prompt
-            max_len = 1000
-            if len(snippet) > max_len:
-                snippet = snippet[:max_len] + "\n... (truncated)"
+            # 2) Truncate very large snippets to avoid blowing up the prompt
+            if len(snippet) > max_snippet_len:
+                snippet = snippet[:max_snippet_len] + "\n... (truncated)"
 
-            parts.append(f"{key}:\n{snippet}")
+            # 3) Indent snippet for readability under the key
+            snippet_indented = textwrap.indent(snippet, "  ")
+
+            parts.append(f"{key}:\n{snippet_indented}")
+
         ctx_text = "\n\n".join(parts)
+
     tpl = PYTHON_EXEC_USER_PROMPT_TEMPLATE.format(
         task=task,
         files_listing=files_listing,
@@ -33,21 +60,46 @@ def build_user_prompt(task: str, files_listing: str, context: Optional[Dict[str,
     
 
  # ------------- Internals -------------
-def format_files_listing(files_context: Dict[str, Dict[str, Any]], file_names: List[str]) -> str:
+def format_files_listing(
+    files_context: Dict[str, Dict[str, Any]],
+    file_names: List[str],
+) -> str:
+    """
+    Render the available files as JSON so the LLM clearly sees
+    the *exact* dictionary keys it can use in `files[...]`.
+
+    Example output:
+
+    Available files (from chat session):
+    {
+    "archive.zip/Student Degree College Data.csv": {
+        "mime": "text/csv",
+        "size": 411545,
+        "path": "/abs/path/Student Degree College Data.csv"
+    },
+    ...
+    }
+
+    The prompt around this should explicitly say:
+    - 'Use the *keys* of this JSON object as dictionary keys for `files`.'
+    """
     if not files_context:
         return "(no files available)"
-    lines: List[str] = []
+
+    filtered: Dict[str, Dict[str, Any]] = {}
     for name in file_names:
         meta = files_context.get(name)
         if not meta:
             continue
-        size = meta.get("size")
-        mime = meta.get("mime")
-        path = meta.get("path")
-        lines.append(f"- {name} (mime={mime}, size={size} bytes, path='{path}')")
-    if not lines:
+        # Keep only useful fields (optional)
+        filtered[name] = {
+            "mime": meta.get("mime"),
+            "size": meta.get("size"),
+            "path": meta.get("path"),
+        }
+    if not filtered:
         return "(no matching files in context)"
-    return "\n".join(lines)
+    return json.dumps(filtered, indent=2)
     
 def format_result(result: Any, max_table_rows: int = 15) -> str:
     # Import here to avoid hard dependency at module import time
@@ -70,115 +122,278 @@ def format_result(result: Any, max_table_rows: int = 15) -> str:
     return str(result)
 
 
-def build_memory_extras_for_result(result: Any, result_limit: int = 10, char_limit: int = 1000) -> Dict[str, Any]:
-        """
-        Build generic, JSON-safe memory extras summarizing `result`.
+def build_memory_extras_for_result(
+    result: Any,
+    *,
+    result_limit: int = 10,
+    char_limit: int = 1200,
+    style: MemoryStyle = "text",
+) -> Dict[str, Any]:
+    """
+    Build JSON-safe memory extras summarizing `result`.
 
-        - Works for primitives, lists, dicts, and arbitrary objects.
-        - Optionally specializes for pandas DataFrame/Series if pandas is installed.
-        """
-        extras: Dict[str, Any] = {}
-        # Try pandas specialization, but do NOT depend on it
-        try:
-            import pandas as _pd  # type: ignore
-            if isinstance(result, _pd.DataFrame):
-                extras["python_last_result_summary"] = {
-                    "value": {
-                        "kind": "dataframe",
-                        "columns": list(result.columns),
-                        "dtypes": {c: str(t) for c, t in result.dtypes.items()},
-                        "shape": list(result.shape),
-                        "sample_head": result.head(result_limit).to_dict(orient="list"),
-                    },
-                    "description": (
-                        "Summary of the last DataFrame computed by python_execute "
-                        "(columns, dtypes, shape, and a small head sample)."
-                    ),
-                    "visible_to_llm": True,
-                }
-                return extras
+    `style` controls what goes in `python_last_result_summary.value`:
+      - "text": a compact, human-readable string (best for LLM prompts).
+      - "structured": the old JSON-structured summary.
+      - "both": a dict with {"as_text": ..., "as_structured": ...}.
+    """
+    extras: Dict[str, Any] = {}
 
-            if isinstance(result, _pd.Series):
-                extras["python_last_result_summary"] = {
-                    "value": {
-                        "kind": "series",
-                        "name": result.name,
-                        "dtype": str(result.dtype),
-                        "length": int(len(result)),
-                        "index_sample": list(result.index[:result_limit]),
-                        "values_sample": result.head(result_limit).tolist(),
-                    },
-                    "description": (
-                        "Summary of the last Series computed by python_execute "
-                        "(name, dtype, length, and a small sample)."
-                    ),
-                    "visible_to_llm": True,
-                }
-                return extras
-        except Exception:
-            # pandas not installed or something weird; we just fall through
-            pass
+    def _clip(s: str) -> str:
+        s = s.strip()
+        if len(s) <= char_limit:
+            return s
+        return s[: char_limit] + "... [truncated]"
 
-        # --- Generic fallback path ---
-        # Simple primitives – safe to store directly
-        if isinstance(result, (str, int, float, bool, type(None))):
-            extras["python_last_result_summary"] = {
-                "value": {
-                    "kind": type(result).__name__,
-                    "value": result,
-                },
-                "description": "Primitive result from the last python_execute call.",
-                "visible_to_llm": True,
-            }
-            return extras
-
-        # Lists / tuples – store length and a short prefix
-        if isinstance(result, (list, tuple)):
-            preview = list(result[:result_limit])
-            extras["python_last_result_summary"] = {
-                "value": {
-                    "kind": "sequence",
-                    "type": type(result).__name__,
-                    "length": len(result),
-                    "sample": preview,
-                },
-                "description": "Sequence result from the last python_execute call.",
-                "visible_to_llm": True,
-            }
-            return extras
-
-        # Dict – store top-level keys and a small preview
-        if isinstance(result, dict):
-            keys = list(result.keys())
-            preview_keys = keys[:result_limit]
-            preview = {k: result[k] for k in preview_keys}
-            extras["python_last_result_summary"] = {
-                "value": {
-                    "kind": "mapping",
-                    "type": type(result).__name__,
-                    "keys_sample": preview_keys,
-                    "values_sample": preview,
-                },
-                "description": "Mapping/dict-like result from the last python_execute call.",
-                "visible_to_llm": True,
-            }
-            return extras
-
-        # Fallback for arbitrary objects – just type name + repr snippet
-        extras["python_last_result_summary"] = {
-            "value": {
-                "kind": "object",
-                "type": type(result).__name__,
-                "repr": repr(result)[:char_limit],
-            },
-            "description": (
-                "Opaque object result from the last python_execute call "
-                "(only type name and repr snippet are exposed)."
-            ),
+    def _wrap_value(text_value: Any, description: str) -> Dict[str, Any]:
+        return {
+            "value": text_value,
+            "description": description,
             "visible_to_llm": True,
         }
+
+    # ----------------- pandas specialization -----------------
+    try:
+        import pandas as _pd  # type: ignore
+
+        # DataFrame
+        if isinstance(result, _pd.DataFrame):
+            description = (
+                "Summary of the last DataFrame computed by python_execute "
+                "(columns, dtypes, shape, and small head sample)."
+            )
+
+            # TEXT summary
+            df_head = result.head(result_limit)
+            try:
+                preview = df_head.to_string(index=False)
+            except Exception:
+                # Fallback if to_string fails for some reason
+                preview = df_head.to_csv(index=False)
+
+            text_summary = _clip(
+                textwrap.dedent(
+                    f"""
+                    DataFrame summary:
+                    - shape: {result.shape}
+                    - columns: {list(result.columns)}
+
+                    Head sample:
+                    {preview}
+                    """
+                )
+            )
+
+            # STRUCTURED summary (old style)
+            structured_summary = {
+                "kind": "dataframe",
+                "columns": list(result.columns),
+                "dtypes": {c: str(t) for c, t in result.dtypes.items()},
+                "shape": list(result.shape),
+                "sample_head": df_head.to_dict(orient="list"),
+            }
+
+            if style == "text":
+                extras["python_last_result_summary"] = _wrap_value(
+                    text_summary, description
+                )
+            elif style == "structured":
+                extras["python_last_result_summary"] = _wrap_value(
+                    structured_summary, description
+                )
+            else:  # "both"
+                extras["python_last_result_summary"] = _wrap_value(
+                    {
+                        "as_text": text_summary,
+                        "as_structured": structured_summary,
+                    },
+                    description,
+                )
+            return extras
+
+        # Series
+        if isinstance(result, _pd.Series):
+            description = (
+                "Summary of the last Series computed by python_execute "
+                "(name, dtype, length, and a small sample)."
+            )
+
+            # TEXT summary
+            try:
+                preview = result.head(result_limit).to_string()
+            except Exception:
+                preview = str(result.head(result_limit).tolist())
+
+            text_summary = _clip(
+                textwrap.dedent(
+                    f"""
+                    Series summary:
+                    - name: {result.name}
+                    - dtype: {result.dtype}
+                    - length: {len(result)}
+
+                    Head sample:
+                    {preview}
+                    """
+                )
+            )
+
+            # STRUCTURED summary
+            structured_summary = {
+                "kind": "series",
+                "name": result.name,
+                "dtype": str(result.dtype),
+                "length": int(len(result)),
+                "index_sample": list(result.index[:result_limit]),
+                "values_sample": result.head(result_limit).tolist(),
+            }
+
+            if style == "text":
+                extras["python_last_result_summary"] = _wrap_value(
+                    text_summary, description
+                )
+            elif style == "structured":
+                extras["python_last_result_summary"] = _wrap_value(
+                    structured_summary, description
+                )
+            else:  # "both"
+                extras["python_last_result_summary"] = _wrap_value(
+                    {
+                        "as_text": text_summary,
+                        "as_structured": structured_summary,
+                    },
+                    description,
+                )
+            return extras
+
+    except Exception:
+        # pandas not installed or error; fall through to generic paths
+        pass
+
+    # ----------------- Generic fallbacks -----------------
+
+    # Simple primitives
+    if isinstance(result, (str, int, float, bool, type(None))):
+        text_summary = _clip(repr(result))
+        structured = {
+            "kind": type(result).__name__,
+            "value": result,
+        }
+
+        if style == "text":
+            extras["python_last_result_summary"] = _wrap_value(
+                text_summary, "Primitive result from the last python_execute call."
+            )
+        elif style == "structured":
+            extras["python_last_result_summary"] = _wrap_value(
+                structured, "Primitive result from the last python_execute call."
+            )
+        else:
+            extras["python_last_result_summary"] = _wrap_value(
+                {
+                    "as_text": text_summary,
+                    "as_structured": structured,
+                },
+                "Primitive result from the last python_execute call.",
+            )
         return extras
 
+    # Lists / tuples
+    if isinstance(result, (list, tuple)):
+        preview = list(result[:result_limit])
+        text_summary = _clip(
+            f"Sequence of length {len(result)}. Sample: {preview!r}"
+        )
+        structured = {
+            "kind": "sequence",
+            "type": type(result).__name__,
+            "length": len(result),
+            "sample": preview,
+        }
+
+        if style == "text":
+            extras["python_last_result_summary"] = _wrap_value(
+                text_summary, "Sequence result from the last python_execute call."
+            )
+        elif style == "structured":
+            extras["python_last_result_summary"] = _wrap_value(
+                structured, "Sequence result from the last python_execute call."
+            )
+        else:
+            extras["python_last_result_summary"] = _wrap_value(
+                {
+                    "as_text": text_summary,
+                    "as_structured": structured,
+                },
+                "Sequence result from the last python_execute call.",
+            )
+        return extras
+
+    # Dict
+    if isinstance(result, dict):
+        keys = list(result.keys())
+        preview_keys = keys[:result_limit]
+        preview = {k: result[k] for k in preview_keys}
+        text_summary = _clip(
+            f"Mapping with {len(keys)} keys. Sample keys: {preview_keys!r}. "
+            f"Sample values: {preview!r}"
+        )
+        structured = {
+            "kind": "mapping",
+            "type": type(result).__name__,
+            "keys_sample": preview_keys,
+            "values_sample": preview,
+        }
+
+        if style == "text":
+            extras["python_last_result_summary"] = _wrap_value(
+                text_summary, "Mapping/dict-like result from the last python_execute call."
+            )
+        elif style == "structured":
+            extras["python_last_result_summary"] = _wrap_value(
+                structured, "Mapping/dict-like result from the last python_execute call."
+            )
+        else:
+            extras["python_last_result_summary"] = _wrap_value(
+                {
+                    "as_text": text_summary,
+                    "as_structured": structured,
+                },
+                "Mapping/dict-like result from the last python_execute call.",
+            )
+        return extras
+
+    # Arbitrary objects
+    rep = _clip(repr(result))
+    text_summary = f"Object of type {type(result).__name__}. Repr snippet:\n{rep}"
+    structured = {
+        "kind": "object",
+        "type": type(result).__name__,
+        "repr": rep,
+    }
+
+    if style == "text":
+        extras["python_last_result_summary"] = _wrap_value(
+            text_summary,
+            "Opaque object result from the last python_execute call "
+            "(type name and repr snippet only).",
+        )
+    elif style == "structured":
+        extras["python_last_result_summary"] = _wrap_value(
+            structured,
+            "Opaque object result from the last python_execute call "
+            "(type name and repr snippet only).",
+        )
+    else:
+        extras["python_last_result_summary"] = _wrap_value(
+            {
+                "as_text": text_summary,
+                "as_structured": structured,
+            },
+            "Opaque object result from the last python_execute call "
+            "(type name and repr snippet only).",
+        )
+    return extras
 
 def build_error_extras(e: Exception, tb: str, char_limit: int = 2000) -> Dict[str, Any]:
     """

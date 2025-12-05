@@ -15,6 +15,7 @@ from neurosurfer.models.chat_models import BaseChatModel
 from neurosurfer.models.embedders import BaseEmbedder
 from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
 from neurosurfer.agents.react import ReActAgent, ReActConfig
+from neurosurfer.agents.react.final_answer_generator import FinalAnswerConfig
 from neurosurfer.tools import Toolkit
 from neurosurfer.agents.code import CodeAgentConfig, CodeAgent
 
@@ -212,15 +213,15 @@ class NeurosurferApp:
                     rag_orchestrator=self._rag_orchestrator, 
                     logger=self.logger
                 ),
-                FinalAnswerTool(
-                    llm=self._llm,
-                    config=FinalAnswerToolConfig(
-                        default_language="english",
-                        default_answer_length="detailed",
-                        max_history_chars=12000
-                    ),
-                    logger=self.logger
-                )
+                # FinalAnswerTool(
+                #     llm=self._llm,
+                #     config=FinalAnswerToolConfig(
+                #         default_language="english",
+                #         default_answer_length="detailed",
+                #         max_history_chars=12000
+                #     ),
+                #     logger=self.logger
+                # )
             ]
         )
         self._agent = ReActAgent(
@@ -232,6 +233,11 @@ class NeurosurferApp:
             config=ReActConfig(
                 mode="delegate_final",
                 return_internal_thoughts=True
+            ),
+            final_answer_config=FinalAnswerConfig(
+                default_language="english",
+                default_answer_length="detailed",
+                max_history_chars=12000
             )
         )
     

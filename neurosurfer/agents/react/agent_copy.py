@@ -16,7 +16,6 @@ from .types import ToolCall, ReactAgentResponse
 from .exceptions import ToolCallParseError, ToolExecutionError
 from .history import History
 from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT, ANALYSIS_ONLY_MODE, DELEGATE_FINAL_MODEL
-from .final_answer_generator import FinalAnswerGenerator, FinalAnswerConfig
 from .config import ReActConfig
 
 
@@ -36,7 +35,6 @@ class ReActAgent(BaseAgent):
         *,
         specific_instructions: str = "",
         config: Optional[ReActConfig] = None,
-        final_answer_config: Optional[FinalAnswerConfig] = None,
         logger: logging.Logger = logging.getLogger(__name__),
         tracer: Optional[Tracer] = None,
         log_traces: Optional[bool] = True,
@@ -49,7 +47,6 @@ class ReActAgent(BaseAgent):
         self.toolkit = toolkit
         self.specific_instructions = specific_instructions
         self.config = config or ReActConfig()
-        self.final_answer_config = final_answer_config or FinalAnswerConfig()
         self.logger = logger
         self.log_internal_thoughts = self.config.log_internal_thoughts
         self.log_traces = log_traces
@@ -74,12 +71,6 @@ class ReActAgent(BaseAgent):
         self.memory = AgentMemory()
         self.tool_calls = []
         self._last_error: Optional[str] = None
-        
-        self.final_answer_generator = FinalAnswerGenerator(
-            llm=self.llm, 
-            config=self.final_answer_config,
-            logger=self.logger
-        )
 
     # ---------- Public API ----------
     def run(
@@ -93,9 +84,6 @@ class ReActAgent(BaseAgent):
         context: Optional[Dict[str, Any]] = None,
         _route_extra_instructions: str = "",
         reset_tracer: bool = True,
-        final_target_language: Optional[str] = None,
-        final_answer_length: Optional[str] = None,
-        final_answer_instructions: Optional[str] = None,
     ) -> ReactAgentResponse:
         """
         Run the ReAct agent.
@@ -118,29 +106,28 @@ class ReActAgent(BaseAgent):
             if specific_instructions is None
             else specific_instructions or ""
         )
-
-        stream_response = self._run_loop(
-            query=query,
-            temperature=temperature,
-            max_new_tokens=max_new_tokens,
-            stream=stream,
-            specific_instructions=specific_instructions,
-            final_target_language=final_target_language,
-            final_answer_length=final_answer_length,
-            final_answer_instructions=final_answer_instructions,
-        )
+    
         # -------- Streaming path --------
-        def no_stream(agent_response: Generator[str, None, None]) -> str:
+        if stream:
+            final_response = self._run_loop(
+                query=query,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+                stream=stream,
+                specific_instructions=specific_instructions,
+            )
+        # -------- Non-streaming path --------
+        else:
             final_response = ""
-            for chunk in agent_response:
+            for chunk in self._run_loop(
+                query=query,
+                temperature=temperature,
+                max_new_tokens=max_new_tokens,
+                stream=stream,
+                specific_instructions=specific_instructions,
+            ):
                 final_response += chunk
-            return final_response
-        
-        return ReactAgentResponse(
-            response=stream_response if stream else no_stream(stream_response), 
-            traces=self.tracer.results, 
-            tool_calls=self.tool_calls
-        )
+        return ReactAgentResponse(response=final_response, traces=self.tracer.results, tool_calls=self.tool_calls)
 
     def stop_generation(self):
         self.logger.info("[ReActAgent] Stopping generation...")
@@ -164,9 +151,6 @@ class ReActAgent(BaseAgent):
         max_new_tokens: int,
         stream: bool,
         specific_instructions: str,
-        final_target_language: Optional[str] = None,
-        final_answer_length: Optional[str] = None,
-        final_answer_instructions: Optional[str] = None,
     ) -> Generator[str, None, str]:
 
         rprint("🧠 Thinking...", color="yellow")
@@ -222,64 +206,77 @@ class ReActAgent(BaseAgent):
             )
 
             response, thoughts = "", ""
-            thought_started = False
+            final_started, thought_started, thought_finished = False, False, False
             for chunk in streaming_response:
                 if chunk.choices[0].finish_reason == "stop":
                     break
-                part = chunk.choices[0].delta.content or ""
+                part = chunk.choices[0].delta.content
                 response += part
 
-                # Optional: stream internal thoughts to caller if enabled
-                if self.config.return_internal_thoughts:
-                    # very simple: just stream everything after "Thought:" once it appears
-                    to_emit = ""
-                    if not thought_started and "Thought:" in response:
-                        thought_started = True
-                        _prefix, suffix = response.split("Thought:", 1)
-                        to_emit = suffix
-                    elif thought_started:
-                        to_emit = part
-
-                    if to_emit:
-                        if not self.config.skip_special_tokens:
-                            to_emit = self.delims.sot + to_emit
+                # stream final answer if the marker appears
+                if not final_started and self.delims.sof in response:
+                    # assuming end of thought when sof appears - `Thought:` appeared but `Action:` didn't
+                    if thought_started and not thought_finished:
+                        yield self.delims.eot + "\n"
+                    reason_tracer.stream("Final Response:\n")
+                    final_started = True
+                    prefix, suffix = response.split(self.delims.sof, 1)
+                    if suffix.strip():
+                        reason_tracer.stream(suffix, type="whiteb")
+                        to_emit = self.delims.sof + suffix
+                        if self.config.skip_special_tokens:
+                            to_emit = to_emit.strip(self.delims.sof)
                         yield to_emit
-
-                thoughts += part
-                if self.log_traces and self.log_internal_thoughts:
-                    reason_tracer.stream(part, type="thought")
+                        final_answer += to_emit
+                elif final_started:
+                    if self.delims.eof in part:
+                        to_emit, _after = part.split(self.delims.eof, 1)
+                        if self.config.skip_special_tokens:
+                            to_emit = to_emit.strip(self.delims.eof)
+                        yield to_emit
+                        reason_tracer.stream(to_emit, type="whiteb")
+                        final_answer += to_emit
+                    else:
+                        yield part
+                        reason_tracer.stream(part, type="whiteb")
+                        final_answer += part
+                else:
+                    if self.config.return_internal_thoughts:
+                        to_emit = part
+                        if not thought_started and "Thought:" in response:
+                            thought_started = True
+                            prefix, suffix = response.split("Thought:", 1)
+                            to_emit = suffix if self.config.skip_special_tokens else self.delims.sot + suffix
+                        if not thought_finished and "Action:" in response:
+                            thought_finished = True
+                            to_emit, _after = part.split("Action:", 1)
+                            if not self.config.skip_special_tokens:
+                                to_emit = to_emit.strip() + self.delims.eot + "\n"
+                        if not thought_finished:
+                            yield to_emit
+                    thoughts += part
+                    # collect internal thoughts for tracing, no yeilding here
+                    if self.log_traces and self.log_internal_thoughts:
+                        reason_tracer.stream(part, type="thought")
             
             reason_tracer.outputs(final_answer=final_answer, thoughts=thoughts)
-
+            if final_started:
+                if not self.config.skip_special_tokens:
+                    yield self.delims.eof
+                    # reason_tracer.stream(self.delims.eof, type="whiteb")
+                break
+            
+            # No final answer yet, try to parse an Action
             tool_call = self._decide_tool_call(response, query, history)
-            print(f"\ntool_call:\n{tool_call}\n\n")
-            # ---------- No tool decided ----------
             if tool_call is None or tool_call.tool is None:
+                # agent believes no tool is required and no final answer was streamed; ask LLM to produce final
                 history.append(response)
-                # In analysis_only mode: DO NOT synthesize a big final answer,
-                # just say that analysis is done and return control to the caller.
-                if self.config.mode == "analysis_only":
-                    final_answer = (
-                        "Analysis steps are complete; the latest tool results and memory "
-                        "slots contain everything needed to generate the final user-facing answer."
-                    )
-                    reason_tracer.stream("[analysis_only] No further tool selected; returning control to parent agent.\n", type="info")
-                    if not self.config.skip_special_tokens:
-                        final_answer = self.delims.sof + final_answer + self.delims.eof
-                    yield final_answer
-                    break
-
+                # Add a gentle nudge: produce final answer now
                 final_answer = ""
-                reason_tracer.stream("\nFinal Response:\n")
+                reason_tracer.stream("Forced Final Response:\n")
                 if not self.config.skip_special_tokens:
                     yield self.delims.sof
-                for chunk in self._generate_final_answer(
-                    user_query=query,
-                    history=history,
-                    final_target_language=final_target_language,
-                    final_answer_length=final_answer_length,
-                    final_answer_instructions=final_answer_instructions,
-                ):
+                for chunk in self._force_final_answer(query, history, temperature, max_new_tokens):
                     reason_tracer.stream(chunk, type="whiteb")
                     yield chunk
                     final_answer += chunk
@@ -304,7 +301,7 @@ class ReActAgent(BaseAgent):
                 # live stream to the user and accumulate
                 results_text = ""
                 if tool_response.final_answer:
-                    tool_tracer.stream("\nFinal Tool Result:\n")
+                    tool_tracer.stream("Final Tool Result:\n")
                     if not self.config.skip_special_tokens:
                         yield self.delims.sof
                     for chunk in tool_results:
@@ -337,7 +334,7 @@ class ReActAgent(BaseAgent):
             self.tool_calls.append(tool_call)
             
             tool_tracer.outputs(tool_return=results_text)
-            tool_tracer.log(f"[🔧] Tool Result: {results_text[:2000]}...", type="info", type_keyword=False)
+            tool_tracer.log(f"[🔧] Tool Result: {results_text[:150]}...", type="info")
             tool_tracer.close()
             reason_tracer.close()
             iteration += 1
@@ -435,45 +432,23 @@ class ReActAgent(BaseAgent):
             return None
         return repaired
 
-    def _generate_final_answer(
-        self,
-        user_query: str,
-        history: History,
-        *,
-        final_target_language: Optional[str] = None,
-        final_answer_length: Optional[str] = None,
-        final_answer_instructions: Optional[str] = None,
-    ) -> Generator[str, None, None]:
-        """
-        When the reasoning model signals that it's done (no Action),
-        we call the FinalAnswerGenerator to produce the user-facing answer.
-        """
-        history_text = history.to_prompt()
-        if not self.final_answer_generator:
-            # Fallback: old simple behavior if for some reason it's missing
-            prompt = (
-                f"# User Query:\n{user_query}\n"
-                f"{history_text}"
-                "\n# Next Steps:\nProduce a complete final answer now in one message."
-            )
-            response = self.llm.ask(
-                user_prompt=prompt,
-                system_prompt="You finalize answers succinctly and helpfully.",
-                chat_history=[],
-                temperature=max(0.2, self.final_answer_config.temperature - 0.3),
-                max_new_tokens=min(self.final_answer_config.max_new_tokens, 1200),
-                stream=True,
-            )
-            return normalize_response(response)
-        return self.final_answer_generator.generate(
-            user_query=user_query,
-            history=history_text,
-            memory=self.memory,
-            target_language=final_target_language,
-            answer_length=final_answer_length,
-            extra_instructions=final_answer_instructions,
+    def _force_final_answer(self, user_query: str, history: History, temperature: float, max_new_tokens: int) -> Generator[str, None, None]:
+        """If no Action and no final streamed, ask for a direct final answer."""
+        prompt = (
+            f"# User Query:\n{user_query}\n"
+            f"{history.to_prompt()}"
+            "\n# Next Steps:\nProduce a complete final answer now in one message."
         )
-        
+        response = self.llm.ask(
+            user_prompt=prompt,
+            system_prompt="You finalize answers succinctly and helpfully.",
+            chat_history=[],
+            temperature=max(0.2, temperature - 0.3),
+            max_new_tokens=min(max_new_tokens, 1200),
+            stream=True
+        )
+        return normalize_response(response)
+
     def _try_execute_tool(self, tool_call: ToolCall, tool_tracer: TraceStepContext) -> ToolResponse:
         tool_name = tool_call.tool
         tool = self.toolkit.registry[tool_name]
@@ -482,7 +457,7 @@ class ReActAgent(BaseAgent):
         last_err = None
         while attempts <= self.config.retry.max_tool_errors:
             try:
-                tool_tracer.log(f"[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {str(tool_call.inputs)[:200]}...", type="info")
+                tool_tracer.log(f"[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {str(tool_call.inputs)[:150]}...", type="info")
                 # NEW: extract any requested memory keys
                 inputs = dict(tool_call.inputs)
                 mem_keys = tool_call.memory_keys
@@ -551,10 +526,11 @@ class ReActAgent(BaseAgent):
     # ---------- Prompts ----------
     def _system_prompt(self, specific_instructions: str) -> str:
         tool_descriptions = self.toolkit.get_tools_description() if self.toolkit else "No tools."
-        # mode_instructions = ANALYSIS_ONLY_MODE if self.config.mode == "analysis_only" else DELEGATE_FINAL_MODEL
+        mode_instructions = ANALYSIS_ONLY_MODE if self.config.mode == "analysis_only" else DELEGATE_FINAL_MODEL
         return REACT_AGENT_PROMPT.format(
             tool_descriptions=tool_descriptions,
             specific_instructions=specific_instructions,
+            mode_instructions=mode_instructions,
         )
 
     def _build_prompt(self, user_query: str, history: History) -> str:
@@ -573,8 +549,11 @@ class ReActAgent(BaseAgent):
         prompt += (
             "# Next Steps: (What should you do next for this step?)\n"
             "You are continuing the reasoning from the previous steps above.\n"
-            "Thought: <your thoughts here>\n"
-            "Action: <your action here> (JSON if tool call, None if necessary work has been done)\n"
+            "Produce exactly ONE new Action block (if you still need a tool), OR\n"
+            "Produce the final answer (if you are ready).\n"
+            "If you plan to use a memory slot in a tool call, include a field\n"
+            "  \"memory_keys\": [\"key1\", \"key2\", ...]\n"
+            "in the Action JSON. Do NOT restate or regenerate the values, only the keys.\n"
         )
         return prompt
 
