@@ -6,11 +6,6 @@ from .types import ToolCall
 from .exceptions import ToolCallParseError
 from ..common.utils import extract_and_repair_json
 
-# Capture an Action block with braces (non-greedy, dotall)
-JSON_BLOCK = re.compile(
-    r"Action:\s*({.*?})(?:$|\n|```)",
-    re.DOTALL | re.IGNORECASE
-)
 
 TRAILING_COMMA = re.compile(r",\s*([}\]])")
 
@@ -25,7 +20,7 @@ def _strip_code_fences(text: str) -> str:
     if not text:
         return text
 
-    # Remove ```lang\n at the start of a block
+    # Remove ```lang\n at the start of blocks
     text = re.sub(r"```[a-zA-Z0-9_-]*\s*", "", text)
 
     # Remove remaining bare ``` markers
@@ -89,16 +84,14 @@ def _normalize_memory_keys(raw: Any) -> Optional[List[str]]:
     Accepts:
       - None
       - single string
-      - list of strings
+      - list of strings / ints
     """
     if raw is None:
         return None
     if isinstance(raw, str):
         return [raw]
     if isinstance(raw, list):
-        # Filter to strings only, ignore garbage
         return [str(k) for k in raw if isinstance(k, (str, int))]
-    # Anything else → ignore
     return None
 
 
@@ -125,61 +118,136 @@ def _normalize_final_answer(raw: Any) -> bool:
     return False
 
 
+def _find_last_action_index(text: str) -> int:
+    """
+    Find the index of the last occurrence of 'Action:' (case-insensitive).
+    Returns -1 if not found.
+    """
+    lower = text.lower()
+    return lower.rfind("action:")
+
+
+def _extract_braced_json_from(text: str, start_idx: int) -> Optional[str]:
+    """
+    Given a string and an index where a '{' character appears,
+    extract a balanced JSON object string starting at that '{'.
+
+    - Tracks brace depth.
+    - Respects quotes and escapes.
+    - Returns the substring from the starting '{' through the matching '}'.
+    - If no matching '}' is found, returns substring from '{' to end.
+    """
+    depth = 0
+    in_string = False
+    escape = False
+    s = text
+
+    for i in range(start_idx, len(s)):
+        ch = s[i]
+
+        if escape:
+            escape = False
+            continue
+
+        if ch == "\\":
+            escape = True
+            continue
+
+        if ch == '"':
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                # include this closing brace
+                return s[start_idx : i + 1]
+
+    # If we reach here, braces never balanced; return from start_idx to end
+    if depth > 0:
+        return s[start_idx:]
+    return None
+
+
 class ToolCallParser:
     """
     Extracts and normalizes a tool call from an LLM message.
 
     Behavior:
-    - Prefers a proper `Action: { ... }` block (your normal ReAct pattern).
-    - Tolerant to fenced blocks (``` / ```json).
-    - Tolerant to trailing commas and slightly malformed JSON.
-    - If no `Action:` is found but there is a bare JSON object with a "tool"
-      field, it will treat that as the Action.
-    - Returns a ToolCall (possibly with tool=None if JSON is missing "tool").
+    - If an `Action:` block is present:
+        - If it is explicitly `Action: None` or `Action: null` → ToolCall(tool=None, ...).
+        - Else, expect JSON after `Action:` and:
+            - On parse failure → raise ToolCallParseError (so agent can repair).
+            - On success → return ToolCall (tool may still be None if JSON says so).
+    - If no `Action:` is present:
+        - Try a bare JSON fallback (for ```json { ... } ``` style).
+        - If that fails → return None (no tool call).
     """
 
     def extract(self, text: str) -> Optional[ToolCall]:
         if not text:
             return None
 
-        # First, strip obvious code fences from the whole message.
         cleaned = _strip_code_fences(text)
 
-        # 1) Try the canonical pattern: `Action: { ... }`
-        m = JSON_BLOCK.search(cleaned)
-        if m:
-            raw = _tidy_json(m.group(1))
-            obj = self._parse_json_with_repair(raw)
-            return self._to_tool_call(obj)
+        # 1) Find the last 'Action:' marker
+        act_idx = _find_last_action_index(cleaned)
+        if act_idx == -1:
+            # No explicit Action:; try bare JSON as a fallback
+            try:
+                obj = extract_and_repair_json(cleaned, return_dict=True)
+            except Exception:
+                return None
 
-        # 2) Fallback: try to recover a JSON object from the whole text
-        #    (handles the case where the model only emits ```json { ... } ```).
-        try:
-            obj = extract_and_repair_json(cleaned, return_dict=True)
-        except Exception:
-            # No valid JSON → no Action
+            if isinstance(obj, dict) and ("tool" in obj or "inputs" in obj):
+                return self._to_tool_call(obj)
             return None
 
-        # If we got something that looks like a tool call, use it.
-        if isinstance(obj, dict) and ("tool" in obj or "inputs" in obj):
-            return self._to_tool_call(obj)
+        # 2) From there, skip 'Action:' and whitespace
+        i = act_idx + len("Action:")
+        while i < len(cleaned) and cleaned[i].isspace():
+            i += 1
+        if i >= len(cleaned):
+            # Action: at end of string → treat as malformed
+            raise ToolCallParseError("Action block found but no JSON or value after it.")
 
-        # Otherwise, treat as "no tool call" and let the agent decide.
-        return None
+        # 3) If the next non-whitespace token is 'None' / 'null' → explicit no-tool
+        tail = cleaned[i:].lstrip()
+        if tail.lower().startswith("none") or tail.lower().startswith("null"):
+            return ToolCall(tool=None, inputs={}, final_answer=False, memory_keys=None)
 
-    # ---------- Internals ----------
+        # 4) Otherwise we expect a JSON object starting with '{'
+        brace_idx = cleaned.find("{", i)
+        if brace_idx == -1:
+            # The model tried to emit an Action but didn't produce JSON
+            raise ToolCallParseError("Action block found but no JSON object after it.")
 
-    def _parse_json_with_repair(self, raw: str) -> Dict[str, Any]:
-        """
-        Try to parse JSON, fall back to extract_and_repair_json if needed.
-        """
+        raw_block = _extract_braced_json_from(cleaned, brace_idx)
+        if not raw_block:
+            raise ToolCallParseError("Could not extract a JSON object from Action block.")
+
+        raw_block = _tidy_json(raw_block)
+
+        # Try strict parse, then repair; on total failure, raise parse error
         try:
-            return _force_object(raw)
-        except json.JSONDecodeError:
+            obj = _force_object(raw_block)
+        except Exception:
             try:
-                return extract_and_repair_json(raw, return_dict=True)
+                obj = extract_and_repair_json(raw_block, return_dict=True)
             except Exception as e:
                 raise ToolCallParseError(f"Invalid JSON in Action block: {e}") from e
+
+        if not isinstance(obj, dict):
+            raise ToolCallParseError("Action JSON must be an object at the top level.")
+
+        return self._to_tool_call(obj)
+
+    # ---------- Internals ----------
 
     def _to_tool_call(self, obj: Dict[str, Any]) -> ToolCall:
         tool = obj.get("tool")
@@ -187,22 +255,21 @@ class ToolCallParser:
         memory_keys_raw = obj.get("memory_keys", None)
         final_answer_raw = obj.get("final_answer", False)
 
-        # Normalize fields
         memory_keys = _normalize_memory_keys(memory_keys_raw)
         final_answer = _normalize_final_answer(final_answer_raw)
 
+        if not isinstance(inputs, dict):
+            # This is malformed; let the outer code trigger repair
+            raise ToolCallParseError("`inputs` must be a JSON object.")
+
         if tool is None:
-            # We found JSON but it doesn't actually specify a tool.
-            # Return an "empty" ToolCall so the agent can decide what to do.
+            # Valid JSON, but explicit "no tool"
             return ToolCall(
                 tool=None,
                 inputs={},
                 final_answer=False,
                 memory_keys=memory_keys,
             )
-
-        if not isinstance(inputs, dict):
-            raise ToolCallParseError("`inputs` must be a JSON object.")
 
         return ToolCall(
             tool=str(tool),

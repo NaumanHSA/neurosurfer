@@ -15,7 +15,6 @@ from neurosurfer.models.chat_models import BaseChatModel
 from neurosurfer.models.embedders import BaseEmbedder
 from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
 from neurosurfer.agents.react import ReActAgent, ReActConfig
-from neurosurfer.agents.react.final_answer_generator import FinalAnswerConfig
 from neurosurfer.tools import Toolkit
 from neurosurfer.agents.code import CodeAgentConfig, CodeAgent
 
@@ -200,12 +199,12 @@ class NeurosurferApp:
         self.main_router = APIRouter()
         # ---------------- Auth & Chats (DB-backed) ----------------
 
-    def _init_agent(self):
+    def _init_agent(self, agent_config: ReActConfig = None, code_agent_config: CodeAgentConfig = None):
         self._toolkit = Toolkit(
             tools=[
                 CodeAgentTool(
                     llm=self._llm, 
-                    config=CodeAgentConfig(mode="analysis_only"),
+                    config=code_agent_config,
                     log_traces=True, 
                     logger=self.logger
                 ),
@@ -213,15 +212,6 @@ class NeurosurferApp:
                     rag_orchestrator=self._rag_orchestrator, 
                     logger=self.logger
                 ),
-                # FinalAnswerTool(
-                #     llm=self._llm,
-                #     config=FinalAnswerToolConfig(
-                #         default_language="english",
-                #         default_answer_length="detailed",
-                #         max_history_chars=12000
-                #     ),
-                #     logger=self.logger
-                # )
             ]
         )
         self._agent = ReActAgent(
@@ -230,15 +220,7 @@ class NeurosurferApp:
             toolkit=self._toolkit,
             specific_instructions=AGENT_SPECIFIC_INSTRUCTIONS,
             logger=self.logger,
-            config=ReActConfig(
-                mode="delegate_final",
-                return_internal_thoughts=True
-            ),
-            final_answer_config=FinalAnswerConfig(
-                default_language="english",
-                default_answer_length="detailed",
-                max_history_chars=12000
-            )
+            config=agent_config,
         )
     
     def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):

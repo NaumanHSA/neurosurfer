@@ -219,6 +219,7 @@ class CodeAgent(ReActAgent):
         - Keeps any rich slots ({value, description, visible_to_llm, ...}) as-is.
         - Delegates actual memory writing to ReActAgent._update_memory_from_extras.
         """
+
         if not extras:
             return
 
@@ -252,6 +253,9 @@ class CodeAgent(ReActAgent):
                     "scope": scope,
                     "created_by": created_by or "python_execute",
                 }
+
+        print("tool_response.extras normalized --------- \n", normalized)
+        
         ReActAgent._update_memory_from_extras(
             self,
             normalized,

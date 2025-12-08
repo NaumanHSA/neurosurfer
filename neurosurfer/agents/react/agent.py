@@ -16,7 +16,7 @@ from .types import ToolCall, ReactAgentResponse
 from .exceptions import ToolCallParseError, ToolExecutionError
 from .history import History
 from .scratchpad import REACT_AGENT_PROMPT, REPAIR_ACTION_PROMPT, ANALYSIS_ONLY_MODE, DELEGATE_FINAL_MODEL
-from .final_answer_generator import FinalAnswerGenerator, FinalAnswerConfig
+from .final_answer_generator import FinalAnswerGenerator
 from .config import ReActConfig
 
 
@@ -36,7 +36,6 @@ class ReActAgent(BaseAgent):
         *,
         specific_instructions: str = "",
         config: Optional[ReActConfig] = None,
-        final_answer_config: Optional[FinalAnswerConfig] = None,
         logger: logging.Logger = logging.getLogger(__name__),
         tracer: Optional[Tracer] = None,
         log_traces: Optional[bool] = True,
@@ -49,7 +48,6 @@ class ReActAgent(BaseAgent):
         self.toolkit = toolkit
         self.specific_instructions = specific_instructions
         self.config = config or ReActConfig()
-        self.final_answer_config = final_answer_config or FinalAnswerConfig()
         self.logger = logger
         self.log_internal_thoughts = self.config.log_internal_thoughts
         self.log_traces = log_traces
@@ -77,7 +75,11 @@ class ReActAgent(BaseAgent):
         
         self.final_answer_generator = FinalAnswerGenerator(
             llm=self.llm, 
-            config=self.final_answer_config,
+            language=self.config.final_answer_language,
+            answer_length=self.config.final_answer_length,
+            max_history_chars=self.config.final_answer_max_history_chars,
+            temperature=self.config.temperature,
+            max_new_tokens=self.config.max_new_tokens,
             logger=self.logger
         )
 
@@ -460,8 +462,8 @@ class ReActAgent(BaseAgent):
                 user_prompt=prompt,
                 system_prompt="You finalize answers succinctly and helpfully.",
                 chat_history=[],
-                temperature=max(0.2, self.final_answer_config.temperature - 0.3),
-                max_new_tokens=min(self.final_answer_config.max_new_tokens, 1200),
+                temperature=max(0.2, self.config.temperature - 0.3),
+                max_new_tokens=min(self.config.max_new_tokens, 1200),
                 stream=True,
             )
             return normalize_response(response)
@@ -488,11 +490,16 @@ class ReActAgent(BaseAgent):
                 mem_keys = tool_call.memory_keys
                 mem_injected: Dict[str, Any] = {}
 
+                print("\n\nMemory keys: ", mem_keys)
+                print("\n\nMemory: ", self.memory.get_memory(mode="ephemeral"))
+
                 if mem_keys:
                     if isinstance(mem_keys, str):
                         mem_keys = [mem_keys]
                     if isinstance(mem_keys, list):
                         mem_injected = self.memory.resolve_keys(mem_keys)
+
+                print("\n\nMemory injected (Context to be passed): ", mem_injected)
 
                 # Normal runtime memory (if you still want a global fallback)
                 # mem_snapshot = self.memory.snapshot_for_tool()
@@ -510,11 +517,9 @@ class ReActAgent(BaseAgent):
                 tool_response: ToolResponse = tool(**all_inputs)
                 # print("Tool response:\n", tool_response)
                 self.memory.clear_ephemeral()
-                # Update memory from extras, including metadata
+                # Update memory from extras, including metadata                
                 self._update_memory_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_name)
-                tool_tracer.outputs(
-                    memory_update=tool_response.extras
-                )
+                tool_tracer.outputs(memory_update=tool_response.extras)
                 # print("Current ephemeral memory:\n", self.memory.get_memory(mode="ephemeral"))
                 return tool_response
 

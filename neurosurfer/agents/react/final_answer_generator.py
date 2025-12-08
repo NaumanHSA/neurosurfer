@@ -70,25 +70,8 @@ Instructions for this answer:
 - You may use general world knowledge for explanation/clarification,
   but not to fabricate concrete results.
 - Write the final answer only, with no preambles about your reasoning process.
+- Remember, you must answer in `{target_language}` language.
 """.strip()
-
-
-@dataclass
-class FinalAnswerConfig:
-    """
-    Configuration for FinalAnswerGenerator.
-
-    - temperature: controls creativity of the final narrative.
-    - max_new_tokens: budget for the final answer.
-    - default_language: used if target_language is missing/invalid.
-    - default_answer_length: used if answer_length is missing/invalid.
-    - max_history_chars: truncate history to avoid blowing up context.
-    """
-    temperature: float = 0.3
-    max_new_tokens: int = 1024
-    default_language: str = "english"        # "english" | "arabic"
-    default_answer_length: str = "detailed"  # "short" | "medium" | "detailed"
-    max_history_chars: int = 12000
 
 
 class FinalAnswerGenerator:
@@ -113,14 +96,22 @@ class FinalAnswerGenerator:
     def __init__(
         self,
         llm: BaseChatModel,
-        config: Optional[FinalAnswerConfig] = None,
+        language: str = "english",        # "english" | "arabic"
+        answer_length: str = "detailed",  # "short" | "medium" | "detailed"
+        max_history_chars: int = 12000,
+        temperature: float = 0.3,
+        max_new_tokens: int = 1024,
         logger: Optional[logging.Logger] = None,
         base_system_instructions: Optional[str] = None,
     ) -> None:
         if llm is None:
             raise ValueError("FinalAnswerGenerator requires an llm")
         self.llm = llm
-        self.config = config or FinalAnswerConfig()
+        self.language = language
+        self.answer_length = answer_length
+        self.max_history_chars = max_history_chars
+        self.temperature = temperature
+        self.max_new_tokens = max_new_tokens
         self.logger = logger or LOGGER
 
         # Allow extending the system prompt for app-wide style instructions
@@ -168,8 +159,8 @@ class FinalAnswerGenerator:
             system_prompt=self.system_prompt,
             user_prompt=user_prompt,
             chat_history=[],
-            temperature=self.config.temperature,
-            max_new_tokens=self.config.max_new_tokens,
+            temperature=self.temperature,
+            max_new_tokens=self.max_new_tokens,
             stream=True,
         )
 
@@ -179,7 +170,7 @@ class FinalAnswerGenerator:
     # --------- Internals ---------
     def _normalize_language(self, lang: Optional[str]) -> str:
         if not lang:
-            return self.config.default_language
+            return self.language
 
         v = lang.strip().lower()
         if v in {"en", "english"}:
@@ -189,24 +180,24 @@ class FinalAnswerGenerator:
         if v in {"auto", "auto-detect", "detect"}:
             return "auto"
 
-        return self.config.default_language
+        return self.language
 
     def _normalize_length(self, length: Optional[str]) -> str:
         if not length:
-            return self.config.default_answer_length
+            return self.answer_length
 
         v = length.strip().lower()
         if v in {"short", "medium", "detailed"}:
             return v
 
-        return self.config.default_answer_length
+        return self.answer_length
 
     def _truncate_history(self, history: str) -> str:
         """
         Truncate history if it exceeds max_history_chars.
         We keep the *end* since it usually contains the latest, most relevant tool results.
         """
-        max_len = max(0, int(self.config.max_history_chars))
+        max_len = max(0, int(self.max_history_chars))
         if max_len == 0 or len(history) <= max_len:
             return history
 

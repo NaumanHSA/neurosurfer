@@ -19,3 +19,14 @@ class ReActConfig:
     return_stream_by_default: bool = False
     log_internal_thoughts: bool = True
     return_internal_thoughts: bool = False
+
+    """
+    Configuration for FinalAnswerGenerator.
+
+    - default_language: used if target_language is missing/invalid.
+    - default_answer_length: used if answer_length is missing/invalid.
+    - max_history_chars: truncate history to avoid blowing up context.
+    """
+    final_answer_language: str = "english"        # "english" | "arabic"
+    final_answer_length: str = "detailed"  # "short" | "medium" | "detailed"
+    final_answer_max_history_chars: int = 12000
