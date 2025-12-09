@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from neurosurfer.config import config
 from .retry import RetryPolicy
-from typing import Literal
+from typing import Literal, Dict, List
 
 @dataclass
 class ReActConfig:
@@ -30,3 +30,10 @@ class ReActConfig:
     final_answer_language: str = "english"        # "english" | "arabic"
     final_answer_length: str = "detailed"  # "short" | "medium" | "detailed"
     final_answer_max_history_chars: int = 12000
+
+    # New: per-tool forced memory keys (always injected)
+    # Example:
+    #   {
+    #       "python_execute": ["python_last_result_summary", "python_last_error"]
+    #   }
+    forced_memory_keys: Dict[str, List[str]] = field(default_factory=dict)

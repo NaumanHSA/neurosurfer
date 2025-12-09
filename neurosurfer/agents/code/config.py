@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Literal
+from typing import Optional, Literal, Dict, List
 
 from neurosurfer.agents.react.config import ReActConfig
 
@@ -36,3 +36,12 @@ class CodeAgentConfig(ReActConfig):
     # Future extension point: default to returning "raw" code tool output
     # vs natural-language answers from the tool.
     default_return_raw: bool = False
+
+    # Forcing memory keys for specific tools
+    forced_memory_keys: Dict[str, List[str]] = field(default_factory=lambda: {
+        "python_execute": [
+            "python_last_result_summary", 
+            "python_last_error"
+        ]
+    })
+

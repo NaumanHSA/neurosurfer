@@ -105,7 +105,7 @@ class CodeAgent(ReActAgent):
         stream: Optional[bool] = None,
         temperature: Optional[float] = None,
         max_new_tokens: Optional[int] = None,
-        files_context: Optional[Dict[str, Dict[str, Any]]] = None,  # Code-specific runtime context:
+        files_context: Optional[Dict[str, Dict[str, Any]]] = None,
         workdir: Optional[str] = None,
         post_process: Literal["none", "summarize"] = "none",
         reset_tracer: bool = True,
@@ -253,9 +253,6 @@ class CodeAgent(ReActAgent):
                     "scope": scope,
                     "created_by": created_by or "python_execute",
                 }
-
-        print("tool_response.extras normalized --------- \n", normalized)
-        
         ReActAgent._update_memory_from_extras(
             self,
             normalized,

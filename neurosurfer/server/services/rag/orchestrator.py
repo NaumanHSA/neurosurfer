@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+import json
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from sqlalchemy.orm import Session
 
@@ -259,7 +260,7 @@ class RAGOrchestrator:
                         self.logger.info(f"Ingested files summaries:")
                         for summary in ingestion_summaries:
                             self.logger.info(summary)
-        files_summary = self._build_files_summaries_block(user_id, thread_id, collection_name, message_id)
+        files_summary = self._build_files_summaries_block(user_id, thread_id, collection_name, message_id, return_json=True)
         db.close()
         return ingestion_summaries, files, files_summary
         
@@ -294,7 +295,7 @@ class RAGOrchestrator:
             files=files,
         )
 
-    def _build_files_summaries_block(self, user_id: int, thread_id: int, collection_name: str, message_id: int = None) -> str:
+    def _build_files_summaries_block(self, user_id: int, thread_id: int, collection_name: str, message_id: int = None, return_json: bool = False) -> Union[str, dict]:
         db = SessionLocal()
         # retrieve all igensted files for current thread
         files = (
@@ -307,15 +308,33 @@ class RAGOrchestrator:
             )
             .all()
         )
-        files_block_lines: List[str] = []
-        for f in files:
-            flag = "yes" if message_id and f.message_id == message_id else "no"
-            files_block_lines.append(
-                f"Filename: {f.filename}\n"
-                f"Attached_to_current_message: {flag}\n"
-                f"Summary:\n{f.summary or '(no summary)'}\n"
-            )
-        files_block = "\n\n".join(files_block_lines)
+        if return_json:
+            files_block = dict()
+            for f in files:
+                flag = "yes" if message_id and f.message_id == message_id else "no"
+                summary = f.summary or "(no summary)"
+                keywords = "(no keywords)"
+                if "Keywords:" in summary:
+                    summary, keywords = summary.split("Keywords:")
+                    summary = summary.strip()
+                    keywords = keywords.strip()
+
+                files_block[f.filename] = {
+                    "attached_to_current_message": flag,
+                    "summary": summary,
+                    "keywords": keywords,
+                }
+            files_block = json.dumps(files_block, indent=2)
+        else:
+            files_block_lines: List[str] = []
+            for f in files:
+                flag = "yes" if message_id and f.message_id == message_id else "no"
+                files_block_lines.append(
+                    f"Filename: {f.filename}\n"
+                    f"Attached_to_current_message: {flag}\n"
+                    f"Summary:\n{f.summary or '(no summary)'}\n"
+                )
+            files_block = "\n\n".join(files_block_lines)
         return files_block
 
     # -------- internals --------

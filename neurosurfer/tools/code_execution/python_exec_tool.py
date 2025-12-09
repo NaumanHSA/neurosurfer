@@ -183,7 +183,6 @@ class PythonExecTool(BaseTool):
 
         # build extras that can be used as memory for the next tool call
         results_extras = build_memory_extras_for_result(result, style=self.config.memory_style)
-        print(f"\n\nResults extras: {results_extras}\n\n")
         extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
         extras.update(results_extras)
 
@@ -224,10 +223,6 @@ class PythonExecTool(BaseTool):
         )
         raw = resp.choices[0].message.content or ""
         code_block = extract_code_block(raw)
-
-        print(f"\nUser Prompt for Code Generation:\n{user_prompt}\n\n")
-        print(f"\nPython Code Generated:\n{code_block}\n\n")
-
         return code_block
 
     def _run_code_with_retries(

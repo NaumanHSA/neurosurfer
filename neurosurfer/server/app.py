@@ -30,6 +30,13 @@ from .config import CORS_ORIGINS, SECRET_KEY
 from .utils import build_files_context, stream_chat_completion, non_stream_chat_completion
 from .templates import AGENT_SPECIFIC_INSTRUCTIONS
 
+from neurosurfer.server.services.chat_orchestration import MainChatWorkflow, MainWorkflowConfig
+from neurosurfer.server.services.chat_orchestration.gate import GateLLM, GateDecision
+from neurosurfer.server.services.chat_orchestration import CodeAgentService, CodeAgentConfig
+from neurosurfer.server.services.chat_orchestration import RAGService
+from neurosurfer.server.services.chat_orchestration import FinalAnswerGenerator
+
+
 # ---------- Neurosurfer app builder ----------
 class NeurosurferApp:
     """
@@ -145,8 +152,11 @@ class NeurosurferApp:
         self._llm: Optional[BaseChatModel] = None
         self._embedder: Optional[BaseEmbedder] = SentenceTransformerEmbedder(model_name="intfloat/e5-large-v2", logger=self.logger)
         self._rag_orchestrator: Optional[RAGOrchestrator] = None
-        self._agent: Optional[ReActAgent] = None
-        self._toolkit: Optional[Toolkit] = None
+        # main workflow (gate + rag + code + final answer)
+        self._chat_workflow: Optional[MainChatWorkflow] = None
+
+        # self._agent: Optional[ReActAgent] = None
+        # self._toolkit: Optional[Toolkit] = None
         self._default_top_k: int = 10
         self.logger.info("Default embedder: intfloat/e5-large-v2 successfully initialized. Replace it by calling app.register_model(model: BaseEmbedder)")
 
@@ -199,29 +209,38 @@ class NeurosurferApp:
         self.main_router = APIRouter()
         # ---------------- Auth & Chats (DB-backed) ----------------
 
-    def _init_agent(self, agent_config: ReActConfig = None, code_agent_config: CodeAgentConfig = None):
-        self._toolkit = Toolkit(
-            tools=[
-                CodeAgentTool(
-                    llm=self._llm, 
-                    config=code_agent_config,
-                    log_traces=True, 
-                    logger=self.logger
-                ),
-                RAGRetrieveTool(
-                    rag_orchestrator=self._rag_orchestrator, 
-                    logger=self.logger
-                ),
-            ]
-        )
-        self._agent = ReActAgent(
-            id="MainChatAgent",
-            llm=self._llm,
-            toolkit=self._toolkit,
-            specific_instructions=AGENT_SPECIFIC_INSTRUCTIONS,
+    def _init_chat_workflow(self, config: MainWorkflowConfig = None, code_agent_config: CodeAgentConfig = None) -> None:
+        """
+        Initialize the main chat workflow (gate -> RAG/code -> final answer).
+
+        Requires:
+        - self._llm
+        - self._embedder
+        - self._rag_orchestrator
+        """
+        if not self._llm or not self._embedder or not self._rag_orchestrator:
+            self.logger.warning(
+                "[NeurosurferApp] Cannot initialize MainChatWorkflow yet "
+                "(llm=%s, embedder=%s, rag=%s)",
+                bool(self._llm),
+                bool(self._embedder),
+                bool(self._rag_orchestrator),
+            )
+            return
+
+        self.logger.info("[NeurosurferApp] Initializing MainChatWorkflow...")
+        config = config or MainWorkflowConfig()
+        # 5) Stitch everything together
+        self._chat_workflow = MainChatWorkflow(
+            reasoning_llm=self._llm,
+            final_answer_llm=self._llm,
+            rag_orchestrator=self._rag_orchestrator,
+            config=config,
+            code_agent_config=code_agent_config,
+            log_traces=True,
             logger=self.logger,
-            config=agent_config,
         )
+        self.logger.info("[NeurosurferApp] MainChatWorkflow successfully initialized.")
     
     def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):
         self._rag_orchestrator = RAGOrchestrator(
@@ -233,57 +252,49 @@ class NeurosurferApp:
         )
 
     def run_agent(
-        self, 
-        user_id: int, 
-        thread_id: int, 
-        message_id: int, 
-        user_query: str, 
+        self,
+        user_id: int,
+        thread_id: int,
+        message_id: int,
+        user_query: str,
         has_files_message: bool,
+        chat_history: Optional[List[Dict[str, Any]]] = None,
         stream: bool = True,
     ):
-        # Ingest new files if any to the chroma db
-        ingestion_summaries, files, files_summaries_block = self._rag_orchestrator.ingest(
-            user_id=user_id,
-            thread_id=thread_id,
-            message_id=message_id,
-            has_files_message=has_files_message,
-        )
+        """
+        High-level entrypoint for the main chat workflow:
 
-        # Set agent memory with files context
-        files_context = build_files_context(user_id=user_id, thread_id=thread_id)
-        
-        # set files_context in agent memory so it's available for tools to use
-        # along with other agent memory (user_id, thread_id, message_id, has_files_message)
-        self._agent.set_persistent_memory(
+        1. Ingest new files for this message into RAG.
+        2. Build files_context and files_summaries_block.
+        3. Call MainChatWorkflow (gate -> RAG/code -> final answer).
+        4. Return the workflow result (generator or string) to the router.
+        """
+        if not self._chat_workflow:
+            raise RuntimeError(
+                "MainChatWorkflow is not initialized. "
+                "Make sure an LLM and embedder are registered."
+            )
+
+        # 3) Run the workflow (non-streaming or streaming, depending on your design)
+        workflow_result = self._chat_workflow.run(
+            user_query=user_query,
             user_id=user_id,
             thread_id=thread_id,
             message_id=message_id,
             has_files_message=has_files_message,
-            user_query=user_query,
-            files_context=files_context,
-            files_summaries_block=files_summaries_block
-        )
-        user_prompt = (
-            "# User query:\n"
-            f"{user_query}\n\n"
-            "# Uploaded files for this thread (with summaries):\n"
-            f"{files_summaries_block}\n"
-        )
-        print(f"Files Context:\n{files_context}\n")
-        print(f"User Prompt for Agent:\n{user_prompt}\n")
-        # Run agent
-        agent_return = self._agent.run(
-            query=user_prompt,
+            chat_history_block=chat_history or "",
             stream=stream,
-            specific_instructions="",
-            _route_extra_instructions="",
-            reset_tracer=True,
         )
-        return agent_return
-        # if stream:
-        #     return stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
-        # else:
-        #     return non_stream_chat_completion(agent_return.response, model_name=self._llm.model_name)
+        if stream:
+            return stream_chat_completion(workflow_result.final_answer_stream, model_name=self._llm.model_name)
+        else:
+            return non_stream_chat_completion(workflow_result.final_answer_text, model_name=self._llm.model_name)
+
+        # `workflow_result` should already be in whatever format your router expects:
+        # - a generator[str] for streaming
+        # - or a string / AppResponseModel for non-streaming.
+        # return workflow_result
+
 
     def register_model(self, model: Union[BaseChatModel, BaseEmbedder], provider: str = None, family: str = "Unknown", description: str = None):
         if isinstance(model, BaseChatModel):
@@ -298,8 +309,13 @@ class NeurosurferApp:
 
         if self._embedder and self._llm:
             self._init_rag(self._embedder, self._llm)
-            self._init_agent()
-            self.logger.info("RAG service successfully initialized...")
+            self._init_chat_workflow()
+            self.logger.info("RAG service & MainChatWorkflow successfully initialized.")
+            
+        # if self._embedder and self._llm:
+        #     self._init_rag(self._embedder, self._llm)
+        #     self._init_agent()
+        #     self.logger.info("RAG service successfully initialized...")
     
     def get_model(self, model_name: str):
         if not self.model_registry.exists(model_name):

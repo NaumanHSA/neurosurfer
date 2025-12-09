@@ -421,9 +421,10 @@ def build_error_extras(e: Exception, tb: str, char_limit: int = 2000) -> Dict[st
             "exc_type": exc_type,
             "message": msg,
             "suggested_next_step": suggestion,
+            "traceback": tb[-char_limit:],
         },
         "description": (
-            "Structured metadata about the last Python error raised by python_execute."
+            "Structured metadata about the last Python error raised by python_execute and error traceback."
         ),
         "visible_to_llm": True,
     }

@@ -106,10 +106,7 @@ class ReActAgent(BaseAgent):
         - If stream=False: returns ReactAgentResponse with the full string
           (we still use streaming under the hood, but we buffer it).
         """
-        if reset_tracer:
-            self.tracer.reset()
-        self.tool_calls = []
-        self._last_error = None
+        self._reset(reset_tracer)
 
         # Resolve config defaults
         stream = self.config.return_stream_by_default if stream is None else bool(stream)
@@ -143,6 +140,13 @@ class ReActAgent(BaseAgent):
             traces=self.tracer.results, 
             tool_calls=self.tool_calls
         )
+
+    def _reset(self, reset_tracer: bool = True):
+        if reset_tracer:
+            self.tracer.reset()
+        self.tool_calls = []
+        self._last_error = None
+        self.memory.clear_ephemeral()
 
     def stop_generation(self):
         self.logger.info("[ReActAgent] Stopping generation...")
@@ -198,6 +202,7 @@ class ReActAgent(BaseAgent):
             # set persistent memory for the history
             self.set_persistent_memory(history=history.to_prompt())
             reasoning_prompt = self._build_prompt(query, history)
+            # print(f"\n\nReasoning Prompt (query, memory, history):\n{reasoning_prompt}\n\n")
             reason_tracer = self.tracer(
                 agent_id=self.id,
                 kind="llm.call",
@@ -252,9 +257,7 @@ class ReActAgent(BaseAgent):
                     reason_tracer.stream(part, type="thought")
             
             reason_tracer.outputs(final_answer=final_answer, thoughts=thoughts)
-
             tool_call = self._decide_tool_call(response, query, history)
-            print(f"\ntool_call:\n{tool_call}\n\n")
             # ---------- No tool decided ----------
             if tool_call is None or tool_call.tool is None:
                 history.append(response)
@@ -487,19 +490,45 @@ class ReActAgent(BaseAgent):
                 tool_tracer.log(f"[🔧] Executing Tool: {tool_name}, Attempt: {attempts}, [📤] Inputs: {str(tool_call.inputs)[:200]}...", type="info")
                 # NEW: extract any requested memory keys
                 inputs = dict(tool_call.inputs)
-                mem_keys = tool_call.memory_keys
+
+                # keys requested by the LLM
+                requested_keys: List[str] = []
+                if tool_call.memory_keys:
+                    if isinstance(tool_call.memory_keys, str):
+                        requested_keys = [tool_call.memory_keys]
+                    elif isinstance(tool_call.memory_keys, list):
+                        requested_keys = [str(k) for k in tool_call.memory_keys if k is not None]
+
+                # keys forced by config for this tool    
+                forced_keys: List[str] = self.config.forced_memory_keys.get(tool_name, []) or []
+
+                # union, preserving order and uniqueness
+                merged_keys: List[str] = []
+                seen = set()
+                for k in requested_keys + forced_keys:
+                    if k not in seen:
+                        seen.add(k)
+                        merged_keys.append(k)
+
                 mem_injected: Dict[str, Any] = {}
-
-                print("\n\nMemory keys: ", mem_keys)
-                print("\n\nMemory: ", self.memory.get_memory(mode="ephemeral"))
-
-                if mem_keys:
-                    if isinstance(mem_keys, str):
-                        mem_keys = [mem_keys]
-                    if isinstance(mem_keys, list):
-                        mem_injected = self.memory.resolve_keys(mem_keys)
-
-                print("\n\nMemory injected (Context to be passed): ", mem_injected)
+                if merged_keys:
+                    # You can keep using your memory API; just be tolerant of missing keys
+                    try:
+                        mem_injected = self.memory.resolve_keys(merged_keys)
+                    except Exception:
+                        # If resolve_keys blows up on unknown keys, fall back to
+                        # a best-effort manual gather.
+                        mem_injected = {}
+                        epi = self.memory.get_memory(mode="ephemeral") or {}
+                        for k in merged_keys:
+                            if k in epi:
+                                mem_injected[k] = epi[k]
+                
+                # print("\n\nMemory keys (requested): ", requested_keys)
+                # print("Forced memory keys: ", forced_keys)
+                # print("Merged memory keys: ", merged_keys)
+                # print("\nMemory injected (raw): ", mem_injected)
+                # print("\n\nMemory: ", self.memory.get_memory(mode="ephemeral"))
 
                 # Normal runtime memory (if you still want a global fallback)
                 # mem_snapshot = self.memory.snapshot_for_tool()
@@ -517,7 +546,7 @@ class ReActAgent(BaseAgent):
                 tool_response: ToolResponse = tool(**all_inputs)
                 # print("Tool response:\n", tool_response)
                 self.memory.clear_ephemeral()
-                # Update memory from extras, including metadata                
+                # Update memory from extras, including metadata              
                 self._update_memory_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_name)
                 tool_tracer.outputs(memory_update=tool_response.extras)
                 # print("Current ephemeral memory:\n", self.memory.get_memory(mode="ephemeral"))
@@ -567,7 +596,7 @@ class ReActAgent(BaseAgent):
         prompt += history.to_prompt()
 
         # NEW: memory listing for the LLM
-        memory_block = self.memory.llm_visible_summary(mode="ephemeral")
+        memory_block = self.memory.llm_visible_summary(mode="ephemeral", return_json=True)
         prompt += (
             "\n# Working Memory:\n"
             "You have access to the following memory slots from previous tool calls.\n"

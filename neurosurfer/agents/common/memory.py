@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional, Mapping, List
+import json
+from typing import Any, Dict, Literal, Optional, Mapping, List, Union
 
 
 @dataclass
@@ -229,12 +230,11 @@ class AgentMemory:
                 out[k] = slot.value
         return out
 
-    def llm_visible_summary(self, mode: Literal["ephemeral", "persistent", "all"] = "all") -> str:
+    def llm_visible_summary(self, mode: Literal["ephemeral", "persistent", "all"] = "all", return_json: bool = False) -> Union[str, dict]:
         """
         Short textual listing of memory for the ReAct prompt.
         Does NOT leak raw values; only names + descriptions.
         """
-        lines = []
         for slot in self._memory_slots.values():
             if mode == "ephemeral" and slot.scope != "ephemeral":
                 continue
@@ -245,5 +245,15 @@ class AgentMemory:
             scope = "ephemeral" if slot.scope == "ephemeral" else "persistent"
             desc = slot.description or "(no description)"
             created = f" (from tool: {slot.created_by})" if slot.created_by else ""
-            lines.append(f"- key: {slot.key} [{scope}]{created}\n  description: {desc}")
-        return "\n".join(lines) if lines else "(no memory slots yet)"
+            if return_json:
+                memory_ = dict()
+                memory_[slot.key] = {
+                    "scope": scope,
+                    "description": desc,
+                    "created_by": slot.created_by,
+                }
+                return json.dumps(memory_, indent=2)
+            else:
+                lines = []
+                lines.append(f"- key: {slot.key} [{scope}]{created}\n  description: {desc}")
+                return "\n".join(lines) if lines else "(no memory slots yet)"

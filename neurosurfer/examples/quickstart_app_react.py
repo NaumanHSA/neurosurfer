@@ -119,6 +119,26 @@ async def load_model():
         provider="Unsloth",
         description="Proxy to Llama"
     )
+    from neurosurfer.server.services.chat_orchestration import MainWorkflowConfig, CodeAgentConfig
+    ns._init_chat_workflow(
+        config=MainWorkflowConfig(  
+            default_language="english",
+            default_answer_length="detailed",
+            enable_rag=True,
+            enable_code=True,
+            log_traces=True,
+            max_context_chars=16000,
+            max_history_chars=12000,
+            max_new_tokens=8000,
+            temperature=0.7
+        ),
+        code_agent_config=CodeAgentConfig(
+            temperature=0.7,
+            max_new_tokens=8000,
+            mode="analysis_only"
+        )
+    )
+
     # Warmup
     joke = llm.ask(user_prompt="Say hi!", system_prompt=config.base_model.system_prompt, stream=False)
     LOGGER.info(f"LLM ready: {joke.choices[0].message.content}")
