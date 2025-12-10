@@ -285,16 +285,11 @@ class NeurosurferApp:
             chat_history_block=chat_history or "",
             stream=stream,
         )
-        if stream:
-            return stream_chat_completion(workflow_result.final_answer_stream, model_name=self._llm.model_name)
-        else:
-            return non_stream_chat_completion(workflow_result.final_answer_text, model_name=self._llm.model_name)
-
-        # `workflow_result` should already be in whatever format your router expects:
-        # - a generator[str] for streaming
-        # - or a string / AppResponseModel for non-streaming.
-        # return workflow_result
-
+        return workflow_result
+        # if stream:
+        #     return stream_chat_completion(workflow_result.final_answer_stream, model_name=self._llm.model_name)
+        # else:
+        #     return non_stream_chat_completion(workflow_result.final_answer_text, model_name=self._llm.model_name)
 
     def register_model(self, model: Union[BaseChatModel, BaseEmbedder], provider: str = None, family: str = "Unknown", description: str = None):
         if isinstance(model, BaseChatModel):

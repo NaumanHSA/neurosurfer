@@ -6,13 +6,15 @@ import os, io
 import traceback
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Generator
 
 import logging
 
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools.base_tool import BaseTool, ToolResponse
 from neurosurfer.tools.tool_spec import ToolSpec, ToolParam, ToolReturn
+from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionRequest
+from neurosurfer.utils.generator import consume, iterate_with_return
 
 from .templates import PYTHON_EXEC_SYSTEM_PROMPT
 from .utils import (
@@ -110,6 +112,7 @@ class PythonExecTool(BaseTool):
         self.config = config or PythonExecToolConfig()
         self.logger = logger or logging.getLogger(__name__)
 
+
     def __call__(
         self,
         task: str,
@@ -122,78 +125,136 @@ class PythonExecTool(BaseTool):
         """
         Execute the Python task.
 
-        files_context format:
-            {
-                "students.csv": {"path": "/abs/path/students.csv", "mime": "text/csv", "size": 12345},
-                ...
-            }
+        - Returns ToolResponse (unchanged API)
+        - ToolResponse.results is a *generator* of strings that:
+            1) streams code between <special_token> markers
+            2) then yields the final human-readable answer
         """
-        final_answer = kwargs.get("final_answer", False)
+        final_answer_flag = kwargs.get("final_answer", False)
         files_context = files_context or {}
         file_names = file_names or list(files_context.keys())
 
-        # Build a human-readable listing for the prompt
         files_listing = format_files_listing(files_context, file_names)
 
-        code, result, generated_plots, error, error_extras, error_category = self._run_code_with_retries(
-            task=task,
-            files_context=files_context,
-            files_listing_for_prompt=files_listing,
-            workdir=workdir,
-            context=context,
-        )
-
-        if error is not None:
-            answer = (
-                "I attempted to solve this using Python code, but the code kept failing.\n\n"
-                f"Last error:\n{error}"
-            )
-            # If it's a missing dependency, treat this as a hard stop.
-            if error_category == "missing_dependency":
-                # Extract the first line for a concise message
-                first_line = error.splitlines()[0] if error else ""
-                answer = (
-                    "I tried to run Python code for your task, but the environment is missing "
-                    f"a required library (error: `{first_line}`).\n\n"
-                    "This sandbox cannot install new packages (no pip/conda), and libraries are limited."
-                )
-            
-            if code and self.config.include_code_in_answer:
-                answer += "\n\nGenerated code (may be buggy):\n```python\n"
-                answer += code
-                answer += "\n```"
-
-            extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
-            extras.update(error_extras)
-            return ToolResponse(final_answer=final_answer, results=answer, extras=extras)
-        
-        # Success
-        result_text = format_result(result, max_table_rows=self.config.max_table_rows)
-        answer = f"Here are the results from executing Python code for your task:\n\n{result_text}"
-
-        if generated_plots:
-            answer += "\n\nGenerated plots (saved in this session's working directory):\n"
-            for p in generated_plots:
-                answer += f"- {p}\n"
-
-        if self.config.include_code_in_answer and code:
-            answer += "\n\nPython code used:\n```python\n"
-            answer += code
-            answer += "\n```"
-
-        # build extras that can be used as memory for the next tool call
-        results_extras = build_memory_extras_for_result(result, style=self.config.memory_style)
-        extras: Dict[str, Any] = {"generated_plots": generated_plots or []}
-        extras.update(results_extras)
-
-        # add code to the extras
-        extras["python_last_code"] = {
-            "value": code,
-            "description": "Python code used in the last python_execute call.",
-            "visible_to_llm": False,
+        # Shared, mutable extras dict that the generator will fill in lazily
+        extras: Dict[str, Any] = {
+            "generated_plots": [],
         }
-        return ToolResponse(final_answer=final_answer, results=answer, extras=extras)
 
+        def result_gen():
+            """
+            Lazy generator:
+            - calls _run_code_with_retries only when first iterated
+            - streams LLM code chunks
+            - then yields formatted answer
+            - fills `extras` dict as a side-effect
+            """
+            inner_gen = self._run_code_with_retries(
+                task=task,
+                files_context=files_context,
+                files_listing_for_prompt=files_listing,
+                workdir=workdir,
+                context=context,
+            )
+
+            code: Optional[str] = None
+            result: Any = None
+            generated_plots: List[str] = []
+            error: Optional[str] = None
+            error_extras: Dict[str, Any] = {}
+            error_category: Optional[str] = None
+
+            first_code_chunk = True
+
+            # 1) Forward LLM code chunks as they arrive
+            for event in iterate_with_return(inner_gen):
+                if event.kind == "yield":
+                    chunk = event.value  # raw code delta (str)
+
+                    # Start code block on first chunk
+                    if self.config.include_code_in_answer and first_code_chunk:
+                        first_code_chunk = False
+                        yield "<special_token>\n"
+
+                    # Stream the chunk itself
+                    if self.config.include_code_in_answer:
+                        yield chunk
+
+                else:
+                    # Final result from _run_code_with_retries
+                    (
+                        code,
+                        result,
+                        generated_plots,
+                        error,
+                        error_extras,
+                        error_category,
+                    ) = event.value
+
+            # 2) Close code block if we ever opened it
+            if self.config.include_code_in_answer and not first_code_chunk:
+                yield "\n<special_token>\n"
+
+            # 3) Error case
+            if error is not None:
+                if error_category == "missing_dependency":
+                    first_line = error.splitlines()[0] if error else ""
+                    answer = (
+                        "I tried to run Python code for your task, but the environment is missing "
+                        f"a required library (error: `{first_line}`).\n\n"
+                        "This sandbox cannot install new packages (no pip/conda), and libraries are limited."
+                    )
+                else:
+                    answer = (
+                        "I attempted to solve this using Python code, but the code kept failing.\n\n"
+                        f"Last error:\n{error}"
+                    )
+
+                # Yield final answer text
+                yield answer
+
+                # Fill extras lazily
+                extras["generated_plots"] = generated_plots or []
+                extras.update(error_extras)
+
+                return  # end generator
+
+            # 4) Success case
+            result_text = format_result(
+                result, max_table_rows=self.config.max_table_rows
+            )
+            answer = f"Here are the results from executing Python code for your task:\n\n{result_text}"
+
+            if generated_plots:
+                answer += "\n\nGenerated plots (saved in this session's working directory):\n"
+                for p in generated_plots:
+                    answer += f"- {p}\n"
+
+            # Yield final natural-language answer
+            yield answer
+
+            # Fill extras lazily
+            results_extras = build_memory_extras_for_result(
+                result, style=self.config.memory_style
+            )
+            extras["generated_plots"] = generated_plots or []
+            extras.update(results_extras)
+            extras["python_last_code"] = {
+                "value": code,
+                "description": "Python code used in the last python_execute call.",
+                "visible_to_llm": False,
+            }
+
+            # generator ends here
+
+        # Return ToolResponse immediately.
+        # Heavy work only starts when result_gen() is iterated.
+        return ToolResponse(
+            final_answer=final_answer_flag,
+            results=result_gen(),  # <-- generator, lazy
+            extras=extras,
+        )
+            
     def _ask_for_code(
         self,
         task: str,
@@ -201,7 +262,7 @@ class PythonExecTool(BaseTool):
         previous_error: Optional[str] = None,
         previous_code: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-    ) -> str:
+    ) -> Generator[ChatCompletionChunk, None, None]:
         user_prompt = build_user_prompt(task, files_listing_for_prompt, context)
         if previous_error:
             repair_note = (
@@ -214,16 +275,13 @@ class PythonExecTool(BaseTool):
                 repair_note += "\n\nPrevious code:\n```python\n" + previous_code + "\n```"
             user_prompt += repair_note
 
-        resp = self.llm.ask(
+        return self.llm.ask(
             system_prompt=PYTHON_EXEC_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.1,
             max_new_tokens=512,
-            stream=False,
+            stream=True,
         )
-        raw = resp.choices[0].message.content or ""
-        code_block = extract_code_block(raw)
-        return code_block
 
     def _run_code_with_retries(
         self,
@@ -240,40 +298,44 @@ class PythonExecTool(BaseTool):
         error_extras: Dict[str, Any] = {}
 
         for attempt in range(self.config.max_code_retries):
-            code = self._ask_for_code(
+            code_stream = self._ask_for_code(
                 task=task,
                 files_listing_for_prompt=files_listing_for_prompt,
                 context=context,
                 previous_error=last_error,
                 previous_code=last_code,
             )
-            last_code = code
-
+            last_code = ""
+            yield self.config.soc
+            for chunk in code_stream:
+                chunk = chunk.choices[0].delta.content or ""
+                yield chunk
+                last_code += chunk
+            yield self.config.eoc
+            last_code = extract_code_block(last_code)
             try:
                 result, plots = self._exec_code(
-                    code=code,
+                    code=last_code,
                     files_context=files_context,
                     workdir=workdir,
                 )
-                return code, result, plots, None, {}, None
+                return last_code, result, plots, None, {}, None
 
             except Exception as e:
                 tb = traceback.format_exc()
                 last_category = self._classify_error(e)
-                self.logger.error(
-                    f"[python_execute] Code execution failed on attempt {attempt + 1}: {e}\n{tb}"
-                )
+                # self.logger.error(f"[python_execute] Code execution failed on attempt {attempt + 1}: {e}\n{tb}")
                 last_error = f"{e}\n\nTraceback:\n{tb}"
 
                 # Generic extras for ReAct
                 error_extras = build_error_extras(e, tb)
 
                 # Optionally: early exit for clearly non-code issues
-                if isinstance(e, (FileNotFoundError, ImportError)):
+                if isinstance(e, (FileNotFoundError, ImportError, KeyError)):
                     break
 
                 # For hard environment errors, retrying code is pointless
-                if last_category == "missing_dependency":
+                if last_category == "missing_dependency" or last_category == "missing_file" or last_category == "key_error":
                     break
 
         return last_code, None, last_plots, last_error, error_extras, last_category
@@ -357,8 +419,12 @@ class PythonExecTool(BaseTool):
         Rough error categories, used to decide whether retrying makes sense.
         """
         msg = str(e)
-        if isinstance(e, ModuleNotFoundError) or "No module named" in msg:
+        if isinstance(e, ModuleNotFoundError) or isinstance(e, ImportError) or "No module named" in msg:
             return "missing_dependency"
         if "not available and cannot be installed in this environment" in msg:
             return "missing_dependency"
+        if isinstance(e, FileNotFoundError) or "No such file or directory" in msg:
+            return "missing_file"
+        if isinstance(e, KeyError):
+            return "key_error"
         return "generic"

@@ -7,42 +7,7 @@ import zipfile
 import shutil
 from typing import Callable, Dict, Optional, Generator, Union, Literal, List, Any, Tuple, Set
 from datetime import datetime
-from ..rag import constants
-from ..config import CONFIG
 
-
-def get_uploaded_files(
-    project_path: str,
-    extensions: Set[str] = constants.supported_file_types,
-    exclude_dirs:  Set[str] = constants.exclude_dirs_in_code
-) -> List[Path]:
-    project_path = Path(project_path).resolve()
-    return [
-        p for p in project_path.rglob('*')
-        if (
-            p.is_file() and
-            p.suffix in extensions and
-            not any(excluded in p.parts for excluded in exclude_dirs)
-        )
-    ]
-
-def retrieve_filtered_chunks(keywords, query, vector_db, top_k=100):
-    # Search widely first
-    candidates = vector_db.similarity_search(query, k=top_k)        
-    # Filter by LLM-indicated keywords
-    filtered = [
-        doc for doc in candidates
-        if any(kw.lower() in doc.metadata.get('filename', '').lower() for kw in keywords)
-    ]
-    return filtered
-
-def keywords_filter_chunks(keywords, docs):
-    # Filter by LLM-indicated keywords
-    filtered = [
-        doc for doc in docs
-        if any(kw.lower() in doc.metadata.get('filename', '').lower() for kw in keywords)
-    ]
-    return filtered
 
 def create_context(results):
     docs_dict = dict()
@@ -189,20 +154,6 @@ def generate_folder_structure(
         shutil.rmtree(tmpdir, ignore_errors=True)
     return result
 
-def reconstruct_code_from_chunks(chunks, overlap_lines=CONFIG["chunker"]["overlap_lines"]):
-    def remove_overlap(prev_lines, curr_lines):
-        for i in range(overlap_lines, 0, -1):
-            if prev_lines[-i:] == curr_lines[:i]:
-                return curr_lines[i:]
-        return curr_lines
-
-    full_code_lines = chunks[0].splitlines()
-    for chunk in chunks[1:]:
-        curr_lines = chunk.splitlines()
-        trimmed = remove_overlap(full_code_lines, curr_lines)
-        full_code_lines.extend(trimmed)
-    return "\n".join(full_code_lines)
-
 def is_prompt_like(text):
     return (
         "You are" in text[:200] or
@@ -215,49 +166,3 @@ def is_prompt_like(text):
         "{context}" in text or
         "{query}" in text
     )
-
-
-def mermaid_save_diagram(
-        mermaid_code: str,
-        output_path: str,
-        image_format: Literal["png", "svg"] = "png",
-        background_color: str = "white",
-        scale: float = 2.0,
-        puppeteer_config_path="puppeteer-config.json",
-        mmdc_path="mmdc",
-        logger: Optional[logging.Logger] = logging.getLogger(__name__),
-    ):
-        """
-        Save Mermaid diagram as an image using Mermaid CLI.
-        Args:
-            mermaid_code (str): Mermaid syntax code.
-            output_path (str): File path to save the image.
-            image_format (str): 'png' or 'svg'.
-            background_color (str): Background color.
-            scale (float): Scale multiplier.
-        """
-        success = False
-        with tempfile.NamedTemporaryFile(mode='w+', suffix='.mmd', delete=False) as tmp:
-            tmp.write(mermaid_code)
-            tmp.flush()
-            tmp_path = tmp.name
-        cmd = [
-            mmdc_path,
-            "-i", tmp_path,
-            "-o", output_path,
-            "-t", "default",
-            "-b", background_color,
-            "-f", image_format,
-            "-s", str(scale),
-        ]
-        if puppeteer_config_path:
-            cmd.extend(["--puppeteerConfigFile", puppeteer_config_path])
-        try:
-            subprocess.run(cmd, check=True)
-            logger.info(f"✅ Diagram saved to {output_path}")
-            success = True
-        except subprocess.CalledProcessError as e:
-            logger.error(f"❌ Failed to generate diagram: {str(e)}")
-        finally:
-            os.remove(tmp_path)
-        return success

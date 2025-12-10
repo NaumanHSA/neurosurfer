@@ -337,6 +337,12 @@ class ReActAgent(BaseAgent):
                     break
                 history.append(f"results: {results_text}")
 
+            # update memory here to handle lazy loading extras
+            self.memory.clear_ephemeral()
+            # Update memory from extras, including metadata              
+            self._update_memory_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_call.tool)
+            tool_tracer.outputs(memory_update=tool_response.extras)
+
             # update tool call
             tool_call.output = results_text
             self.tool_calls.append(tool_call)
@@ -544,12 +550,6 @@ class ReActAgent(BaseAgent):
                     mem_injected=mem_injected
                 )
                 tool_response: ToolResponse = tool(**all_inputs)
-                # print("Tool response:\n", tool_response)
-                self.memory.clear_ephemeral()
-                # Update memory from extras, including metadata              
-                self._update_memory_from_extras(tool_response.extras, scope="ephemeral", created_by=tool_name)
-                tool_tracer.outputs(memory_update=tool_response.extras)
-                # print("Current ephemeral memory:\n", self.memory.get_memory(mode="ephemeral"))
                 return tool_response
 
             except Exception as e:

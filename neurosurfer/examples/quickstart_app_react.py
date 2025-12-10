@@ -226,6 +226,7 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
         message_id=args.message_id,
         user_query=user_query,
         has_files_message=args.has_files_message,
+        chat_history=chat_history,
     )
     return final_answer
 

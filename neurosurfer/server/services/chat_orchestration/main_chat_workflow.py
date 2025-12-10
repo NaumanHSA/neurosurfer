@@ -113,7 +113,7 @@ class MainChatWorkflow:
         message_id: int,
         user_query: str,
         has_files_message: bool,
-        chat_history_block: str = "",
+        chat_history_block: Optional[List[Dict[str, Any]]] = None,
         stream: bool = True,
         reset_tracer: bool = True
     ) -> MainWorkflowResult:
@@ -129,6 +129,10 @@ class MainChatWorkflow:
         """
         if reset_tracer:
             self.tracer.reset()
+        
+        # parse chat history block into a string
+        if chat_history_block:
+            chat_history_block = self._chat_history_to_string(chat_history_block)
 
         rprint("🧠 Thinking...", color="yellow")
         if self.log_traces:
@@ -158,7 +162,7 @@ class MainChatWorkflow:
         files_context = build_files_context(user_id=user_id, thread_id=thread_id)
 
         # Route with GateLLM
-        gate_decision = self._route_with_gate(
+        gate_decision = self.gate.decide(
             user_query=user_query,
             files_summaries_block=files_summaries_block,
             chat_history_block=chat_history_block,
@@ -209,7 +213,6 @@ class MainChatWorkflow:
             )
             context_block = rag_context.context_block
             main_tracer.log(message=f"RAG pipeline completed with retrieved context of size {len(context_block)} chars.", type="info")
-
         else:
             # Either route=="direct" or the feature is disabled.
             # Build a simple context that tells the final LLM to answer from
@@ -218,7 +221,7 @@ class MainChatWorkflow:
             context_block = self._build_direct_context(
                 user_query=user_query,
                 chat_history_block=chat_history_block,
-                files_summaries_block=files_summaries_block,
+                files_summaries_block=None,
                 route=route,
             )
             route = "direct"  # normalize if we overrode due to disabled features
@@ -302,28 +305,6 @@ class MainChatWorkflow:
         # Small helper so type checkers are happy.
         return self.rag_service.rag_orchestrator
 
-    def _route_with_gate(
-        self,
-        *,
-        user_query: str,
-        files_summaries_block: str,
-        chat_history_block: str,
-    ) -> GateDecision:
-        """
-        Ask the GateLLM how to handle this query.
-
-        The GateLLM is responsible for:
-        - choosing route: "code" | "rag" | "direct"
-        - optionally producing an optimized query
-        - deciding language / answer length
-        - asking for clarification if needed
-        """
-        return self.gate.decide(
-            user_query=user_query,
-            files_summaries_block=files_summaries_block,
-            chat_history_block=chat_history_block,
-        )
-
     def _run_code_pipeline(
         self,
         user_query: str,
@@ -406,7 +387,7 @@ class MainChatWorkflow:
             lines.append("CHAT HISTORY (most recent first or suitable ordering):")
             lines.append(chat_history_block.strip())
             lines.append("")
-        if files_summaries_block.strip():
+        if files_summaries_block and files_summaries_block.strip():
             lines.append("UPLOADED FILE SUMMARIES (may or may not be relevant):")
             lines.append(files_summaries_block.strip())
             lines.append("")
@@ -419,3 +400,15 @@ class MainChatWorkflow:
         Wrap a single text value into a generator, for unified streaming API.
         """
         yield text
+
+    def _chat_history_to_string(self, chat_history: List[Dict[str, Any]]) -> str:
+        """
+        Convert a list of chat messages (dicts with role/content)
+        into a readable conversation string.
+        """
+        lines = []
+        for message in chat_history:
+            role = message.get("role", "unknown")
+            content = message.get("content", "")
+            lines.append(f"{role.upper()}: {content}")
+        return "\n".join(lines)
