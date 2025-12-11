@@ -3,21 +3,23 @@ import json
 import textwrap
 
 from .templates import PYTHON_EXEC_USER_PROMPT_TEMPLATE
-from .config import MemoryStyle, PythonExecToolConfig
+from .config import MemoryStyle
+
 
 def build_user_prompt(
     task: str,
     files_listing: str,
     context: Optional[Dict[str, Any]],
     *,
-    max_snippet_len: int = 1200,
+    max_snippet_len: int = 2000,
 ) -> str:
     """
     Build the user prompt for the code-generation LLM.
 
     - `files_listing` is already a JSON string of available files.
     - `context` is a dict of memory slots (e.g. python_last_result_summary).
-      For strings, we print them as-is (no json.dumps to avoid \"\\n\" spam).
+      For strings, we try to decode JSON-style escaped newlines so that
+      '\\n' becomes real newlines in the final prompt.
       For non-strings, we pretty-print JSON.
     """
     ctx_text = "(none)"
@@ -26,17 +28,22 @@ def build_user_prompt(
         for key, value in context.items():
             # 1) Choose a human-friendly representation
             if isinstance(value, str):
-                # Already a nice multi-line description (from extras builder)
-                snippet = value
+                snippet_raw = value
+                # Try to decode JSON-escaped strings so that "\n" becomes real newlines
+                # and surrounding quotes are removed.
+                try:
+                    decoded = json.loads(snippet_raw)
+                    if isinstance(decoded, str):
+                        snippet = decoded
+                    else:
+                        snippet = snippet_raw
+                except Exception:
+                    # Not valid JSON string, use as-is
+                    snippet = snippet_raw
             else:
                 # Fallback: JSON pretty-print for structures
                 try:
-                    snippet = json.dumps(
-                        value,
-                        indent=2,
-                        ensure_ascii=False,
-                        default=str,
-                    )
+                    snippet = json.dumps(value, indent=2, ensure_ascii=True)
                 except Exception:
                     snippet = str(value)
 
@@ -46,9 +53,7 @@ def build_user_prompt(
 
             # 3) Indent snippet for readability under the key
             snippet_indented = textwrap.indent(snippet, "  ")
-
             parts.append(f"{key}:\n{snippet_indented}")
-
         ctx_text = "\n\n".join(parts)
 
     tpl = PYTHON_EXEC_USER_PROMPT_TEMPLATE.format(

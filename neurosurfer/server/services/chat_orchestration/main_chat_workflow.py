@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generator, Optional, List, Literal
+import json
 
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
@@ -192,21 +193,28 @@ class MainChatWorkflow:
         rag_context: Optional[RAGContextResult] = None
         code_context: Optional[CodeAgentContextResult] = None
 
+        optimized_query = gate_decision.optimized_query or user_query
         if route == "code" and self.config.enable_code:
+            """Call CodeAgentService to build a context block."""
             main_tracer.log(message="Running code pipeline", type="info")
-            code_context = self._run_code_pipeline(
-                user_query=user_query,
-                gate_decision=gate_decision,
+            files_hint = gate_decision.use_files or []
+            code_context: CodeAgentContextResult = self.code_service.run_for_context(
+                query=optimized_query,
                 files_context=files_context,
+                files_hint=files_hint or None,
+                workdir=None,
+                post_process="none",
                 stream=stream,
+                reset_tracer=False,
             )
             context_block = code_context.context_block
+            main_tracer.log(message=f"Code pipeline completed with retrieved context of size {len(context_block)} chars.", type="info")
 
         elif route == "rag" and self.config.enable_rag:
+            """Call RAGService to build a context block."""
             main_tracer.log(message="Running RAG pipeline", type="info")
-            rag_context = self._run_rag_pipeline(
-                user_query=user_query,
-                gate_decision=gate_decision,
+            rag_context = self.rag_service.retrieve_for_context(
+                user_query=optimized_query,
                 user_id=user_id,
                 thread_id=thread_id,
                 stream=stream,
@@ -219,18 +227,17 @@ class MainChatWorkflow:
             # general knowledge + chat history.
             main_tracer.log(message="Running direct pipeline", type="info")
             context_block = self._build_direct_context(
-                user_query=user_query,
+                user_query=optimized_query,
                 chat_history_block=chat_history_block,
                 files_summaries_block=None,
                 route=route,
             )
             route = "direct"  # normalize if we overrode due to disabled features
+            # if direct, we reduce the file summaries block to what gate llm suggests (generic queries do not always need to know about our uploaded files)
+            files_summaries_block = self._reduce_files_summaries_block(files_summaries_block, gate_decision.use_files)
 
         # Optional: truncate context to avoid huge prompts
-        if (
-            self.config.max_context_chars > 0
-            and len(context_block) > self.config.max_context_chars
-        ):
+        if self.config.max_context_chars > 0 and len(context_block) > self.config.max_context_chars:
             context_block = (
                 context_block[: self.config.max_context_chars]
                 + "\n\n[Context truncated due to length; most recent / most relevant parts kept.]"
@@ -240,7 +247,7 @@ class MainChatWorkflow:
         if stream:
             main_tracer.log(message="Generating final answer (streaming)", type="info")
             answer_stream = self.final_answer.generate(
-                user_query=user_query,
+                user_query=optimized_query,
                 context_block=context_block,
                 files_summaries_block=files_summaries_block,
                 chat_history_block=chat_history_block,
@@ -253,7 +260,7 @@ class MainChatWorkflow:
             main_tracer.log(message="Generating final answer (non-streaming)", type="info")
             chunks: List[str] = list(
                 self.final_answer.generate(
-                    user_query=user_query,
+                    user_query=optimized_query,
                     context_block=context_block,
                     files_summaries_block=files_summaries_block,
                     chat_history_block=chat_history_block,
@@ -305,55 +312,6 @@ class MainChatWorkflow:
         # Small helper so type checkers are happy.
         return self.rag_service.rag_orchestrator
 
-    def _run_code_pipeline(
-        self,
-        user_query: str,
-        *,
-        gate_decision: GateDecision,
-        files_context: Dict[str, Dict[str, Any]],
-        stream: bool = False,
-    ) -> CodeAgentContextResult:
-        """
-        Call CodeAgentService to build a context block.
-        """
-        optimized = gate_decision.optimized_query or user_query
-        files_hint = gate_decision.use_files or []
-        return self.code_service.run_for_context(
-            query=optimized,
-            files_context=files_context,
-            files_hint=files_hint or None,
-            workdir=None,
-            post_process="none",
-            stream=stream,
-        )
-
-    def _run_rag_pipeline(
-        self,
-        user_query: str,
-        *,
-        gate_decision: GateDecision,
-        user_id: int,
-        thread_id: int,
-        stream: bool = False,
-    ) -> RAGContextResult:
-        """
-        Call RAGService to build a context block.
-        """
-        optimized = gate_decision.optimized_query or user_query
-
-        if self.log_traces:
-            self.logger.info(
-                "[MainChatWorkflow] Routing to RAG with optimized_query=%r",
-                optimized,
-            )
-
-        return self.rag_service.retrieve_for_context(
-            user_query=optimized,
-            user_id=user_id,
-            thread_id=thread_id,
-            stream=stream,
-        )
-
     def _build_direct_context(
         self,
         *,
@@ -374,7 +332,6 @@ class MainChatWorkflow:
             )
             lines.append("")
 
-        lines.append("NO EXTERNAL TOOLS WERE USED.")
         lines.append("You should answer based on:")
         lines.append("- The user's query.")
         lines.append("- The prior chat history (if any).")
@@ -412,3 +369,17 @@ class MainChatWorkflow:
             content = message.get("content", "")
             lines.append(f"{role.upper()}: {content}")
         return "\n".join(lines)
+
+    def _reduce_files_summaries_block(self, files_summaries_block: str, use_files: List[str]) -> str:
+        """
+        Reduces the files summaries block to only the files that are used in the gate decision.
+        """
+        try:
+            b: Dict[str, Any] = json.loads(files_summaries_block) or {}
+            for key in list(b.keys()):
+                if key not in use_files:
+                    del b[key]
+            return json.dumps(b, indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to reduce files summaries block: {e}")
+        return files_summaries_block

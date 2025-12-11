@@ -30,7 +30,7 @@ class ReActAgent(BaseAgent):
     """
     def __init__(
         self,
-        id: str = "ReAct_Agent",
+        id: str = "react_agent",
         llm: BaseChatModel = None,
         toolkit: Optional[Toolkit] = None,
         *,
@@ -59,7 +59,7 @@ class ReActAgent(BaseAgent):
         self.tracer: Tracer = tracer or Tracer(
             config=TracerConfig(log_steps=self.log_traces),
             meta={
-                "agent_type": "generic_agent",
+                "agent_type": "react_agent",
                 "agent_config": self.config,
                 "model": self.llm.model_name,
                 "toolkit": toolkit is not None,
@@ -141,27 +141,6 @@ class ReActAgent(BaseAgent):
             tool_calls=self.tool_calls
         )
 
-    def _reset(self, reset_tracer: bool = True):
-        if reset_tracer:
-            self.tracer.reset()
-        self.tool_calls = []
-        self._last_error = None
-        self.memory.clear_ephemeral()
-
-    def stop_generation(self):
-        self.logger.info("[ReActAgent] Stopping generation...")
-        try:
-            self.llm.stop_generation()
-        finally:
-            super().stop_generation()
-
-    def update_toolkit(self, toolkit: Toolkit) -> None:
-        self.toolkit = toolkit
-
-    def set_persistent_memory(self, **kwargs) -> None:
-        for key, value in kwargs.items():
-            self.memory.set_persistent(key, value)
-
     # ---------- Core loop ----------
     def _run_loop(
         self,
@@ -175,9 +154,13 @@ class ReActAgent(BaseAgent):
         final_answer_instructions: Optional[str] = None,
     ) -> Generator[str, None, str]:
 
-        rprint("🧠 Thinking...", color="yellow")
+        indent_level = max(self.tracer._depth - 1, 0)
+        prefix = " " * (indent_level * 4)
+        # prefix = indent + "    "
+
+        rprint(prefix + "🧠 Thinking...", color="yellow")
         if self.log_traces:
-            rprint(f"\n\\[{self.id}] Tracing Start!")
+            rprint(f"\n{prefix}[{self.id}] Tracing Start!")
         system_prompt = self._system_prompt(specific_instructions)
         main_tracer = self.tracer(
             agent_id=self.id,
@@ -189,8 +172,9 @@ class ReActAgent(BaseAgent):
                 "response_type": "streaming" if stream else "non-streaming",
                 "specific_instructions": specific_instructions,
                 "scratchpad": system_prompt,
-            },
+            },  
         ).start()
+
         reason_tracer: Optional[TraceStepContext] = None 
         tool_tracer: Optional[TraceStepContext] = None
 
@@ -275,9 +259,11 @@ class ReActAgent(BaseAgent):
                     break
 
                 final_answer = ""
+                reason_tracer.log(message=f"Generating final answer with language={final_target_language} length={final_answer_length} history_len={len(history)}", type="info")
                 reason_tracer.stream("\nFinal Response:\n")
                 if not self.config.skip_special_tokens:
                     yield self.delims.sof
+
                 for chunk in self._generate_final_answer(
                     user_query=query,
                     history=history,
@@ -323,6 +309,8 @@ class ReActAgent(BaseAgent):
                 else:
                     for chunk in tool_results:
                         results_text += chunk
+                        # tool_tracer.stream(chunk, type="muted")
+
                 history.append(f"results: {results_text}")
             else:
                 # plain string
@@ -348,7 +336,7 @@ class ReActAgent(BaseAgent):
             self.tool_calls.append(tool_call)
             
             tool_tracer.outputs(tool_return=results_text)
-            tool_tracer.log(f"[🔧] Tool Result: {results_text[:2000]}...", type="info", type_keyword=False)
+            tool_tracer.log(f"\n[🔧] Tool Result: {results_text[:2000]}...", type="info", type_keyword=False)
             tool_tracer.close()
             reason_tracer.close()
             iteration += 1
@@ -359,11 +347,32 @@ class ReActAgent(BaseAgent):
             main_tracer.outputs(final_answer=final_answer, total_iterations=iteration)
             main_tracer.close()
         if self.log_traces:
-            rprint(f"\\[{self.id}] Tracing End!\n")
+            rprint(f"\n{prefix}[{self.id}] Tracing End!\n")
         
         self._sort_tracing_results()  # sort tracing restuls
         return final_answer or "I couldn't determine the answer."
 
+    def _reset(self, reset_tracer: bool = True):
+        if reset_tracer:
+            self.tracer.reset()
+        self.tool_calls = []
+        self._last_error = None
+        self.memory.clear_ephemeral()
+
+    def stop_generation(self):
+        self.logger.info("[ReActAgent] Stopping generation...")
+        try:
+            self.llm.stop_generation()
+        finally:
+            super().stop_generation()
+
+    def update_toolkit(self, toolkit: Toolkit) -> None:
+        self.toolkit = toolkit
+
+    def set_persistent_memory(self, **kwargs) -> None:
+        for key, value in kwargs.items():
+            self.memory.set_persistent(key, value)
+            
     # ---------- Decision & Repair ----------
     def _decide_tool_call(self, response: str, user_query: str, history: History) -> Optional[ToolCall]:
         # 1) parse tolerant

@@ -155,8 +155,7 @@ class NeurosurferApp:
         # main workflow (gate + rag + code + final answer)
         self._chat_workflow: Optional[MainChatWorkflow] = None
 
-        # self._agent: Optional[ReActAgent] = None
-        # self._toolkit: Optional[Toolkit] = None
+        self.code_agent: Optional[CodeAgent] = None
         self._default_top_k: int = 10
         self.logger.info("Default embedder: intfloat/e5-large-v2 successfully initialized. Replace it by calling app.register_model(model: BaseEmbedder)")
 
@@ -240,6 +239,7 @@ class NeurosurferApp:
             log_traces=True,
             logger=self.logger,
         )
+        self.code_agent = self._chat_workflow.code_service.code_agent
         self.logger.info("[NeurosurferApp] MainChatWorkflow successfully initialized.")
     
     def _init_rag(self, embedder: BaseEmbedder, llm: BaseChatModel):

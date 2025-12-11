@@ -50,12 +50,15 @@ def extract_and_repair_json(text: str, return_dict: bool = True) -> Optional[Uni
 
 
 # Internal helper to print messages
-def rprint(msg: str, color: str = "cyan", rich: bool = True):
+def rprint(msg: str, color: str = "cyan", underline: bool = False, rich: bool = True):
     try:
         if rich:
             from rich.console import Console
             console = Console(force_jupyter=False, force_terminal=True)
-            console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
+            if underline:
+                console.print(f"[underline][bold {color}]{msg}[/bold {color}]")
+            else:
+                console.print(f"[bold {color}]{msg}[/bold {color}]")
         else:
             print(msg)
     except NameError:

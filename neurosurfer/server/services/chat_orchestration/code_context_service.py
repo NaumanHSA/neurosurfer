@@ -79,6 +79,7 @@ class CodeAgentService:
         workdir: Optional[str] = None,
         post_process: Literal["none", "summarize"] = "none",
         stream: bool = False,
+        reset_tracer: bool = False,
     ) -> CodeAgentContextResult:
         """
         Run CodeAgent and return a context block suitable for FinalAnswerGenerator.
@@ -105,6 +106,7 @@ class CodeAgentService:
             workdir=workdir,
             post_process=post_process,
             stream=stream,
+            reset_tracer=reset_tracer,
         )
         
         agent_response = ""

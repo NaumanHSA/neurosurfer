@@ -31,10 +31,10 @@ If you do not have enough information to answer the question, just tell the user
 
 RAG_USER_PROMPT = """Based on the context provided, answer the user's question. 
 
-Question: 
-{question}
-
 Context: 
 {context}
+
+User Query: 
+{query}
 
 Answer: """

@@ -91,7 +91,7 @@ class CodeAgent(ReActAgent):
         tk = Toolkit()
         py_cfg = PythonExecToolConfig(
             max_code_retries=3,
-            include_code_in_answer=False,
+            include_code_in_answer=True,
             max_table_rows=20,
         )
         py_tool = PythonExecTool(llm=llm, config=py_cfg, logger=logger)
@@ -108,6 +108,12 @@ class CodeAgent(ReActAgent):
         files_context: Optional[Dict[str, Dict[str, Any]]] = None,
         workdir: Optional[str] = None,
         post_process: Literal["none", "summarize"] = "none",
+        specific_instructions: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        _route_extra_instructions: str = "",
+        final_target_language: Optional[str] = None,
+        final_answer_length: Optional[str] = None,
+        final_answer_instructions: Optional[str] = None,
         reset_tracer: bool = True,
     ) -> ReactAgentResponse:
         """
@@ -161,9 +167,12 @@ class CodeAgent(ReActAgent):
             stream=stream,
             temperature=temperature,
             max_new_tokens=max_new_tokens,
-            specific_instructions=None,   # we already injected CodeAgent instructions at init
-            context=None,
-            _route_extra_instructions=None,
+            specific_instructions=specific_instructions,
+            context=context,
+            _route_extra_instructions=_route_extra_instructions,
+            final_target_language=final_target_language,
+            final_answer_length=final_answer_length,
+            final_answer_instructions=final_answer_instructions,
             reset_tracer=reset_tracer,
         )
 

@@ -12,10 +12,21 @@ You MUST output a single JSON object with this exact schema:
 {
   "route": "direct" | "rag" | "code" | "clarify",
   "optimized_query": "string",
+  "query_language_detected": "string",
   "use_files": ["file_key_1", "file_key_2", ...],
   "clarification_question": "string or null",
   "reason": "short natural-language explanation of why you chose this route"
 }
+
+# LANGUAGE BEHAVIOR (VERY IMPORTANT):
+- The user's query may be in ANY language.
+- You MUST correctly understand and interpret the query regardless of language.
+- You MUST ALWAYS output "optimized_query" in clear, natural ENGLISH.
+- The "route", "use_files", and "reason" fields MUST also be in ENGLISH.
+- If you choose "clarify", the "clarification_question" MUST be in the SAME LANGUAGE
+  as the user's query so the user can understand it.
+- Do NOT include multiple languages inside "optimized_query". It must be English-only.
+- 
 
 # Definitions:
 - "direct": The assistant can answer from its own knowledge and chat history.
@@ -79,6 +90,7 @@ You MUST output a single JSON object with this exact schema:
 
 # Optimizing the query:
 - "optimized_query" should be a cleaned-up, precise version of the user's request.
+- You MUST ALWAYS write "optimized_query" in ENGLISH, even if the user asked in another language.
 - You may:
   - expand abbreviations,
   - clarify implicit intent based on chat history,
@@ -87,13 +99,20 @@ You MUST output a single JSON object with this exact schema:
 
 # Clarification behavior:
 - Only use route = "clarify" when absolutely necessary.
-- In that case, "clarification_question" MUST be a single, clear question.
+- In that case:
+  - "clarification_question" MUST be a single, clear question.
+  - "clarification_question" MUST be written in the SAME LANGUAGE as the user's query.
 - For all other routes, set "clarification_question": null.
+
+# Query language detection:
+- "query_language_detected" should be the detected language of the user's query e.g. "english", "arabic", "french", etc.
+- If you are not sure, set "query_language_detected" to "unknown".
 
 # Output rules:
 - Respond with a single valid JSON object only.
 - No extra text, comments, or markdown.
 - Do NOT include trailing commas.
+- Field names and allowed values MUST remain exactly as specified.
 """.strip()
 
 
@@ -112,8 +131,9 @@ Recent chat history (user + assistant messages, most recent last):
 {chat_history_block}
 
 User query:
-{user_query}
+"{user_query}"
 
+Note: Always generate the "optimized_query" in ENGLISH. You must translate the query to English if asked in another language.
 Now return the JSON object based on the User's Query.
 """.strip()
 
@@ -143,6 +163,7 @@ Language and length:
   - TARGET_LANGUAGE:
       - "english": answer entirely in English.
       - "arabic": answer entirely in Modern Standard Arabic.
+      - "or any other language": answer entirely in the language specified by the user.
       - "auto": infer the most appropriate language from the user query.
   - ANSWER_LENGTH:
       - "short": 1-3 concise sentences.
@@ -165,29 +186,29 @@ Hallucination rules:
 
 
 FINAL_ANSWER_USER_PROMPT_TEMPLATE = """
-Uploaded files (summaries and keywords, if any):
+# Uploaded files (summaries and keywords, if any):
 {files_summaries_block}
 
-CONTEXT BLOCK (from RAG and/or code execution - this is your main evidence):
+# CONTEXT BLOCK (from RAG and/or code execution - this is your main evidence):
 {context_block}
 
-Optional recent chat history (if any):
+# Optional recent chat history (if any):
 {chat_history_block}
 
-TARGET_LANGUAGE: {target_language}
-ANSWER_LENGTH: {answer_length}
+# TARGET_LANGUAGE: **{target_language}**
+# ANSWER_LENGTH: **{answer_length}**
 
-Original user query:
-{user_query}
+# Original user query:
+**{user_query}** 
 
-Instructions:
+Note: You must and always answer in **{target_language}** language only. And your answer structure must be **{answer_length}**.
+
+# Instructions:
 - Base your answer primarily on the CONTEXT BLOCK above.
-- Do not invent specific numbers or file contents that are not shown there.
 - You may use general world knowledge only to clarify or explain, NOT to fabricate missing concrete results.
-- Write the final answer only, with no preambles about your reasoning process.
-- Remember, you must answer in `{target_language}`.
+- You do not need to explain the context block OR steps taken. Just answer naturally.
 - If the query refers to general knowledge, you can answer from your own knowledge. Do not mention the uploaded files, ignore them completely.
 
-Additional instructions for this answer (if any):
+# Additional instructions for this answer (if any):
 {extra_instructions}
 """.strip()

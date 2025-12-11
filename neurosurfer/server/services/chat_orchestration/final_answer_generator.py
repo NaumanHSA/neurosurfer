@@ -113,7 +113,6 @@ class FinalAnswerGenerator:
                 "files_summaries_block": files_summaries_block,
             },
         ) as tracer:
-
             lang = self._normalize_language(target_language)
             length = self._normalize_length(answer_length)
 
@@ -130,6 +129,7 @@ class FinalAnswerGenerator:
                 answer_length=length,
                 extra_instructions=extra_instr,
             )
+            # print(f"\n\nUser Prompt for Final Answer Generator: {user_prompt}\n\n")
             tracer.inputs(user_prompt=user_prompt, user_prompt_len=len(user_prompt))
             streaming_response = self.llm.ask(
                 system_prompt=self.system_prompt,

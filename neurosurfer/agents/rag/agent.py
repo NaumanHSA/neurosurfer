@@ -314,6 +314,10 @@ class RAGAgent:
         similarity_threshold: Optional[float] = None,
         temperature: Optional[float] = None,
         stream: bool = False,
+        retrieval_mode: RetrievalMode = "classic",       
+        retrieval_scope: Optional[RetrievalScope] = None,
+        retrieval_plan: Optional[RetrievalPlan] = None,
+        answer_breadth: Optional[AnswerBreadth] = None,
         **llm_kwargs: Any,
     ) -> LLM_RESPONSE_TYPE:
         """
@@ -344,10 +348,13 @@ class RAGAgent:
         
         retrieved: RetrieveResult = self.retrieve(
             user_query=user_query,
-            chat_history=chat_history or [],
             top_k=top_k or self.cfg.top_k,
             metadata_filter=metadata_filter,
             similarity_threshold=similarity_threshold,
+            retrieval_mode=retrieval_mode,
+            retrieval_scope=retrieval_scope,
+            retrieval_plan=retrieval_plan,
+            answer_breadth=answer_breadth,
         )
         sys_prompt = system_prompt or RAG_AGENT_SYSTEM_PROMPT
         user_prompt = RAG_USER_PROMPT.format(context=retrieved.context, query=user_query)

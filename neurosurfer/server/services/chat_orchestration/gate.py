@@ -79,7 +79,7 @@ class GateLLM:
                 files_summaries_block=(files_summaries_block or "(no uploaded files)"),
                 chat_history_block=(chat_history_block or "(no recent history)"),
             )
-            print(user_prompt)
+            # print(f"\n\nuser_prompt:{user_prompt}\n\n")
             gate_tracer.inputs(user_prompt=user_prompt, user_prompt_len=len(user_prompt))
             resp = self.llm.ask(
                 system_prompt=MAIN_AGENT_GATE_SYSTEM_PROMPT,
@@ -108,6 +108,7 @@ class GateLLM:
                 return GateDecision(
                     route="direct",
                     optimized_query=user_query,
+                    query_language_detected="unknown",
                     use_files=[],
                     clarification_question=None,
                     reason="Fallback: could not parse routing JSON",
@@ -143,6 +144,10 @@ class GateLLM:
             # If the gate didn't provide an optimized query, fall back to original.
             optimized_query = "<missing optimized_query – fallback to user_query>"
 
+        query_language_detected = str(obj.get("query_language_detected") or "").strip()
+        if not query_language_detected:
+            query_language_detected = "unknown"
+
         use_files_raw = obj.get("use_files") or []
         if not isinstance(use_files_raw, list):
             use_files_raw = []
@@ -166,6 +171,7 @@ class GateLLM:
         return GateDecision(
             route=route,
             optimized_query=optimized_query,
+            query_language_detected=query_language_detected,
             use_files=use_files,
             clarification_question=clarification_question,
             reason=reason,

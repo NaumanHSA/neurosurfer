@@ -7,6 +7,7 @@ import logging
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.agents.common.utils import normalize_response
 from neurosurfer.agents.common import AgentMemory
+from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
 
 LOGGER = logging.getLogger(__name__)
 
@@ -101,6 +102,8 @@ class FinalAnswerGenerator:
         max_history_chars: int = 12000,
         temperature: float = 0.3,
         max_new_tokens: int = 1024,
+        tracer: Optional[Tracer] = None,
+        log_traces: Optional[bool] = True,
         logger: Optional[logging.Logger] = None,
         base_system_instructions: Optional[str] = None,
     ) -> None:
@@ -120,6 +123,20 @@ class FinalAnswerGenerator:
             self.system_prompt += (
                 "\n\nAdditional global style instructions:\n" + base_system_instructions.strip()
             )
+
+        self.log_traces = log_traces
+        self.tracer: Tracer = tracer or Tracer(
+            config=TracerConfig(log_steps=self.log_traces),
+            meta={
+                "agent_type": "react_agent",
+                "agent_id": "FinalAnswerGenerator",
+                "model": self.llm.model_name,
+                "target_language": self.language,
+                "answer_context": self.answer_length,
+                "log_steps": self.log_traces,
+            },
+            logger_=logger,
+        )
 
     # --------- Public API ---------
     def generate(
@@ -153,8 +170,6 @@ class FinalAnswerGenerator:
             answer_length=length,
             extra_instructions=extra_instr,
         )
-
-        self.logger.info("[FinalAnswerGenerator] Generating final answer with language=%s length=%s history_len=%d", lang, length, len(history_block))
         streaming_response = self.llm.ask(
             system_prompt=self.system_prompt,
             user_prompt=user_prompt,

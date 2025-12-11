@@ -174,7 +174,7 @@ class PythonExecTool(BaseTool):
                     # Start code block on first chunk
                     if self.config.include_code_in_answer and first_code_chunk:
                         first_code_chunk = False
-                        yield "<special_token>\n"
+                        yield "\n"
 
                     # Stream the chunk itself
                     if self.config.include_code_in_answer:
@@ -193,7 +193,7 @@ class PythonExecTool(BaseTool):
 
             # 2) Close code block if we ever opened it
             if self.config.include_code_in_answer and not first_code_chunk:
-                yield "\n<special_token>\n"
+                yield "\n"
 
             # 3) Error case
             if error is not None:
@@ -234,9 +234,7 @@ class PythonExecTool(BaseTool):
             yield answer
 
             # Fill extras lazily
-            results_extras = build_memory_extras_for_result(
-                result, style=self.config.memory_style
-            )
+            results_extras = build_memory_extras_for_result(result, style=self.config.memory_style)
             extras["generated_plots"] = generated_plots or []
             extras.update(results_extras)
             extras["python_last_code"] = {
@@ -245,13 +243,11 @@ class PythonExecTool(BaseTool):
                 "visible_to_llm": False,
             }
 
-            # generator ends here
-
         # Return ToolResponse immediately.
         # Heavy work only starts when result_gen() is iterated.
         return ToolResponse(
             final_answer=final_answer_flag,
-            results=result_gen(),  # <-- generator, lazy
+            results=result_gen(),
             extras=extras,
         )
             
@@ -263,7 +259,7 @@ class PythonExecTool(BaseTool):
         previous_code: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> Generator[ChatCompletionChunk, None, None]:
-        user_prompt = build_user_prompt(task, files_listing_for_prompt, context)
+        user_prompt = build_user_prompt(task, files_listing_for_prompt, context, max_snippet_len=self.config.max_context_length)
         if previous_error:
             repair_note = (
                 "\n\nThe previous code attempt failed with this error:\n"
@@ -274,12 +270,14 @@ class PythonExecTool(BaseTool):
             if previous_code:
                 repair_note += "\n\nPrevious code:\n```python\n" + previous_code + "\n```"
             user_prompt += repair_note
-
+        
+        # print(f"\n\n####################################\nUser Prompt for Code GEneration:\n{user_prompt}\n####################################\n\n")
+        # Stream the code
         return self.llm.ask(
             system_prompt=PYTHON_EXEC_SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            temperature=0.1,
-            max_new_tokens=512,
+            temperature=self.config.temperature,
+            max_new_tokens=self.config.max_new_tokens,
             stream=True,
         )
 
@@ -306,12 +304,12 @@ class PythonExecTool(BaseTool):
                 previous_code=last_code,
             )
             last_code = ""
-            yield self.config.soc
+            yield self.config.soc + "\n"
             for chunk in code_stream:
                 chunk = chunk.choices[0].delta.content or ""
                 yield chunk
                 last_code += chunk
-            yield self.config.eoc
+            yield "\n" + self.config.eoc + "\n"
             last_code = extract_code_block(last_code)
             try:
                 result, plots = self._exec_code(

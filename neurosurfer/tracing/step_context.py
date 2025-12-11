@@ -92,12 +92,7 @@ class TraceStepContext:
         inputs: dict = self._step_data.setdefault("inputs", {})
         inputs.update(kwargs)
 
-    def stream(
-        self, 
-        message: str, 
-        type: str = "info", 
-        **data: Any
-    ) -> None:
+    def stream(self,  message: str,  type: str = "info",  **data: Any) -> None:
         """
         Add an internal log line to this step.
 
@@ -118,13 +113,7 @@ class TraceStepContext:
         except:
             pass
 
-    def log(
-        self, 
-        message: str, 
-        type: str = "info", 
-        type_keyword: bool = True,
-        **data: Any
-    ) -> None:
+    def log(self,  message: str,  type: str = "info",  type_keyword: bool = True, **data: Any) -> None:
         """
         Add an internal log line to this step.
 
@@ -153,7 +142,6 @@ class TraceStepContext:
             type_keyword=type_keyword,
             stream=False,
         )
-
 
     def start(self) -> "TraceStepContext":
         self.__enter__()
