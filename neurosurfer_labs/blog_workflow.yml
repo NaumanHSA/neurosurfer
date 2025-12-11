@@ -7,28 +7,22 @@ inputs:
   - query:
       type: string
       required: true
+  - audience: str
+  - tone: str
 
 nodes:
   - id: research
     purpose: "Perform focused research on the requested topic titled {topic_title}."
-    goal: >
-      Collect key facts, terminology, and references that are directly useful
-      for writing a technical blog post.
-    expected_result: >
-      A compact, structured summary with sections for 'key_points',
-      'sources', and 'risks_or_caveats'.
+    goal: Collect key facts, terminology, and references that are directly useful for writing a technical blog post.
+    expected_result: A compact, structured summary with sections for 'key_points', 'sources', and 'risks_or_caveats'.
     tools: ["web_search"]
     export: true
 
   - id: outline
     depends_on: ["research"]
     purpose: "Design a clear structure for the article."
-    goal: >
-      Turn the research summary into a logical outline suitable for a
-      2000-2500 word blog post.
-    expected_result: >
-      A title, a detailed description, and an ordered list of sections with
-      headings and bullet points.
+    goal: Turn the research summary into a logical outline suitable for a 2000-2500 word blog post.
+    expected_result: A title, a detailed description, and an ordered list of sections with headings and bullet points.
     tools: []
     mode: structured
     export: true
@@ -39,8 +33,7 @@ nodes:
     goal: >
       Use the outline and research to produce a readable, coherent blog draft
       with clear headings, examples, and smooth transitions.
-    expected_result: >
-      A complete draft in markdown, including title, headings, and paragraphs.
+    expected_result: A complete draft in markdown, including title, headings, and paragraphs.
     tools: []
     mode: text
     policy:
@@ -55,8 +48,7 @@ nodes:
     goal: >
       Identify factual issues, missing explanations, and stylistic problems.
       Suggest actionable edits and mark any unclear sections.
-    expected_result: >
-      A structured review with strengths, issues, and concrete suggestions.
+    expected_result: A structured review with strengths, issues, and concrete suggestions.
     tools: []
     mode: structured
     export: true

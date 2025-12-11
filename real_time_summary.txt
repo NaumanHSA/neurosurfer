@@ -1,0 +1,84 @@
+AI Demonstration Proposal
+Showcasing Applied Artificial Intelligence in Government and Enterprise Systems
+
+Introduction
+This proposal presents three independent AI demonstration projects designed to illustrate the integration of Artificial Intelligence (AI) into enterprise-grade and government systems for enhanced productivity, automation, and knowledge management.
+Each project highlights a unique application of AI in real operational scenarios:
+AI Demonstration for eOffice – Event-driven workflow automation using AI-assisted noting and summarization.
+RAG System Demonstration – Localized Retrieval-Augmented Generation (RAG) for domain-specific, secure knowledge-based question answering.
+MOM LLM Project – Automated generation of Meeting Minutes from audio and text inputs using multimodal AI models.
+All three solutions are designed for on-premise deployment, ensuring data sovereignty, privacy, cost-efficiency, and scalability across ministries and organizations.
+
+PROJECT 1 — AI Demonstration for eOffice
+Event-Driven AI Automation Using Vector-Based Noting Summarization
+
+1. Objective
+This demonstration showcases how Artificial Intelligence enhances the eOffice system by integrating vector-based storage and retrieval of notings for automated summarization and draft generation.
+It focuses on two high-value features:
+AI-Assisted Draft Notings — Automatically generate multiple concise English draft notings for officers to review and select.
+Noting Summarization — Produce contextual summaries of entire noting chains for faster comprehension and decision-making.
+This implementation leverages embedding-based document retrieval.
+Each noting is preprocessed, chunked, embedded, and stored in a Vector Database (Chroma) to enable fast, contextual AI responses.
+
+2. Deferred AI Processing Workflow
+Key Principle
+AI processing is triggered asynchronously when a file is forwarded, ensuring no delay in user interaction.
+Workflow Overview:
+Officer adds a noting and forwards a file → Oracle APEX invokes the Noting Submission API.
+The system normalizes the noting text, chunks it (80–150 notes per chunk), and stores embeddings in Vector DB (Chroma) using e5-large-v2 768-d vectors.
+The LLM (Qwen-3-8B, 4-bit) processes the stored chunks to generate:
+Intermediate “partial” summaries (max 3 paragraphs per chunk).
+A final summary (up to 1000 words) refined from those partials.
+Both the final summary and embedded notings are cached in JSON state storage, linked by FILE_ID.
+When the next officer opens the file, APEX retrieves the pre-generated summary and draft replies instantly via runtime APIs.
+This event-driven + vectorized architecture provides fast retrieval, scalability, and persistent contextual understanding of every file.
+
+3. AI Workflow (Step-by-Step)
+
+4. Architecture Overview
+Operational DB / File Store (DMS, DOCX, TXT) →
+Precompute Stage → Normalize and Parse Notes →
+Chunker (80–150 notes per chunk) →
+Embedder (e5-large-v2 768-d) → Vector DB (Chroma) →
+LLM (Qwen-3-8B 4-bit) → State JSON Storage (final_summary_text + notings) →
+Runtime APIs in APEX
+Key Model Specs:
+LLM: Qwen-3-8B (4-bit) | Context up to 16k tokens | CUDA GPU 8–16 GB
+Embeddings: e5-large-v2 (768-dimension)
+Vector DB: Chroma for semantic retrieval
+Storage: Final JSON state with summary + timestamp
+
+
+5. Runtime APIs
+POST /api/noting/submit — Accepts noting text and triggers background summarization + embedding.
+POST /api/noting/summary — Retrieves cached or updated final summary.
+POST /api/noting/draft — Fetches three context-based suggested replies derived from recent notings.
+Each API works against the same vectorized data layer, ensuring consistency and speed.
+
+6. Benefits
+
+7. Demo Deliverables
+Fully integrated Oracle APEX demo with asynchronous vector-based AI flow.
+Precompute module for noting embedding and summarization.
+Database schema for vector storage and summary state.
+Monitoring dashboard for file processing status and timestamp updates.
+Sample dataset for demonstration of summary and draft generation.
+
+8. Summary
+This project demonstrates a modern vector-retrieval AI architecture for eOffice.
+By embedding all notings and using Qwen LLM for retrieval and summarization, the system delivers instant, accurate, and context-aware summaries and draft responses — creating a foundation for intelligent, high-efficiency digital governance.
+
+
+
+
+
+PROJECT 2 — RAG System Demonstration
+Local LLM Integration with Custom Knowledge Models
+
+1. Objective
+The RAG System Demonstration presents a complete, locally deployed Retrieval-Augmented Generation (RAG) framework that transforms unstructured organizational documents into searchable, intelligent knowledge domains.
+Each domain , for example Law, Healthcare, Finance, or Corporate Compliance - is paired with a custom model that understands its specialized context and provides accurate, explainable answers to user queries.
+The demonstration covers the entire lifecycle:
+document ingestion → embedding → storage → retrieval → AI response, all within on-prem infrastructure for privacy and control.
+
+2.
