@@ -436,40 +436,22 @@ class RAGIngestor:
                 unsupported.append(src)
                 continue
 
-            # ----------------------
             # Existing path routing
-            # ----------------------
             try:
                 if path.is_dir():
                     # Git repo detection
                     if (path / ".git").is_dir():
-                        self.add_git_folder(
-                            path,
-                            include_exts=include_exts,
-                            extra_metadata=extra_metadata,
-                        )
+                        self.add_git_folder(path, include_exts=include_exts, extra_metadata=extra_metadata)
                     else:
-                        self.add_directory(
-                            path,
-                            include_exts=include_exts,
-                            extra_metadata=extra_metadata,
-                        )
+                        self.add_directory(path, include_exts=include_exts, extra_metadata=extra_metadata)
                     accepted_count += 1
 
                 elif path.is_file():
                     # Zip archive
                     if path.suffix.lower() == ".zip":
-                        self.add_zipfile(
-                            path,
-                            include_exts=include_exts,
-                            extra_metadata=extra_metadata,
-                        )
+                        self.add_zipfile(path, include_exts=include_exts, extra_metadata=extra_metadata)
                     else:
-                        self.add_files(
-                            [path],
-                            include_exts=include_exts,
-                            extra_metadata=extra_metadata,
-                        )
+                        self.add_files([path], include_exts=include_exts, extra_metadata=extra_metadata)
                     accepted_count += 1
                 else:
                     # Path object that is neither file nor dir (very rare)
@@ -479,14 +461,9 @@ class RAGIngestor:
                 self.log.exception(f"Failed to enqueue source {src!r}: {e}")
                 unsupported.append(src)
 
-        # ----------------------
         # Post-validation
-        # ----------------------
         if not self._queue:
-            msg = (
-                "No content was queued for ingestion. "
-                "All inputs were either empty, filtered out, or unsupported."
-            )
+            msg = "No content was queued for ingestion. All inputs were either empty, filtered out, or unsupported."
             if unsupported:
                 msg += f" Unsupported items: {unsupported!r}"
             self.log.error(msg)
@@ -495,15 +472,10 @@ class RAGIngestor:
                 "error": msg,
                 "unsupported": [str(u) for u in unsupported],
             }
-
         if unsupported:
-            self.log.warning(
-                "Some sources were skipped as unsupported: %r", unsupported
-            )
+            self.log.warning("Some sources were skipped as unsupported: %r", unsupported)
 
-        # ----------------------
         # Execute pipeline
-        # ----------------------
         try:
             summary = self.build()
         except Exception as e:
@@ -518,10 +490,6 @@ class RAGIngestor:
         summary["total_docs_in_collection"] = self.vs.count()
         return summary
 
-
-    # ----------------------
-    # Build / ingest
-    # ----------------------
     def build(self) -> Dict[str, Any]:
         """
         Execute the ingestion:

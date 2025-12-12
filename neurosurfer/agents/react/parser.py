@@ -262,7 +262,7 @@ class ToolCallParser:
             # This is malformed; let the outer code trigger repair
             raise ToolCallParseError("`inputs` must be a JSON object.")
 
-        if tool is None:
+        if tool is None or tool in ["none", "null", "None", "Null", "NONE", "NULL"]:
             # Valid JSON, but explicit "no tool"
             return ToolCall(
                 tool=None,

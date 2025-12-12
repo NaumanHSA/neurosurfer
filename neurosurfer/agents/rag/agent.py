@@ -315,8 +315,8 @@ class RAGAgent:
         temperature: Optional[float] = None,
         stream: bool = False,
         retrieval_mode: RetrievalMode = "classic",       
-        retrieval_scope: Optional[RetrievalScope] = None,
         retrieval_plan: Optional[RetrievalPlan] = None,
+        retrieval_scope: Optional[RetrievalScope] = None,
         answer_breadth: Optional[AnswerBreadth] = None,
         **llm_kwargs: Any,
     ) -> LLM_RESPONSE_TYPE:

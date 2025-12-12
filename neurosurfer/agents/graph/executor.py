@@ -12,6 +12,7 @@ from neurosurfer.tracing import Tracer, TracerConfig
 from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
 from neurosurfer.agents import Agent, AgentConfig
 from neurosurfer.agents.react import ReActAgent, ReActConfig
+from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse 
 
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
@@ -178,9 +179,7 @@ class GraphExecutor:
             for name in node.tools:
                 tool = self.toolkit.registry.get(name)
                 if tool is None:
-                    raise GraphConfigurationError(
-                        f"Node {node.id!r} refers to unknown tool {name!r}"
-                    )
+                    raise GraphConfigurationError(f"Node {node.id!r} refers to unknown tool {name!r}")
                 node_toolkit.register_tool(tool)
         if node.kind == "react":
             return self._get_react_agent_for_node(node, node_toolkit)
@@ -290,7 +289,6 @@ class GraphExecutor:
 
         started_at = time.time()
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
-
         try:
             run_kwargs: Dict[str, Any] = {
                 "system_prompt": system_prompt,
@@ -401,7 +399,8 @@ class GraphExecutor:
         return obj
 
     def _normalize_agent_output(
-        self, result: Any
+        self, 
+        result: Any
     ) -> Tuple[Any, str, Generator[str, None, None], Optional[StructuredResponse], Optional[ToolCallResponse]]:
         """
         Collapse the variety of Agent.run outputs into a single representation.
@@ -421,6 +420,13 @@ class GraphExecutor:
         elif isinstance(result, ToolCallResponse):
             tool_call = result
             raw = result.returns
+        elif isinstance(result, Generator):
+            raw = ""
+            for chunk in result:
+                if isinstance(chunk, ChatCompletionChunk):
+                    raw += chunk.choices[0].delta.content or ""
+                if isinstance(chunk, str):
+                    raw += chunk
         return raw, structured, tool_call
 
     def _select_final_outputs(
