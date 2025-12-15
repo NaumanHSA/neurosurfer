@@ -69,6 +69,8 @@ from neurosurfer.vectorstores.base import BaseVectorDB, Doc
 from .filereader import FileReader
 from .chunker import Chunker
 from .constants import supported_file_types, exclude_dirs_in_code
+from .url_fetcher import URLFetcher, URLFetcherConfig, URLFetchResult
+
 
 ProgressCallback = Callable[[Dict[str, Any]], None]
 
@@ -149,7 +151,7 @@ class RAGIngestor:
         self.vs = vectorstore
         self.reader = file_reader or FileReader()
         self.chunker = chunker or Chunker()
-        self.log = logger or logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(__name__)
         self.progress_cb = progress_cb
         self.cancel_event = cancel_event or threading.Event()
         self.batch_size = batch_size
@@ -160,6 +162,14 @@ class RAGIngestor:
         self.tmp_dir = tmp_dir or "./tmp"
         os.makedirs(self.tmp_dir, exist_ok=True)
 
+        # Initialize URL fetcher
+        self.url_fetcher = URLFetcher(
+            config=URLFetcherConfig(
+                cache_dir=os.path.join(self.tmp_dir, "url_cache"),
+            ),
+            file_reader=self.reader,
+            logger=self.logger,
+        )
         self._queue: List[Tuple[str, str, Dict[str, Any]]] = []  # (source_id, text, metadata)
         self._seen_hashes: set[str] = set()
 
@@ -236,22 +246,20 @@ class RAGIngestor:
     def add_urls(
         self, 
         urls: Sequence[str], 
-        fetcher: Optional[Callable[[str], Optional[str]]] = None,
         extra_metadata: Optional[Dict[str, Any]] = None
     ) -> "RAGIngestor":
         """Pass a custom fetcher to keep this offline-friendly. Example fetcher can use requests/bs4."""
         extra_metadata = extra_metadata or {}
-        fetcher = fetcher or (lambda _: None)  # no-op by default
         for url in urls:
+            result = None
             try:
-                content = fetcher(url)  # should return cleaned text
+                result = self.url_fetcher.fetch(url)
             except Exception as e:
-                self.log.warning(f"URL fetch failed: {url}: {e}")
-                content = None
-            if not content:
+                self.logger.warning(f"URL fetch failed: {url}: {e}")
+            if not result or not result.text:
                 continue
-            md = {**self.default_md, **extra_metadata, "url": url, "source_type": "url"}
-            self._enqueue(source_id=url, text=content, metadata=md)
+            md = {**self.default_md, **extra_metadata, "url": url, "source_type": result.source_type, "content_type": result.content_type}
+            self._enqueue(source_id=url, text=result.text, metadata=md)
         return self
 
     def add_git_folder(
@@ -370,12 +378,12 @@ class RAGIngestor:
         if sources is None:
             if not self._queue:
                 msg = "No sources provided and ingestion queue is empty."
-                self.log.warning(msg)
+                self.logger.warning(msg)
                 return {"status": "error", "error": msg}
             try:
                 return self.build()
             except Exception as e:
-                self.log.exception("Ingestion run failed")
+                self.logger.exception("Ingestion run failed")
                 return {"status": "error", "error": str(e)}
 
         # Normalize sources into a flat list
@@ -388,14 +396,11 @@ class RAGIngestor:
                 f"Unsupported 'sources' type: {type(sources)!r}. "
                 "Expected str, Path, or an iterable of those."
             )
-            self.log.error(msg)
+            self.logger.error(msg)
             return {"status": "error", "error": msg}
 
         extra_metadata = extra_metadata or {}
         include_exts = {e.lower() for e in (include_exts or set())}
-
-        url_fetcher = url_fetcher or (lambda _: None)
-
         unsupported: List[Any] = []
         accepted_count = 0
 
@@ -414,7 +419,7 @@ class RAGIngestor:
 
                 # URL detection
                 if stripped.startswith("http://") or stripped.startswith("https://"):
-                    self.add_urls([stripped], fetcher=url_fetcher, extra_metadata=extra_metadata)
+                    self.add_urls([stripped], extra_metadata=extra_metadata)
                     accepted_count += 1
                     continue
                 
@@ -458,7 +463,7 @@ class RAGIngestor:
                     unsupported.append(src)
 
             except Exception as e:
-                self.log.exception(f"Failed to enqueue source {src!r}: {e}")
+                self.logger.exception(f"Failed to enqueue source {src!r}: {e}")
                 unsupported.append(src)
 
         # Post-validation
@@ -466,20 +471,20 @@ class RAGIngestor:
             msg = "No content was queued for ingestion. All inputs were either empty, filtered out, or unsupported."
             if unsupported:
                 msg += f" Unsupported items: {unsupported!r}"
-            self.log.error(msg)
+            self.logger.error(msg)
             return {
                 "status": "error",
                 "error": msg,
                 "unsupported": [str(u) for u in unsupported],
             }
         if unsupported:
-            self.log.warning("Some sources were skipped as unsupported: %r", unsupported)
+            self.logger.warning("Some sources were skipped as unsupported: %r", unsupported)
 
         # Execute pipeline
         try:
             summary = self.build()
         except Exception as e:
-            self.log.exception("Ingestion run failed")
+            self.logger.exception("Ingestion run failed")
             return {"status": "error", "error": str(e)}
 
         # Attach wrapper-level info
@@ -523,7 +528,7 @@ class RAGIngestor:
                     result = fut.result()
                     chunk_records.extend(result)
                 except Exception as e:
-                    self.log.exception(f"Chunking failed: {e}")
+                    self.logger.exception(f"Chunking failed: {e}")
                 completed += 1
                 if self.progress_cb:
                     self.progress_cb({
@@ -558,7 +563,7 @@ class RAGIngestor:
             try:
                 embeddings = self.embedder.embed(texts, normalize_embeddings=self.normalize_embeddings)
             except Exception as e:
-                self.log.exception(f"Embedding batch failed (idx={i}): {e}")
+                self.logger.exception(f"Embedding batch failed (idx={i}): {e}")
                 continue
 
             for (source_id, chunk_text, md), emb in zip(batch, embeddings):
@@ -580,7 +585,7 @@ class RAGIngestor:
             # Some stores prefer smaller bulks; split again if you need
             self.vs.add_documents(docs_to_add)
         except Exception as e:
-            self.log.exception(f"Vector store add_documents failed: {e}")
+            self.logger.exception(f"Vector store add_documents failed: {e}")
             raise
 
         if self.progress_cb:

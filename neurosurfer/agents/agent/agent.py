@@ -112,6 +112,7 @@ class Agent:
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
         query: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
         output_schema: Optional[Type[PydModel]] = None,
         stream: Optional[bool] = None,
         temperature: Optional[float] = None,
@@ -192,9 +193,12 @@ class Agent:
             self.logger.warning("`output_schema` provided with `stream=True`; forcing non-streaming structured output.")
             use_stream = False
 
-        rprint("🧠 Thinking...", color="yellow")
+        indent_level = max(self.tracer._depth - 1, 0)
+        prefix = " " * (indent_level * 4)
+
+        rprint(prefix + "🧠 Thinking...", color="yellow")
         if self.log_traces:
-            rprint(f"\n\\[{self.id}] Tracing Start!")
+            rprint(f"\n{prefix}[{self.id}] Tracing Start!")
         with self.tracer(
             agent_id=self.id,
             kind="agent",
@@ -250,11 +254,11 @@ class Agent:
                     t.outputs(output=response)
 
         if self.log_traces:
-            rprint(f"\\[{self.id}] Tracing End!\n")
+            rprint(f"{prefix}[{self.id}] Tracing End!\n")
 
         # Print final response
         if isinstance(response, str):
-            rprint("Final response:", color="green")
+            rprint(f"{prefix}Final response:", color="green")
             rprint(response.strip(), rich=False)
         return AgentResponse(response=response, traces=self.tracer.results)
 

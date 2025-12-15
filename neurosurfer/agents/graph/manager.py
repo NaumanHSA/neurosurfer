@@ -45,66 +45,89 @@ class ManagerAgent:
 
     def compose_user_prompt(
         self,
-        node: GraphNode,
+        node: "GraphNode",
         graph_inputs: Dict[str, Any],
         dependency_results: Dict[str, Any],
-        previous_result: Optional[Any],
+        previous_result: Optional[Any],  # unused; safe to remove later
         *,
         temperature: Optional[float],
         max_new_tokens: Optional[int],
     ) -> str:
-        """
-        Compose the next `user_prompt` for the given node.
-
-        Returns a plain string to pass into `Agent.run(...)`.
-        """
         if self.log_traces:
-            rprint(f"\n\\[{self.id}] Tracing Start!")
+            rprint(f"\n[{self.id}] Tracing Start!")
 
         purpose = node.purpose or ""
         goal = node.goal or ""
         expected = node.expected_result or ""
         tools = ", ".join(node.tools) if node.tools else "(none)"
-        prev_txt = "" if previous_result is None else str(previous_result)
-        user_prompt = COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE.format(
-                node_id=node.id,
-                purpose=purpose,
-                goal=goal,
-                expected=expected,
-                tools=tools,
-                graph_inputs=graph_inputs,
-                dependency_results=dependency_results,
-                prev_txt=prev_txt,
+        mode = node.mode.value
+
+        # OPTIONAL but strongly recommended:
+        # Only pass deps that this node depends_on (prevents irrelevant huge context)
+        depends_on = getattr(node, "depends_on", None) or []
+        if depends_on:
+            dependency_results = {k: v for k, v in dependency_results.items() if k in depends_on}
+
+        max_content_chars = 1000
+        dependency_node_results = "" if dependency_results else "(none)"
+        for node_id, result in dependency_results.items():
+            content = f"{result[:1000]}..." if len(result) > max_content_chars else result
+            dependency_node_results += f"**NODE: {node_id}**: {content}\n"
+
+        manager_prompt = COMPOSE_NEXT_AGENT_PROMPT_TEMPLATE.format(
+            purpose=purpose,
+            goal=goal,
+            expected=expected,
+            mode=mode,
+            tools=tools,
+            graph_inputs=str(graph_inputs),
+            dependency_node_results=dependency_node_results,
         )
         llm_params = {
-            "user_prompt": user_prompt,
+            "user_prompt": manager_prompt,
             "system_prompt": MANAGER_SYSTEM_PROMPT,
-            "temperature": temperature or self.config.temperature,
-            "max_new_tokens": max_new_tokens or self.config.max_new_tokens,
+            "temperature": temperature if temperature is not None else self.config.temperature,
+            "max_new_tokens": max_new_tokens if max_new_tokens is not None else self.config.max_new_tokens,
             "stream": False,
         }
+
         with self.tracer(
             agent_id=self.id,
             kind="llm.call",
             label="manager.compose_user_prompt",
             inputs={
                 "system_prompt_len": len(MANAGER_SYSTEM_PROMPT),
-                "user_prompt_len": len(user_prompt),
-                **llm_params,
+                "user_prompt_len": len(manager_prompt),
+                "mode": mode,
+                "dependency_results": dependency_node_results,
             },
         ) as t:
-            next_agent_user_prompt = self.llm.ask(**llm_params).choices[0].message.content.strip()
-            # add results from dependency nodes as context to the next_agent_user_prompt
-            if dependency_results:
-                next_agent_user_prompt = "".join([
-                    next_agent_user_prompt,
-                    "\n\n# Context from dependency nodes:\n",
-                    "\n\n".join([
-                        f"## {node_id}\n{result}" for node_id, result in dependency_results.items()
-                    ]),
-                ])
+            instructions = self.llm.ask(**llm_params).choices[0].message.content.strip()
+
+            dep_context = self._format_dependency_context(dependency_results)
+
+            # Final prompt = instructions + verbatim dependency context
+            next_agent_user_prompt = "\n\n".join([instructions, dep_context]).strip()
+
             t.outputs(output=next_agent_user_prompt)
 
         if self.log_traces:
-            rprint(f"\\[{self.id}] Tracing End!\n")  
+            rprint(f"[{self.id}] Tracing End!\n")
+
+        # if self.log_traces:
+        #     print(f"\n\nNext Agent Prompt:\n{next_agent_user_prompt}\n\n")
+
         return next_agent_user_prompt
+
+    def _format_dependency_context(self, dependency_results: Dict[str, Any]) -> str:
+        if not dependency_results:
+            return "<BEGIN_DEPENDENCY_CONTEXT>\n(none)\n<END_DEPENDENCY_CONTEXT>"
+
+        blocks = ["<BEGIN_DEPENDENCY_CONTEXT>"]
+        for node_id, result in dependency_results.items():
+            blocks.append(f"<BEGIN_DEP node_id={node_id}>")
+            blocks.append(str(result))
+            blocks.append(f"<END_DEP node_id={node_id}>")
+            blocks.append("")  # spacing
+        blocks.append("<END_DEPENDENCY_CONTEXT>")
+        return "\n".join(blocks)

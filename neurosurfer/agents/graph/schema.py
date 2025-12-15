@@ -10,6 +10,7 @@ class NodeMode(str, Enum):
     AUTO = "auto"
     TEXT = "text"
     STRUCTURED = "structured"
+    JSON = "json"
     TOOL = "tool"
 
 # ---------------------------
@@ -122,6 +123,7 @@ class GraphNode(BaseModel):
     mode: NodeMode = Field(default=NodeMode.AUTO)
     output_schema: Optional[str] = None
     model: Optional[str] = None
+    rag: Optional[bool] = False
 
     policy: Optional[NodePolicy] = Field(
         default=None,

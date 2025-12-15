@@ -13,6 +13,7 @@ from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallRespo
 from neurosurfer.agents import Agent, AgentConfig
 from neurosurfer.agents.react import ReActAgent, ReActConfig
 from neurosurfer.server.schemas import ChatCompletionChunk, ChatCompletionResponse 
+from neurosurfer.agents.rag.agent import RAGAgent
 
 from .artifacts import ArtifactStore
 from .errors import GraphConfigurationError
@@ -52,6 +53,7 @@ class GraphExecutor:
         *,
         llm: BaseChatModel,
         toolkit: Optional[Toolkit] = None,
+        rag_agent: Optional[RAGAgent] = None,
         manager_llm: Optional[BaseChatModel] = None,
         manager_config: Optional[ManagerConfig] = None,
         tracer: Optional[Tracer] = None,
@@ -62,6 +64,7 @@ class GraphExecutor:
         self.graph = graph
         self.llm = llm
         self.toolkit = toolkit
+        self.rag_agent = rag_agent
         self.logger = logger or logging.getLogger(__name__)
         self.tracer = tracer
         self.log_traces = log_traces
@@ -274,7 +277,6 @@ class GraphExecutor:
         manager_temperature: float,
         manager_max_new_tokens: int,
     ) -> NodeExecutionResult:
-    
         agent = self._get_agent_for_node(node)
         user_prompt = self.manager.compose_user_prompt(
             node=node,
@@ -301,7 +303,6 @@ class GraphExecutor:
                     "dependencies": dependency_results,
                 },
             }
-
             if output_schema is not None:
                 run_kwargs["output_schema"] = output_schema
 
@@ -349,11 +350,7 @@ class GraphExecutor:
                 error=str(e),
             )
 
-    def _build_system_prompt(
-        self,
-        node: GraphNode,
-        graph_inputs: Dict[str, Any],
-    ) -> str:
+    def _build_system_prompt(self, node: GraphNode, graph_inputs: Dict[str, Any]) -> str:
         """
         Build the system prompt for a node, interpolating graph-level
         inputs into purpose/goal/expected_result using `{name}` syntax.
@@ -384,10 +381,7 @@ class GraphExecutor:
             expected_result=expected,
         )
 
-    def _load_output_schema_if_needed(
-        self,
-        node: GraphNode,
-    ) -> Optional[type[PydModel]]:
+    def _load_output_schema_if_needed(self, node: GraphNode) -> Optional[type[PydModel]]:
         if not node.output_schema:
             return None
 

@@ -1,0 +1,59 @@
+name: quick_test_workflow
+description: >
+  Minimal fast-executing workflow for testing graph execution,
+  dependency resolution, and export behavior without external tools.
+
+inputs:
+  - query:
+      type: string
+      required: true
+  - format:
+      type: string
+      default: "bullet"
+
+nodes:
+  - id: normalize_input
+    purpose: "Normalize and restate the user query."
+    goal: >
+      Produce a cleaned, concise version of the input query
+      that can be reused by downstream nodes.
+    expected_result: A single-sentence normalized query.
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 128
+      temperature: 0.7
+
+  - id: classify_intent
+    depends_on: ["normalize_input"]
+    purpose: "Classify the intent of the query."
+    goal: >
+      Determine what kind of task the query represents
+      (e.g., explanation, comparison, instruction, definition).
+    expected_result: A structured intent classification.
+    tools: []
+    mode: structured
+    export: true
+    policy:
+      max_new_tokens: 128
+      temperature: 0.7
+
+  - id: generate_answer
+    depends_on: ["normalize_input", "classify_intent"]
+    purpose: "Generate a short answer to the query."
+    goal: >
+      Produce a concise response using the normalized query
+      and detected intent, optimized for speed.
+    expected_result: A short, direct answer (≤ 150 words).
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 256
+      temperature: 0.3
+
+outputs:
+  - normalize_input
+  - classify_intent
+  - generate_answer

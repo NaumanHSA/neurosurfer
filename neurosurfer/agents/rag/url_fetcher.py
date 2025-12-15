@@ -157,7 +157,6 @@ def _guess_ext(url: str, content_type: Optional[str], content_disposition: Optio
 
     return ""
 
-
 @dataclass
 class URLFetcherConfig:
     # Network
@@ -170,7 +169,7 @@ class URLFetcherConfig:
     allow_private_network: bool = False
 
     # Size limits
-    max_html_bytes: int = 5_000_000      # 5 MB
+    max_html_bytes: int = 10_000_000      # 10 MB
     max_file_bytes: int = 25_000_000     # 25 MB
     max_probe_bytes: int = 64_000        # for fallback probes when HEAD fails
 
@@ -626,7 +625,7 @@ class URLFetcher:
 
         # Download to cache (cache is valuable for big files)
         data, cached, dl_bytes, warn = self._download_file(
-            final_url,
+            url=final_url,
             max_bytes=self.config.max_file_bytes,
             use_cache=self.config.enable_cache,
             cache_ext=ext,
@@ -721,59 +720,96 @@ class URLFetcher:
 
     def _download_file(
         self,
-        *,
         url: str,
-        out_path: str,
-        expected_max_bytes: int,
-        headers: Optional[dict] = None,
-        # Optional cache validators you may have stored from a previous successful download
-        cached_etag: Optional[str] = None,
-        cached_last_modified: Optional[str] = None,
-        has_cached_file: bool = False,
-    ) -> Dict[str, Any]:
+        *,
+        max_bytes: int,
+        use_cache: bool,
+        cache_ext: str,
+        probe_meta: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Optional[bytes], bool, int, Optional[str]]:
         """
-        Robust downloader with:
-        - Streaming to disk
-        - Size guard (hard cap)
-        - Correct handling of HTTP 304 (Not Modified)
-        * If 304 and has_cached_file=True -> treat as cache hit, do not error
-        * If 304 but has_cached_file=False -> retry unconditional GET (your cache headers were wrong)
-        - Works with urllib.request (no external deps)
+        Download URL content (bytes) with optional local caching.
 
-        Returns a dict:
-        {
-            "ok": bool,
-            "cached": bool,
-            "bytes_downloaded": int,
-            "status": int|None,
-            "final_url": str,
-            "content_type": str|None,
-            "content_length": int|None,
-            "etag": str|None,
-            "last_modified": str|None,
-            "error": str|None,
-            "warning": str|None,
-        }
+        Signature matches your current usage:
+            content_bytes, cached, dl_bytes, warn = _download_file(
+                final_url,
+                max_bytes=...,
+                use_cache=...,
+                cache_ext="....",
+                probe_meta=probe_meta,
+            )
+
+        Returns:
+            (content_bytes, cached, bytes_downloaded, warning)
+
+        Notes:
+        - Handles HTTP 304 correctly.
+        - Enforces max_bytes (hard cap). If exceeded, returns (None, False, bytes_so_far, warning).
+        - Caching:
+            - If use_cache=True: stores bytes to disk and can re-use them later.
+            - If server returns 304 and cache exists: reads cached bytes from disk.
         """
         from pathlib import Path
         from urllib.request import Request, urlopen
         from urllib.error import HTTPError, URLError
 
-        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        probe_meta = probe_meta or {}
 
-        base_headers = {
+        # ----------------------------
+        # Cache paths & validators
+        # ----------------------------
+        cached = False
+        warning: Optional[str] = None
+        bytes_downloaded = 0
+
+        cache_dir = Path(getattr(self.config, "cache_dir", "./.cache/url_fetcher")).resolve()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # stable-ish filename based on url (or final_url)
+        # (if you already have a helper for this, use that)
+        import hashlib
+        key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+        cache_path = cache_dir / f"{key}{cache_ext}"
+        meta_path = cache_dir / f"{key}.meta.json"
+
+        def _read_cache_meta() -> Dict[str, Any]:
+            if not meta_path.exists():
+                return {}
+            try:
+                import json
+                return json.loads(meta_path.read_text(encoding="utf-8")) or {}
+            except Exception:
+                return {}
+
+        def _write_cache_meta(meta: Dict[str, Any]) -> None:
+            try:
+                import json
+                meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+
+        cache_meta = _read_cache_meta() if use_cache else {}
+        has_cached_file = use_cache and cache_path.exists() and cache_path.is_file()
+
+        cached_etag = cache_meta.get("etag")
+        cached_last_modified = cache_meta.get("last_modified")
+
+        # ----------------------------
+        # Request headers
+        # ----------------------------
+        headers = {
             "User-Agent": getattr(self.config, "user_agent", "neurosurfer-url-fetcher/1.0"),
             "Accept": "application/pdf, text/html;q=0.9, */*;q=0.8",
         }
-        if headers:
-            base_headers.update(headers)
 
-        # Only send conditional headers if we *really* have a cached file.
+        # Only add conditional headers if we truly have a cached file
         if has_cached_file:
             if cached_etag:
-                base_headers["If-None-Match"] = cached_etag
+                headers["If-None-Match"] = cached_etag
             if cached_last_modified:
-                base_headers["If-Modified-Since"] = cached_last_modified
+                headers["If-Modified-Since"] = cached_last_modified
+
+        timeout = getattr(self.config, "connect_timeout_s", 20)
 
         def _safe_int(x: Optional[str]) -> Optional[int]:
             try:
@@ -781,191 +817,105 @@ class URLFetcher:
             except Exception:
                 return None
 
-        def _do_get(hdrs: dict) -> Dict[str, Any]:
+        def _read_stream_to_bytes(resp) -> Tuple[Optional[bytes], int, Optional[str]]:
+            total = 0
+            buf = bytearray()
+            while True:
+                chunk = resp.read(1024 * 1024)  # 1MB
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                total += len(chunk)
+                if total > max_bytes:
+                    return None, total, f"Download exceeded max_bytes={max_bytes}. Aborted."
+            return bytes(buf), total, None
+
+        def _read_cached_bytes() -> Tuple[Optional[bytes], int, Optional[str]]:
+            try:
+                b = cache_path.read_bytes()
+                if len(b) > max_bytes:
+                    return None, 0, f"Cached file exceeds max_bytes={max_bytes}. Ignoring cache."
+                return b, 0, None
+            except Exception as e:
+                return None, 0, f"Failed to read cached file: {e}"
+
+        def _do_get(hdrs: Dict[str, str]) -> Tuple[Optional[bytes], bool, int, Optional[str]]:
             req = Request(url, headers=hdrs, method="GET")
-            with urlopen(req, timeout=getattr(self.config, "connect_timeout_s", 20)) as resp:
+            with urlopen(req, timeout=timeout) as resp:
                 final_url = resp.geturl()
-                status = getattr(resp, "status", None) or 200
                 resp_headers = dict(resp.headers.items())
 
-                content_type = resp_headers.get("Content-Type")
+                # Optional early size check if server provides Content-Length
                 content_length = _safe_int(resp_headers.get("Content-Length"))
-                etag = resp_headers.get("ETag")
-                last_modified = resp_headers.get("Last-Modified")
+                if content_length is not None and content_length > max_bytes:
+                    return None, False, 0, f"Remote content too large ({content_length} bytes) > max_bytes={max_bytes}. Skipped."
 
-                # If server declares a size and it exceeds cap, abort early.
-                if content_length is not None and content_length > expected_max_bytes:
-                    return {
-                        "ok": False,
-                        "cached": False,
-                        "bytes_downloaded": 0,
-                        "status": status,
-                        "final_url": final_url,
-                        "content_type": content_type,
-                        "content_length": content_length,
-                        "etag": etag,
-                        "last_modified": last_modified,
-                        "error": None,
-                        "warning": f"Remote file is too large ({content_length} bytes) > limit ({expected_max_bytes}). Skipped.",
-                    }
+                body, dl, warn = _read_stream_to_bytes(resp)
+                if body is None:
+                    return None, False, dl, warn
 
-                # Stream to disk with a hard cap.
-                total = 0
-                try:
-                    with open(out_path, "wb") as f:
-                        while True:
-                            chunk = resp.read(1024 * 1024)  # 1MB chunks
-                            if not chunk:
-                                break
-                            total += len(chunk)
-                            if total > expected_max_bytes:
-                                # Remove partial file
-                                try:
-                                    f.close()
-                                finally:
-                                    try:
-                                        Path(out_path).unlink(missing_ok=True)
-                                    except Exception:
-                                        pass
-                                return {
-                                    "ok": False,
-                                    "cached": False,
-                                    "bytes_downloaded": total,
-                                    "status": status,
-                                    "final_url": final_url,
-                                    "content_type": content_type,
-                                    "content_length": content_length,
-                                    "etag": etag,
-                                    "last_modified": last_modified,
-                                    "error": None,
-                                    "warning": f"Downloaded exceeded limit ({expected_max_bytes}). Aborted and deleted partial file.",
-                                }
-                            f.write(chunk)
-                except Exception as e:
-                    # Remove partial file if something goes wrong
+                # If caching enabled, write bytes + validators
+                if use_cache:
                     try:
-                        Path(out_path).unlink(missing_ok=True)
+                        cache_path.write_bytes(body)
+                        _write_cache_meta({
+                            "url": url,
+                            "final_url": final_url,
+                            "etag": resp_headers.get("ETag"),
+                            "last_modified": resp_headers.get("Last-Modified"),
+                            "content_type": resp_headers.get("Content-Type"),
+                            "content_length": content_length,
+                        })
                     except Exception:
+                        # caching failure shouldn't fail download
                         pass
-                    return {
-                        "ok": False,
-                        "cached": False,
-                        "bytes_downloaded": total,
-                        "status": status,
-                        "final_url": final_url,
-                        "content_type": content_type,
-                        "content_length": content_length,
-                        "etag": etag,
-                        "last_modified": last_modified,
-                        "error": f"I/O error while writing: {e}",
-                        "warning": None,
-                    }
 
-                return {
-                    "ok": True,
-                    "cached": False,
-                    "bytes_downloaded": total,
-                    "status": status,
-                    "final_url": final_url,
-                    "content_type": content_type,
-                    "content_length": content_length,
-                    "etag": etag,
-                    "last_modified": last_modified,
-                    "error": None,
-                    "warning": None,
-                }
+                # Let caller update probe_meta if they want
+                probe_meta.setdefault("final_url", final_url)
+                probe_meta.setdefault("content_type", resp_headers.get("Content-Type"))
+                probe_meta.setdefault("content_length", content_length)
+                probe_meta.setdefault("etag", resp_headers.get("ETag"))
+                probe_meta.setdefault("last_modified", resp_headers.get("Last-Modified"))
 
-        # First attempt: GET (possibly conditional)
+                return body, False, dl, None
+
+        # ----------------------------
+        # Download attempt
+        # ----------------------------
         try:
-            return _do_get(base_headers)
+            body, cached, bytes_downloaded, warning = _do_get(headers)
+            return body, cached, bytes_downloaded, warning
 
         except HTTPError as e:
-            # urllib raises HTTPError for non-200 responses, including 304
+            # urllib raises for 304 too
             if e.code == 304:
-                # Cache hit is only valid if we have the cached file locally.
+                # If we have cached bytes, use them
                 if has_cached_file:
-                    return {
-                        "ok": True,
-                        "cached": True,
-                        "bytes_downloaded": 0,
-                        "status": 304,
-                        "final_url": getattr(e, "url", url),
-                        "content_type": None,
-                        "content_length": None,
-                        "etag": cached_etag,
-                        "last_modified": cached_last_modified,
-                        "error": None,
-                        "warning": None,
-                    }
+                    body, _, warn = _read_cached_bytes()
+                    if body is not None:
+                        return body, True, 0, warn
+                    # cache exists but unreadable -> fall through to unconditional retry
 
-                # 304 but no cached file => your conditional headers were wrong / stale.
-                # Retry unconditional GET.
-                retry_headers = dict(base_headers)
+                # 304 but no usable cache -> unconditional retry
+                retry_headers = dict(headers)
                 retry_headers.pop("If-None-Match", None)
                 retry_headers.pop("If-Modified-Since", None)
                 retry_headers["Cache-Control"] = "no-cache"
-
                 try:
-                    return _do_get(retry_headers)
+                    body, cached, bytes_downloaded, warning = _do_get(retry_headers)
+                    return body, cached, bytes_downloaded, warning
                 except Exception as e2:
-                    return {
-                        "ok": False,
-                        "cached": False,
-                        "bytes_downloaded": 0,
-                        "status": 304,
-                        "final_url": getattr(e, "url", url),
-                        "content_type": None,
-                        "content_length": None,
-                        "etag": None,
-                        "last_modified": None,
-                        "error": f"HTTP 304 received without a cached file; unconditional retry failed: {e2}",
-                        "warning": None,
-                    }
+                    return None, False, 0, f"HTTP 304 received but no usable cache; retry failed: {e2}"
 
-            # Other HTTP errors
-            return {
-                "ok": False,
-                "cached": False,
-                "bytes_downloaded": 0,
-                "status": e.code,
-                "final_url": getattr(e, "url", url),
-                "content_type": None,
-                "content_length": None,
-                "etag": None,
-                "last_modified": None,
-                "error": f"HTTP error: {e.code} {getattr(e, 'reason', '')}".strip(),
-                "warning": None,
-            }
+            # Other HTTP error
+            return None, False, 0, f"HTTP error: {e.code} {getattr(e, 'reason', '')}".strip()
 
         except URLError as e:
-            return {
-                "ok": False,
-                "cached": False,
-                "bytes_downloaded": 0,
-                "status": None,
-                "final_url": url,
-                "content_type": None,
-                "content_length": None,
-                "etag": None,
-                "last_modified": None,
-                "error": f"URL error: {e}",
-                "warning": None,
-            }
+            return None, False, 0, f"URL error: {e}"
 
         except Exception as e:
-            return {
-                "ok": False,
-                "cached": False,
-                "bytes_downloaded": 0,
-                "status": None,
-                "final_url": url,
-                "content_type": None,
-                "content_length": None,
-                "etag": None,
-                "last_modified": None,
-                "error": f"Unexpected error: {e}",
-                "warning": None,
-            }
+            return None, False, 0, f"Unexpected error: {e}"
+
 
 
     def _write_temp_bytes(self, data: bytes, ext: str) -> str:

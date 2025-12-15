@@ -2,19 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Literal
 from neurosurfer.vectorstores.base import Doc
+from neurosurfer.agents.agent import AgentConfig
 import os
-
-@dataclass
-class RetrieveResult:
-    context: str                          # trimmed context
-    max_new_tokens: int                   # dynamic value after budget calc
-    base_tokens: int                      # tokens for system+history+user (no ctx)
-    context_tokens_used: int              # tokens used by trimmed context
-    token_budget: int                     # model window
-    generation_budget: int                # remaining tokens for output
-    docs: List[Doc] = field(default_factory=list)
-    distances: List[Optional[float]] = field(default_factory=list)
-    meta: Dict[str, Any] = field(default_factory=dict)  # debug/trace info
 
 
 RetrievalScope = Literal["small", "medium", "wide", "full"]
@@ -46,6 +35,7 @@ class RetrievalPlan:
     mode: RetrievalMode = "classic"
     scope: Optional[RetrievalScope] = None
     answer_breadth: Optional[AnswerBreadth] = None
+    optimized_query: Optional[str] = None
     top_k: Optional[int] = None
     notes: Optional[str] = None
     extra: Dict[str, Any] = None
@@ -60,7 +50,7 @@ class RAGIngestorConfig:
     tmp_dir: Optional[str] = "./tmp"
 
 @dataclass
-class RAGAgentConfig:
+class RAGAgentConfig(AgentConfig):
     # default embedding model; only used if no embedder is provided
     embedding_model: Optional[str] = "intfloat/e5-small-v2"           # Embedding model to use for RAG
 
@@ -89,6 +79,3 @@ class RAGAgentConfig:
 
     # Number of tokens to reserve for system + user + history when trimming db context
     prompt_token_buffer: int = 500                                     # Number of tokens to reserve for system + user + history
-
-    # LLM parameters
-    temperature: float = 0.5

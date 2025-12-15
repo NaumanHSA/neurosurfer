@@ -1,22 +1,26 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, Callable, Generator, get_args
+from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, Callable, Generator, get_args, Type
 import logging
 from functools import lru_cache
+from pydantic import BaseModel as PydModel
 
 from neurosurfer.vectorstores import Doc, BaseVectorDB
 from neurosurfer.models.chat_models.base import BaseChatModel, LLM_RESPONSE_TYPE
 from neurosurfer.models.embedders import BaseEmbedder
 from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
+from neurosurfer.agents import Agent, AgentConfig, AgentResponse
+from neurosurfer.tools import Toolkit
+from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
 from neurosurfer.vectorstores.chroma import ChromaVectorStore
 from neurosurfer.agents.common.utils import extract_and_repair_json
 
 from .config import (
-    RAGAgentConfig, 
-    RetrieveResult, 
+    RAGAgentConfig,
     RAGIngestorConfig, 
     RetrievalPlan, 
     RetrievalScope, 
@@ -25,13 +29,14 @@ from .config import (
     RETRIEVAL_SCOPE_BASE_K,
     ANSWER_BREADTH_MULTIPLIER,
 )
+from .responses import RAGAgentResponse, RetrieveResult
 from .token_utils import TokenCounter
 from .context_builder import ContextBuilder
 from .filereader import FileReader
 from .chunker import Chunker
 from .ingestor import RAGIngestor
 from .constants import supported_file_types
-from .templates import RAG_AGENT_SYSTEM_PROMPT, RAG_USER_PROMPT, RETRIEVAL_PLANNER_SYSTEM_PROMPT
+from .templates import RAG_AGENT_SYSTEM_PROMPT, RAG_USER_PROMPT_TEMPLATE, RETRIEVAL_PLANNER_SYSTEM_PROMPT
 
 
 @dataclass
@@ -45,7 +50,7 @@ class _TrimResult:
     generation_budget: int
 
 
-class RAGAgent:
+class RAGAgent(Agent):
     """
     Retrieval core for RAG pipelines. VectorDB- and embedder-agnostic.
     Adds a convenient `run(...)` that makes a full LLM call with the retrieved context.
@@ -53,20 +58,43 @@ class RAGAgent:
 
     def __init__(
         self,
+        id: str = "rag_agent",
         llm: Optional[BaseChatModel] = None,
         vectorstore: Optional[BaseVectorDB] = None,
         embedder: Optional[Union[BaseEmbedder, str]] = None,
+        toolkit: Optional[Toolkit] = None,
         file_reader: Optional[FileReader] = None,
         chunker: Optional[Chunker] = None,
         *,
         config: Optional[RAGAgentConfig] = None,
         ingestor_config: Optional[RAGIngestorConfig] = None,
-        logger: Optional[logging.Logger] = None,
         make_source=None,
         router_llm: Optional[BaseChatModel] = None,
+        tracer: Optional[Tracer] = None,
+        log_traces: Optional[bool] = True,
+        logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):
-        self.logger = logger or logging.getLogger(__name__)
-        self.llm = llm
+        self.logger = logger
+        self.log_traces = log_traces
+        self.tracer: Tracer = tracer or Tracer(
+            config=TracerConfig(log_steps=log_traces),
+            meta={
+                "agent_type": id,
+                "agent_config": config.__dict__,
+                "model": llm.model_name,
+                "toolkit": toolkit is not None,
+                "log_steps": self.log_traces,
+            },
+            logger_=self.logger,
+        )
+        super().__init__(
+            llm=llm,
+            toolkit=toolkit,
+            config=config,
+            logger=self.logger,
+            tracer=self.tracer,
+            log_traces=self.log_traces,
+        )
         self.router_llm = router_llm or llm
         self.cfg = config or RAGAgentConfig()
         self.ingestor_cfg = ingestor_config or RAGIngestorConfig()
@@ -212,6 +240,7 @@ class RAGAgent:
         retrieval_scope: Optional[RetrievalScope] = None,
         retrieval_plan: Optional[RetrievalPlan] = None,
         answer_breadth: Optional[AnswerBreadth] = None,
+        tracer: Optional[TraceStepContext] = None,
     ) -> RetrieveResult:
         """
         Public interface for retrieving documents from the vectorstore.
@@ -226,19 +255,29 @@ class RAGAgent:
             RetrieveResult: The result of the retrieval process.
         """
         if not self.vectorstore or not self.embedder:
-            raise ValueError("VectorDB and embedder must be provided to RAGAgent")
+            msg = "VectorDB and embedder must be provided to RAGAgent"
+            self._log(message=msg, tracer=tracer, type="error")
+            raise ValueError(msg)
         
         if retrieval_mode is not None and retrieval_mode not in get_args(RetrievalMode):
-            raise ValueError(f"Retrieval mode must be one of: {get_args(RetrievalMode)}")
+            msg = f"Retrieval mode must be one of: {get_args(RetrievalMode)}"
+            self._log(message=msg, tracer=tracer, type="error")
+            raise ValueError(msg)
         
         if retrieval_scope is not None and retrieval_scope not in get_args(RetrievalScope):
-            raise ValueError(f"Retrieval scope must be one of: {get_args(RetrievalScope)}")
+            msg = f"Retrieval scope must be one of: {get_args(RetrievalScope)}"
+            self._log(message=msg, tracer=tracer, type="error")
+            raise ValueError(msg)
         
         if retrieval_plan is not None and not isinstance(retrieval_plan, RetrievalPlan):
-            raise ValueError("Retrieval plan must be an instance of RetrievalPlan")
+            msg = "Retrieval plan must be an instance of RetrievalPlan"
+            self._log(message=msg, tracer=tracer, type="error")
+            raise ValueError(msg)
 
         if answer_breadth is not None and answer_breadth not in get_args(AnswerBreadth):
-            raise ValueError(f"Answer breadth must be one of: {get_args(AnswerBreadth)}")
+            msg = f"Answer breadth must be one of: {get_args(AnswerBreadth)}"
+            self._log(message=msg, tracer=tracer, type="error")
+            raise ValueError(msg)
 
         # --- Decide the plan ---
         if retrieval_plan is not None:
@@ -248,6 +287,7 @@ class RAGAgent:
                 mode="classic",
                 scope=None,
                 answer_breadth=None,
+                optimized_query=user_query,
                 top_k=top_k or self.cfg.top_k,
             )
         else:
@@ -259,15 +299,16 @@ class RAGAgent:
                     mode="smart",
                     scope=retrieval_scope,
                     answer_breadth=answer_breadth,
+                    optimized_query=user_query,
                     top_k=default_k,
                 )
             else:
                 # let the agent plan using router_llm
                 plan = self._plan_retrieval(user_query)
         
-        self.logger.info(f"[RAGAgent.retrieve] Retrieval plan: {plan}")
+        self._log(message=f"[RAGAgent.retrieve] Retrieval plan: {plan}", tracer=tracer, type="info")
         # Embed the query and retrieve documents based on the plan
-        query_vec = self.embedder.embed(query=user_query, normalize_embeddings=self.cfg.normalize_embeddings)
+        query_vec = self.embedder.embed(query=plan.optimized_query, normalize_embeddings=self.cfg.normalize_embeddings)
         raw = self.vectorstore.similarity_search(
             query_embedding=query_vec,
             top_k=plan.top_k or self.cfg.top_k,
@@ -275,16 +316,16 @@ class RAGAgent:
             similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
         )
         docs, distances = self._unpack_results(raw)
-        self.logger.info(f"[RAGAgent.retrieve] Retrieved {len(docs)} documents")
+        self._log(message=f"[RAGAgent.retrieve] Retrieved {len(docs)} documents", tracer=tracer, type="info")
 
         # Build + trim (only context, using a buffer for prompts/history)
         untrimmed_context = self.ctx.build(docs)
-        self.logger.info(f"[RAGAgent.retrieve] Untrimmed context: {len(untrimmed_context)} chars")
+        self._log(message=f"[RAGAgent.retrieve] Untrimmed context: {len(untrimmed_context)} chars", tracer=tracer, type="info")
         trim = self._trim_context_by_token_limit(
             db_context=untrimmed_context,
             reserved_prompt_tokens=getattr(self.cfg, "prompt_token_buffer", 500),
         )
-        self.logger.info(f"[RAGAgent.retrieve] Trimmed context: {len(trim.trimmed_context)} chars")
+        self._log(message=f"[RAGAgent.retrieve] Trimmed context: {len(trim.trimmed_context)} chars", tracer=tracer, type="info")
 
         return RetrieveResult(
             context=trim.trimmed_context,
@@ -305,9 +346,10 @@ class RAGAgent:
 
     def run(
         self,
-        user_query: str,
+        user_prompt: str,
         system_prompt: Optional[str] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        output_schema: Optional[Type[PydModel]] = None,
         *,
         top_k: Optional[int] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
@@ -318,8 +360,9 @@ class RAGAgent:
         retrieval_plan: Optional[RetrievalPlan] = None,
         retrieval_scope: Optional[RetrievalScope] = None,
         answer_breadth: Optional[AnswerBreadth] = None,
+        reset_tracer: Optional[bool] = True,
         **llm_kwargs: Any,
-    ) -> LLM_RESPONSE_TYPE:
+    ) -> RAGAgentResponse:
         """
         Public interface for running the RAG pipeline.
         
@@ -341,39 +384,60 @@ class RAGAgent:
             ValueError: If vectorstore or embedder is not provided.
             ValueError: If LLM is not provided.
         """
-        if not self.vectorstore or not self.embedder:
-            raise ValueError("VectorDB and embedder must be provided to RAGAgent")
-        if not self.llm:
-            raise ValueError("LLM must be provided to RAGAgent. Please reinitialize the agent with a valid LLM instance.")
-        
-        retrieved: RetrieveResult = self.retrieve(
-            user_query=user_query,
-            top_k=top_k or self.cfg.top_k,
-            metadata_filter=metadata_filter,
-            similarity_threshold=similarity_threshold,
-            retrieval_mode=retrieval_mode,
-            retrieval_scope=retrieval_scope,
-            retrieval_plan=retrieval_plan,
-            answer_breadth=answer_breadth,
-        )
-        sys_prompt = system_prompt or RAG_AGENT_SYSTEM_PROMPT
-        user_prompt = RAG_USER_PROMPT.format(context=retrieved.context, query=user_query)
 
-        # Choose final generation cap
-        return self.llm.ask(
-            user_prompt=user_prompt,
-            system_prompt=sys_prompt,
-            chat_history=chat_history or [],
-            temperature=temperature or self.cfg.temperature,
-            max_new_tokens=retrieved.max_new_tokens,
-            stream=stream,
-            **llm_kwargs,
-        )
+        if reset_tracer:
+            self.tracer.reset()
 
-    def _plan_retrieval(
-        self,
-        user_query: str,
-    ) -> RetrievalPlan:
+        with self.tracer(
+            agent_id=self.id,
+            kind="agent",
+            label="rag_agent.run",
+            inputs={
+                "agent_type": type(self).__name__,
+                "has_toolkit": bool(self.toolkit),
+                "structured": bool(output_schema),
+                "stream": stream
+            },
+        ) as main_tracer:
+
+            if not self.vectorstore or not self.embedder:
+                msg = "VectorDB and embedder must be provided to RAGAgent"
+                main_tracer.log(message=msg, type="error")
+                raise ValueError(msg)
+            if not self.llm:
+                msg = "LLM must be provided to RAGAgent. Please reinitialize the agent with a valid LLM instance."
+                main_tracer.log(message=msg, type="error")
+                raise ValueError(msg)
+            
+            retrieved: RetrieveResult = self.retrieve(
+                user_query=user_prompt,
+                top_k=top_k or self.cfg.top_k,
+                metadata_filter=metadata_filter,
+                similarity_threshold=similarity_threshold,
+                retrieval_mode=retrieval_mode,
+                retrieval_scope=retrieval_scope,
+                retrieval_plan=retrieval_plan,
+                answer_breadth=answer_breadth,
+                tracer=main_tracer,
+            )
+            sys_prompt = system_prompt or RAG_AGENT_SYSTEM_PROMPT
+            user_prompt = RAG_USER_PROMPT_TEMPLATE.format(context=retrieved.context, query=user_prompt)
+            agent_response = super().run(
+                user_prompt=user_prompt,
+                system_prompt=sys_prompt,
+                chat_history=chat_history or [],
+                output_schema=output_schema,
+                temperature=temperature or self.cfg.temperature,
+                stream=stream,
+                reset_tracer=False,
+                **llm_kwargs,
+            )
+            return RAGAgentResponse(
+                rag_retrieval=retrieved,
+                agent_response=agent_response,
+            )
+
+    def _plan_retrieval(self, user_query: str) -> RetrievalPlan:
         """
         Use router_llm to decide retrieval scope and top_k when in 'smart' mode.
         """
@@ -386,15 +450,25 @@ class RAGAgent:
                 top_k=self.cfg.top_k,
             )
         user_prompt = (
-            f"User query:\n{user_query}\n"
-            "Decide the retrieval scope and answer breadth for this question."
-            "Remember: respond ONLY with a JSON object."
+            "You will receive a USER PROMPT between the markers below.\n"
+            "\n"
+            "===BEGIN_USER_PROMPT===\n"
+            f"{user_query}\n"
+            "===END_USER_PROMPT===\n"
+            "\n"
+            "Task:"
+            "1) Decide the retrieval scope and answer breadth needed to answer the USER PROMPT."
+            "2) Produce an optimized_query suitable for embedding-based retrieval."
+            "\n"
+            "Output:"
+            "Return ONLY a single JSON object with keys: scope, answer_breadth, optimized_query."
         )
+       
         try:
             content = self.router_llm.ask(
                 system_prompt=RETRIEVAL_PLANNER_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                max_new_tokens=256,
+                max_new_tokens=1024,
                 temperature=0.2,
                 stream=False,
             ).choices[0].message.content
@@ -402,6 +476,7 @@ class RAGAgent:
             obj = extract_and_repair_json(content, return_dict=True)
             scope = obj.get("scope", "medium")
             answer_breadth = obj.get("answer_breadth", "single_fact")
+            optimized_query = obj.get("optimized_query", "")
 
             top_k = self._compute_top_k(scope, answer_breadth)
             return RetrievalPlan(
@@ -409,6 +484,7 @@ class RAGAgent:
                 scope=scope,
                 answer_breadth=answer_breadth,
                 top_k=top_k,
+                optimized_query=optimized_query,
             )
         except Exception:
             # Be robust: fall back to something sane
@@ -417,6 +493,7 @@ class RAGAgent:
                 mode="smart",
                 scope="medium",
                 answer_breadth="single_fact",
+                optimized_query=user_query,
                 top_k=self.cfg.top_k,
             )
 
@@ -489,6 +566,12 @@ class RAGAgent:
             final_max_new_tokens=final_max_new_tokens,
             generation_budget=generation_budget,
         )
+    
+    def _log(self, message: str, tracer: Optional[TraceStepContext] = None, type: str = "info") -> None:
+        if tracer:
+            tracer.log(message=message, type=type)
+        else:
+            self.logger.info(message)
 
     @staticmethod
     def _calculate_final_max_new_tokens(
@@ -520,3 +603,4 @@ class RAGAgent:
             docs = raw  # type: ignore[assignment]
             dists = [None] * len(docs)
         return docs, dists
+

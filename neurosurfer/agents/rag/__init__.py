@@ -1,4 +1,5 @@
-from .config import RAGAgentConfig, RetrieveResult, RAGIngestorConfig
+from .config import RAGAgentConfig, RAGIngestorConfig
+from .responses import RetrieveResult, RAGAgentResponse 
 from .agent import RAGAgent
 
 __all__ = [
@@ -6,4 +7,5 @@ __all__ = [
     "RAGAgentConfig",
     "RAGIngestorConfig",
     "RetrieveResult",
+    "RAGAgentResponse",
 ]

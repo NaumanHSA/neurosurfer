@@ -125,15 +125,11 @@ class GraphAgent:
             self.logger.info("Ingesting knowledge base for GraphAgent...")
             self.rag.ingest(sources=knowledge_sources, reset_state=True)
 
-        # # expose KB as a tool
-        # if self.rag is not None:
-        #     kb_tool = RAGSearchTool(rag=self.rag, name=kb_tool_name)
-        #     self.toolkit.register_tool(kb_tool)
-
         self.executor = GraphExecutor(
             graph=self.graph,
             llm=self.llm,
             toolkit=self.toolkit,
+            rag_agent=self.rag,
             manager_llm=manager_llm or llm,
             manager_config=manager_config,
             tracer=self.tracer,
