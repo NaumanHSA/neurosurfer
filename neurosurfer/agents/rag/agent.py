@@ -240,7 +240,7 @@ class RAGAgent(Agent):
         retrieval_scope: Optional[RetrievalScope] = None,
         retrieval_plan: Optional[RetrievalPlan] = None,
         answer_breadth: Optional[AnswerBreadth] = None,
-        tracer: Optional[TraceStepContext] = None,
+        reset_tracer: bool = True,
     ) -> RetrieveResult:
         """
         Public interface for retrieving documents from the vectorstore.
@@ -254,95 +254,108 @@ class RAGAgent(Agent):
         Returns:
             RetrieveResult: The result of the retrieval process.
         """
-        if not self.vectorstore or not self.embedder:
-            msg = "VectorDB and embedder must be provided to RAGAgent"
-            self._log(message=msg, tracer=tracer, type="error")
-            raise ValueError(msg)
+        if reset_tracer:
+            self.tracer.reset()
         
-        if retrieval_mode is not None and retrieval_mode not in get_args(RetrievalMode):
-            msg = f"Retrieval mode must be one of: {get_args(RetrievalMode)}"
-            self._log(message=msg, tracer=tracer, type="error")
-            raise ValueError(msg)
-        
-        if retrieval_scope is not None and retrieval_scope not in get_args(RetrievalScope):
-            msg = f"Retrieval scope must be one of: {get_args(RetrievalScope)}"
-            self._log(message=msg, tracer=tracer, type="error")
-            raise ValueError(msg)
-        
-        if retrieval_plan is not None and not isinstance(retrieval_plan, RetrievalPlan):
-            msg = "Retrieval plan must be an instance of RetrievalPlan"
-            self._log(message=msg, tracer=tracer, type="error")
-            raise ValueError(msg)
+        with self.tracer(
+            agent_id=self.id,
+            kind="agent",
+            label="agent.rag.retrieve",
+            inputs={
+                "agent_type": type(self).__name__,
+                "has_toolkit": bool(self.toolkit),
+            },
+        ) as trace_step:
 
-        if answer_breadth is not None and answer_breadth not in get_args(AnswerBreadth):
-            msg = f"Answer breadth must be one of: {get_args(AnswerBreadth)}"
-            self._log(message=msg, tracer=tracer, type="error")
-            raise ValueError(msg)
+            if not self.vectorstore or not self.embedder:
+                msg = "VectorDB and embedder must be provided to RAGAgent"
+                self._log(message=msg, trace_step=trace_step, type="error")
+                raise ValueError(msg)
+            
+            if retrieval_mode is not None and retrieval_mode not in get_args(RetrievalMode):
+                msg = f"Retrieval mode must be one of: {get_args(RetrievalMode)}"
+                self._log(message=msg, trace_step=trace_step, type="error")
+                raise ValueError(msg)
+            
+            if retrieval_scope is not None and retrieval_scope not in get_args(RetrievalScope):
+                msg = f"Retrieval scope must be one of: {get_args(RetrievalScope)}"
+                self._log(message=msg, trace_step=trace_step, type="error")
+                raise ValueError(msg)
+            
+            if retrieval_plan is not None and not isinstance(retrieval_plan, RetrievalPlan):
+                msg = "Retrieval plan must be an instance of RetrievalPlan"
+                self._log(message=msg, trace_step=trace_step, type="error")
+                raise ValueError(msg)
 
-        # --- Decide the plan ---
-        if retrieval_plan is not None:
-            plan = retrieval_plan
-        elif retrieval_mode == "classic":
-            plan = RetrievalPlan(
-                mode="classic",
-                scope=None,
-                answer_breadth=None,
-                optimized_query=user_query,
-                top_k=top_k or self.cfg.top_k,
-            )
-        else:
-            # smart mode
-            if retrieval_scope is not None:
-                # map scope -> default top_k if caller didn't provide one
-                default_k = self._compute_top_k(retrieval_scope, answer_breadth, max_top_k=50)
+            if answer_breadth is not None and answer_breadth not in get_args(AnswerBreadth):
+                msg = f"Answer breadth must be one of: {get_args(AnswerBreadth)}"
+                self._log(message=msg, trace_step=trace_step, type="error")
+                raise ValueError(msg)
+
+            # --- Decide the plan ---
+            if retrieval_plan is not None:
+                plan = retrieval_plan
+            elif retrieval_mode == "classic":
                 plan = RetrievalPlan(
-                    mode="smart",
-                    scope=retrieval_scope,
-                    answer_breadth=answer_breadth,
+                    mode="classic",
+                    scope=None,
+                    answer_breadth=None,
                     optimized_query=user_query,
-                    top_k=default_k,
+                    top_k=top_k or self.cfg.top_k,
                 )
             else:
-                # let the agent plan using router_llm
-                plan = self._plan_retrieval(user_query)
-        
-        self._log(message=f"[RAGAgent.retrieve] Retrieval plan: {plan}", tracer=tracer, type="info")
-        # Embed the query and retrieve documents based on the plan
-        query_vec = self.embedder.embed(query=plan.optimized_query, normalize_embeddings=self.cfg.normalize_embeddings)
-        raw = self.vectorstore.similarity_search(
-            query_embedding=query_vec,
-            top_k=plan.top_k or self.cfg.top_k,
-            metadata_filter=metadata_filter,
-            similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
-        )
-        docs, distances = self._unpack_results(raw)
-        self._log(message=f"[RAGAgent.retrieve] Retrieved {len(docs)} documents", tracer=tracer, type="info")
+                # smart mode
+                if retrieval_scope is not None:
+                    # map scope -> default top_k if caller didn't provide one
+                    default_k = self._compute_top_k(retrieval_scope, answer_breadth, max_top_k=50)
+                    plan = RetrievalPlan(
+                        mode="smart",
+                        scope=retrieval_scope,
+                        answer_breadth=answer_breadth,
+                        optimized_query=user_query,
+                        top_k=default_k,
+                    )
+                else:
+                    # let the agent plan using router_llm
+                    plan = self._plan_retrieval(user_query)
+            
+            self._log(message=f"[RAGAgent.retrieve] Retrieval plan: {plan}", trace_step=trace_step, type="info")
+            # Embed the query and retrieve documents based on the plan
+            query_vec = self.embedder.embed(query=plan.optimized_query, normalize_embeddings=self.cfg.normalize_embeddings)
+            raw = self.vectorstore.similarity_search(
+                query_embedding=query_vec,
+                top_k=plan.top_k or self.cfg.top_k,
+                metadata_filter=metadata_filter,
+                similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
+            )
+            docs, distances = self._unpack_results(raw)
+            self._log(message=f"[RAGAgent.retrieve] Retrieved {len(docs)} documents", trace_step=trace_step, type="info")
 
-        # Build + trim (only context, using a buffer for prompts/history)
-        untrimmed_context = self.ctx.build(docs)
-        self._log(message=f"[RAGAgent.retrieve] Untrimmed context: {len(untrimmed_context)} chars", tracer=tracer, type="info")
-        trim = self._trim_context_by_token_limit(
-            db_context=untrimmed_context,
-            reserved_prompt_tokens=getattr(self.cfg, "prompt_token_buffer", 500),
-        )
-        self._log(message=f"[RAGAgent.retrieve] Trimmed context: {len(trim.trimmed_context)} chars", tracer=tracer, type="info")
+            # Build + trim (only context, using a buffer for prompts/history)
+            untrimmed_context = self.ctx.build(docs)
+            self._log(message=f"[RAGAgent.retrieve] Untrimmed context: {len(untrimmed_context)} chars", trace_step=trace_step, type="info")
+            trim = self._trim_context_by_token_limit(
+                db_context=untrimmed_context,
+                reserved_prompt_tokens=getattr(self.cfg, "prompt_token_buffer", 500),
+            )
+            self._log(message=f"[RAGAgent.retrieve] Trimmed context: {len(trim.trimmed_context)} chars", trace_step=trace_step, type="info")
 
-        return RetrieveResult(
-            context=trim.trimmed_context,
-            max_new_tokens=trim.final_max_new_tokens,
-            base_tokens=trim.base_tokens,  # now: reserved prompt/history tokens
-            context_tokens_used=trim.context_tokens_used,
-            token_budget=int(getattr(self.llm, "max_seq_length", 8192)),
-            generation_budget=trim.generation_budget,
-            docs=docs,
-            distances=distances,
-            meta={
-                "available_for_context": trim.available_for_context,
-                "initial_max_new_tokens": trim.initial_max_new_tokens,
-                "safety_margin_tokens": self.cfg.safety_margin_tokens,
-                "prompt_token_buffer": getattr(self.cfg, "prompt_token_buffer", 500),
-            },
-        )
+            return RetrieveResult(
+                context=trim.trimmed_context,
+                max_new_tokens=trim.final_max_new_tokens,
+                base_tokens=trim.base_tokens,  # now: reserved prompt/history tokens
+                context_tokens_used=trim.context_tokens_used,
+                token_budget=int(getattr(self.llm, "max_seq_length", 8192)),
+                generation_budget=trim.generation_budget,
+                docs=docs,
+                distances=distances,
+                meta={
+                    "available_for_context": trim.available_for_context,
+                    "initial_max_new_tokens": trim.initial_max_new_tokens,
+                    "safety_margin_tokens": self.cfg.safety_margin_tokens,
+                    "prompt_token_buffer": getattr(self.cfg, "prompt_token_buffer", 500),
+                },
+            )
 
     def run(
         self,
@@ -418,7 +431,7 @@ class RAGAgent(Agent):
                 retrieval_scope=retrieval_scope,
                 retrieval_plan=retrieval_plan,
                 answer_breadth=answer_breadth,
-                tracer=main_tracer,
+                trace_step=main_tracer,
             )
             sys_prompt = system_prompt or RAG_AGENT_SYSTEM_PROMPT
             user_prompt = RAG_USER_PROMPT_TEMPLATE.format(context=retrieved.context, query=user_prompt)
@@ -567,9 +580,9 @@ class RAGAgent(Agent):
             generation_budget=generation_budget,
         )
     
-    def _log(self, message: str, tracer: Optional[TraceStepContext] = None, type: str = "info") -> None:
-        if tracer:
-            tracer.log(message=message, type=type)
+    def _log(self, message: str, trace_step: Optional[TraceStepContext] = None, type: str = "info") -> None:
+        if trace_step:
+            trace_step.log(message=message, type=type)
         else:
             self.logger.info(message)
 

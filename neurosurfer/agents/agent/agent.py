@@ -444,10 +444,7 @@ class Agent:
             else:
                 # treat as routing failure, not final answer
                 routing_attempt += 1
-                if (
-                    routing_attempt > self.config.retry.max_route_retries
-                    or not self.config.repair_with_llm
-                ):
+                if routing_attempt > self.config.retry.max_route_retries or not self.config.repair_with_llm:
                     if strict_tool_call:
                         e_msg = (
                             "There was a problem selecting the right tool or repairing invalid "
@@ -510,6 +507,13 @@ class Agent:
         t.log(f"Raw inputs: {tool_inputs}")
         t.close()
 
+        graph_inputs = context.get("graph_inputs", {})
+        if graph_inputs:
+            context.pop("graph_inputs")
+        rag_context = context.get("rag_context", "")
+        if rag_context:
+            context.pop("rag_context")
+        
         # --------- 2a) NO TOOL: second LLM call (possibly streaming) ---------
         if tool_name == "none":
             llm_params = {
@@ -531,15 +535,9 @@ class Agent:
                         }
                     ), final=True)
             else:
-                return self._tool_call_response(
-                    tool_return=model_response,
-                    final=True
-                )
+                return self._tool_call_response(tool_return=model_response, final=True)
 
         # --------- 2b) TOOL EXECUTION PATH ---------
-        graph_inputs = context.get("graph_inputs", {})
-        if graph_inputs:
-            context.pop("graph_inputs")
         payload = {**checked, **context, **graph_inputs}
         tool = self.toolkit.registry.get(tool_name)
 

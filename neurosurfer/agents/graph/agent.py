@@ -7,8 +7,9 @@ from typing import Any, Optional, Union
 
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
-from neurosurfer.tracing import Tracer
+from neurosurfer.tracing import Tracer, TracerConfig
 from neurosurfer.agents.rag.agent import RAGAgent
+from neurosurfer.agents.rag import RAGAgent, RAGAgentConfig
 
 from .schema import Graph, GraphExecutionResult
 from .executor import GraphExecutor   # the class you showed above
@@ -47,6 +48,7 @@ class GraphAgent:
     def __init__(
         self,
         *,
+        id: str = "graph_agent",
         llm: BaseChatModel,
         graph_yaml: Optional[Union[str, Path]] = None,
         graph: Optional[Graph] = None,
@@ -90,6 +92,7 @@ class GraphAgent:
         log_traces:
             Whether node-level agents should log traces through the tracer.
         """
+        self.id = id
         self.logger = logger or logging.getLogger("neurosurfer.agents.GraphAgent")
 
         # Resolve graph spec with YAML taking precedence
@@ -110,7 +113,17 @@ class GraphAgent:
         self.graph: Graph = graph
         self.llm = llm
         self.toolkit = toolkit
-        self.tracer = tracer
+        self.tracer: Tracer = tracer or Tracer(
+            config=TracerConfig(log_steps=self.log_traces),
+            meta={
+                "agent_type": "graph_agent",
+                "graph": self.graph.model_dump(),
+                "model": self.llm.model_name,
+                "toolkit": toolkit is not None,
+                "log_steps": self.log_traces,
+            },
+            logger_=logger,
+        )
         self.artifacts = artifact_store or ArtifactStore()
         self.log_traces = log_traces
         self.export_dir = export_dir
@@ -118,8 +131,7 @@ class GraphAgent:
         # --- RAG wiring ---
         self.rag: Optional[RAGAgent] = rag_agent
         if self.rag is None and knowledge_sources:
-            from neurosurfer.agents.rag import RAGAgent, RAGAgentConfig
-            self.rag = RAGAgent(llm=self.llm, config=RAGAgentConfig())
+            self.rag = RAGAgent(llm=self.llm, config=RAGAgentConfig(), tracer=self.tracer)
         
         if self.rag and knowledge_sources and auto_ingest_kb:
             self.logger.info("Ingesting knowledge base for GraphAgent...")
@@ -166,14 +178,25 @@ class GraphAgent:
         GraphExecutionResult
             Contains the graph spec, all node results, and the final outputs.
         """
-        graph_results: GraphExecutionResult = self.executor.run(
-            inputs=inputs,
-            manager_temperature=manager_temperature,
-            manager_max_new_tokens=manager_max_new_tokens,
-        )
-        # export results if configured in the graph nodes.
-        export(graph_results=graph_results, export_base_dir=Path(self.export_dir))
-        return graph_results
+        with self.tracer(
+            agent_id=self.id,
+            kind="graph.execute",
+            label="agent.graph.execute",
+            inputs={
+                "inputs": inputs,
+                "manager_temperature": manager_temperature,
+                "manager_max_new_tokens": manager_max_new_tokens,
+            },
+        ) as graph_tracer:
+            graph_results: GraphExecutionResult = self.executor.run(
+                inputs=inputs,
+                manager_temperature=manager_temperature,
+                manager_max_new_tokens=manager_max_new_tokens,
+                trace_step=graph_tracer,
+            )
+            # export results if configured in the graph nodes.
+            export(graph_results=graph_results, export_base_dir=Path(self.export_dir))
+            return graph_results
 
     async def arun(
         self,

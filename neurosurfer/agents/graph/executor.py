@@ -8,7 +8,7 @@ from pydantic import BaseModel as PydModel
 
 from neurosurfer.models.chat_models.base import BaseChatModel as BaseChatModel
 from neurosurfer.tools import Toolkit
-from neurosurfer.tracing import Tracer, TracerConfig
+from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
 from neurosurfer.agents.agent.responses import StructuredResponse, ToolCallResponse
 from neurosurfer.agents import Agent, AgentConfig
 from neurosurfer.agents.react import ReActAgent, ReActConfig
@@ -92,6 +92,7 @@ class GraphExecutor:
         *,
         manager_temperature: float = None,
         manager_max_new_tokens: int = None,
+        trace_step: Optional[TraceStepContext] = None,
     ) -> GraphExecutionResult:
         """
         Execute the entire graph once.
@@ -136,12 +137,13 @@ class GraphExecutor:
                     previous_result=prev,
                     manager_temperature=manager_temperature,
                     manager_max_new_tokens=manager_max_new_tokens,
+                    trace_step=trace_step,
                 )
                 nodes_results[node_id] = node_result
                 last_result = node_result
         except Exception as e:
-            rprint(f"Error executing node {node_id}: {e}", color="red")
-            rprint("Returning partial results from executed nodes...", color="yellow")
+            self._log(f"Error executing node {node_id}: {e}", tracer=trace_step, type="error")
+            self._log("Returning partial results from executed nodes...", tracer=trace_step, type="warning")
             
         final = self._select_final_outputs(nodes_results)
         return GraphExecutionResult(
@@ -276,6 +278,7 @@ class GraphExecutor:
         previous_result: Any,
         manager_temperature: float,
         manager_max_new_tokens: int,
+        trace_step: Optional[TraceStepContext] = None,
     ) -> NodeExecutionResult:
         agent = self._get_agent_for_node(node)
         user_prompt = self.manager.compose_user_prompt(
@@ -289,6 +292,14 @@ class GraphExecutor:
         system_prompt = self._build_system_prompt(node, graph_inputs)
         output_schema = self._load_output_schema_if_needed(node)
 
+        rag_context = None
+        if node.rag and self.rag_agent:
+            rag_context = self.rag_agent.retrieve(
+                user_query=user_prompt,
+                retrieval_mode="smart",
+                reset_tracer=False,
+            )
+
         started_at = time.time()
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
         try:
@@ -298,9 +309,11 @@ class GraphExecutor:
                 "temperature": None,       # per-node AgentConfig handles defaults
                 "max_new_tokens": None,
                 "stream": False,
+                "reset_tracer": False,
                 "context": {
-                    "graph_inputs": graph_inputs,
-                    "dependencies": dependency_results,
+                    "rag_context": rag_context,
+                    # "graph_inputs": graph_inputs,
+                    # "dependencies": dependency_results,
                 },
             }
             if output_schema is not None:
@@ -444,3 +457,9 @@ class GraphExecutor:
         if last_nid not in results:
             return {}
         return {last_nid: results[last_nid].raw_output}
+
+    def _log(self, message: str, tracer: Optional[TraceStepContext] = None, type: str = "info") -> None:
+        if tracer:
+            tracer.log(message=message, type=type)
+        else:
+            self.logger.info(message)

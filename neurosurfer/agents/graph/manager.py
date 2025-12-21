@@ -103,12 +103,10 @@ class ManagerAgent:
             },
         ) as t:
             instructions = self.llm.ask(**llm_params).choices[0].message.content.strip()
-
             dep_context = self._format_dependency_context(dependency_results)
 
             # Final prompt = instructions + verbatim dependency context
             next_agent_user_prompt = "\n\n".join([instructions, dep_context]).strip()
-
             t.outputs(output=next_agent_user_prompt)
 
         if self.log_traces:
@@ -116,7 +114,6 @@ class ManagerAgent:
 
         # if self.log_traces:
         #     print(f"\n\nNext Agent Prompt:\n{next_agent_user_prompt}\n\n")
-
         return next_agent_user_prompt
 
     def _format_dependency_context(self, dependency_results: Dict[str, Any]) -> str:
