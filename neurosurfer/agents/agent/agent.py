@@ -20,7 +20,6 @@ from .schema_utils import build_structured_system_prompt, maybe_unwrap_named_roo
 from .responses import StructuredResponse, ToolCallResponse, AgentResponse
 from .templates import (
     TOOL_ROUTING_PROMPT,
-    STRICT_TOOL_ROUTING_PROMPT,
     REPAIR_JSON_PROMPT,
     CORRECT_JSON_PROMPT,
 )
@@ -121,6 +120,7 @@ class Agent:
         _route_extra_instructions: str = "",
         strict_tool_call: Optional[bool] = None,
         reset_tracer: bool = True,
+        return_traces: bool = True,
     ) -> AgentResponse:
         """
         Run a single agent step.
@@ -179,42 +179,40 @@ class Agent:
         temp = float(self.config.temperature if temperature is None else temperature)
         mnt = int(self.config.max_new_tokens if max_new_tokens is None else max_new_tokens)
         sys_prompt = system_prompt or "You are a helpful assistant. Be concise and precise."
-        usr_prompt = (user_prompt if user_prompt is not None else query) or ""
+        user_prompt = (user_prompt if user_prompt is not None else query) or ""
         strict_tool_call = self.config.strict_tool_call if strict_tool_call is None else bool(strict_tool_call)
 
-        if self.toolkit and output_schema:
-            self.logger.warning(
-                "Structured responses are not supported when using a toolkit. "
-                "Responses are returned from tools in case of a tool call. Ignoring output schema."
-            )
-            output_schema = None
-        
-        if output_schema and use_stream:
-            self.logger.warning("`output_schema` provided with `stream=True`; forcing non-streaming structured output.")
-            use_stream = False
-
-        indent_level = max(self.tracer._depth - 1, 0)
-        prefix = " " * (indent_level * 4)
-
-        rprint(prefix + "🧠 Thinking...", color="yellow")
-        if self.log_traces:
-            rprint(f"\n{prefix}[{self.id}] Tracing Start!")
         with self.tracer(
             agent_id=self.id,
             kind="agent",
             label="agent.run",
+            start_message=f"\n🧠 Thinking...",
+            end_message=f"🧠 Done!",
             inputs={
                 "agent_type": type(self).__name__,
                 "has_toolkit": bool(self.toolkit),
-                "structured": bool(output_schema),
-                "stream": use_stream,
                 "strict_tool_call": strict_tool_call,
             },
-        ):
+        ) as main_tracer_step:
+            if self.toolkit and output_schema:
+                main_tracer_step.log(
+                    message = "Structured responses are not supported when using a toolkit. Responses are returned from tools in case of a tool call. Ignoring output schema.",
+                    type="warning"
+                )
+                output_schema = None
+            
+            if output_schema and use_stream:
+                main_tracer_step.log(
+                    message = "`output_schema` provided with `stream=True`; forcing non-streaming structured output.",
+                    type="warning"
+                )
+                use_stream = False
+            main_tracer_step.inputs(structured=bool(output_schema), stream=use_stream)
+
             # Tool mode?
             if self.toolkit:
                 response = self._route_and_call(
-                    user_prompt=usr_prompt,
+                    user_prompt=user_prompt,
                     extra_instructions=_route_extra_instructions,
                     temperature=temp,
                     max_new_tokens=mnt,
@@ -226,15 +224,22 @@ class Agent:
             elif output_schema is not None:
                 response = self._structured_llm_call(
                     sys_prompt=sys_prompt,
-                    usr_prompt=usr_prompt,
+                    usr_prompt=user_prompt,
                     output_schema=output_schema,
                     temperature=temp,
                     max_new_tokens=mnt,
                 )
             else:
+                rag_context = context.get("rag_context", None)
+                if rag_context:
+                    user_prompt = (
+                        f"Your Task to Complete:\n{user_prompt}\n\n"
+                        "Here is some additional context from your knowledge base:\n\n"
+                        f"{rag_context}"
+                    )
                 # Free-text mode
                 llm_params = {
-                    "user_prompt": usr_prompt,
+                    "user_prompt": user_prompt,
                     "system_prompt": sys_prompt,
                     "temperature": temp,
                     "max_new_tokens": mnt,
@@ -246,21 +251,18 @@ class Agent:
                     label="agent.free_text_call",
                     inputs={
                         "system_prompt_len": len(sys_prompt),
-                        "user_prompt_len": len(usr_prompt),
+                        "user_prompt_len": len(user_prompt),
                         **llm_params,
                     },
                 ) as t:
                     response = normalize_response(self.llm.ask(**llm_params))
                     t.outputs(output=response)
 
-        if self.log_traces:
-            rprint(f"{prefix}[{self.id}] Tracing End!\n")
-
         # Print final response
-        if isinstance(response, str):
-            rprint(f"{prefix}Final response:", color="green")
-            rprint(response.strip(), rich=False)
-        return AgentResponse(response=response, traces=self.tracer.results)
+        # if isinstance(response, str):
+        #     rprint(f"{prefix}Final response:", color="green")
+        #     rprint(response.strip(), rich=False)
+        return AgentResponse(response=response, traces=self.tracer.results if return_traces else None)
 
     # Structured output owned here (compact contract + parse + repair)
     def _structured_llm_call(
@@ -508,14 +510,19 @@ class Agent:
         t.close()
 
         graph_inputs = context.get("graph_inputs", {})
-        if graph_inputs:
-            context.pop("graph_inputs")
         rag_context = context.get("rag_context", "")
-        if rag_context:
-            context.pop("rag_context")
+        context.pop("graph_inputs", None)
+        context.pop("rag_context", None)
         
         # --------- 2a) NO TOOL: second LLM call (possibly streaming) ---------
         if tool_name == "none":
+            if rag_context:
+                user_prompt = (
+                    f"Your Task to Complete:\n{user_prompt}\n\n"
+                    "Here is some additional context from your knowledge base:\n\n"
+                    f"{rag_context}"
+                )
+
             llm_params = {
                 "user_prompt": user_prompt,
                 "system_prompt": "You are a helpful assistant. Answer the user's query to the best of your ability.",

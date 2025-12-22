@@ -10,59 +10,10 @@ from pydantic import BaseModel
 from .models import TraceStep, TraceResult
 from .span import SpanTracer, RichTracer, NullSpanTracer
 from .step_context import TraceStepContext
-
+from .render import render_trace_result
+from .config import TracerConfig, RICH_LOG_TYPES_MAPPING
 
 logger = logging.getLogger("neurosurfer.tracing.tracer")
-RICH_LOG_TYPES_MAPPING = {
-    # Core levels
-    "info":     "[bold green]INFO: {message}[/bold green]",
-    "warning":  "[bold yellow]WARNING: {message}[/bold yellow]",
-    "error":    "[bold red]ERROR: {message}[/bold red]",
-    "debug":    "[bold blue]DEBUG: {message}[/bold blue]",
-
-    # Success / ok / done
-    "success":  "[bold bright_green]SUCCESS: {message}[/bold bright_green]",
-    "ok":       "[bright_green]OK: {message}[/bright_green]",
-
-    # Trace / very low-level stuff (soft gray/white)
-    "trace":    "[dim bright_black]TRACE: {message}[/dim bright_black]",
-    "verbose":  "[dim grey50]VERBOSE: {message}[/dim grey50]",
-
-    # White / neutral
-    "neutral":  "[white]{message}[/white]",
-    "white":    "[white]{message}[/white]",
-    "whiteb":    "[bold white]{message}[/bold white]",
-
-    # Grey variants
-    "grey":         "[grey50]{message}[/grey50]",
-    "gray":         "[grey50]{message}[/grey50]",
-    "dim":          "[dim]{message}[/dim]",
-    "muted":        "[dim bright_black]{message}[/dim bright_black]",
-
-    # Orange / amber / highlight-ish
-    "orange":       "[bold orange1]ORANGE: {message}[/bold orange1]",
-    "orange_soft":  "[orange1]{message}[/orange1]",
-    "amber":        "[dark_orange3]AMBER: {message}[/dark_orange3]",
-
-    # Magenta / purple
-    "magenta":  "[bold magenta]{message}[/bold magenta]",
-    "purple":   "[bold medium_purple4]{message}[/bold medium_purple4]",
-
-    # Cyan / teal
-    "cyan":     "[bold cyan]{message}[/bold cyan]",
-    "teal":     "[bright_cyan]{message}[/bright_cyan]",
-
-    # Special semantic types for agent stuff (optional, but nice)
-    "thought":      "[italic bright_black]{message}[/italic bright_black]",
-    "action":       "[bold blue]Action: {message}[/bold blue]",
-    "observation":  "[bold cyan]Observation: {message}[/bold cyan]",
-    "tool":         "[bold magenta]TOOL: {message}[/bold magenta]",
-    "prompt":       "[dim grey50]PROMPT: {message}[/dim grey50]",
-    "meta":         "[dim]META: {message}[/dim]",
-
-    # Critical / panic
-    "critical": "[bold white on red]CRITICAL: {message}[/bold white on red]",
-}
 
 
 class _NoOpStepContext:
@@ -85,26 +36,6 @@ class _NoOpStepContext:
     
     def log(self, message: str, **data: Any) -> None:
         return None
-
-class TracerConfig(BaseModel):
-    """
-    Configuration options for Tracer.
-
-    Attributes:
-        enabled:
-            If False, `step(...)` becomes a no-op. Your code can always call it.
-        log_steps:
-            If True, each step prints human-readable spans via `span_tracer`.
-        max_output_preview_chars:
-            When you store large outputs in `t.add(...)`, you may choose to
-            also store a shortened preview in `outputs["preview"]`.
-            This class itself doesn't enforce truncation — it's up to your
-            usage — but the parameter is here for convenience / future use.
-    """
-
-    enabled: bool = True
-    log_steps: bool = False
-    max_output_preview_chars: int = 4000
 
 
 class Tracer:
@@ -159,6 +90,7 @@ class Tracer:
         config: Optional[TracerConfig] = None,
         span_tracer: Optional[SpanTracer] = None,
         meta: Optional[Dict[str, Any]] = None,
+        depth: int = 0,
         logger_: Optional[logging.Logger] = None,
     ) -> None:
         self.config = config or TracerConfig()
@@ -173,7 +105,7 @@ class Tracer:
         self._result = TraceResult(meta=self._meta)  # single shared instance
 
         self._counter: int = 0
-        self._depth: int = 0
+        self._depth: int = depth
         self._stream_started: set[int] = set()
 
 
@@ -204,6 +136,15 @@ class Tracer:
         self._result.steps = sorted(self._result.steps, key=lambda s: s.step_id)
         return self._result
 
+    # render traces as string or markdown for prettier printing
+    def render(self, format: Literal["text", "markdown"] = "text") -> str:
+        """
+        Render the trace result as a string.
+        """
+        if format not in ["text", "markdown"]:
+            format = "text"
+        return render_trace_result(self.results, cfg=self.config, format=format)
+
     # ------------------------------------------------------------------
     # Public API: tracer(...)
     # ------------------------------------------------------------------
@@ -211,6 +152,8 @@ class Tracer:
         self,
         *,
         kind: str,
+        start_message: Optional[str] = None,
+        end_message: Optional[str] = None,
         label: Optional[str] = None,
         inputs: Optional[Dict[str, Any]] = None,
         agent_id: Optional[str] = None,
@@ -234,10 +177,15 @@ class Tracer:
         self._counter += 1
         step_id = self._counter
 
+        start_message = self._format_message((start_message or f"Starting {kind}...").strip("\\"), tag=f"[{agent_id}]")
+        end_message = self._format_message((end_message or f"Completed {kind}!").strip("\\"), tag=f"[{agent_id}]")
+
         return TraceStepContext(
             tracer=self,
             step_id=step_id,
             kind=kind,
+            start_message=start_message,
+            end_message=end_message,
             label=label,
             inputs=inputs or {},
             agent_id=agent_id,
@@ -296,8 +244,8 @@ class Tracer:
         if type not in RICH_LOG_TYPES_MAPPING:
             type = "neutral"
 
-        indent = " " * (indent_level * 4)
-        prefix = indent + "    "
+        prefix = " " * (indent_level * 4)
+        # prefix = indent + "    "
 
         # ---------- STREAMING MODE ----------
         if stream:
@@ -399,9 +347,32 @@ class Tracer:
             for line in formatted_lines:
                 print(line)
 
-                
     def reset(self):
         self._result = TraceResult(meta=self._meta)  # single shared instance
         self._counter = 0
         self._depth = 0
+
+    def _format_message(self, msg: str, tag: str) -> str:
+        """
+        If msg starts with a newline (optionally after leading spaces/tabs),
+        return '\n {tag} {msg_lstripped}'.
+        Otherwise return '{tag} {msg}'.
+
+        Examples:
+        "\nHi"      -> "\n [added] Hi"
+        "Hi"        -> "[added] Hi"
+        "  \nHi"    -> "\n [added] Hi"
+        """
+        # Detect a leading newline possibly after leading spaces/tabs
+        i = 0
+        while i < len(msg) and msg[i] in (" ", "\t"):
+            i += 1
+        has_leading_newline = i < len(msg) and msg[i] == "\n"
+
+        if has_leading_newline:
+            # Keep exactly one leading newline for the added prefix, then strip whitespace/newlines before content
+            content = msg.lstrip(" \t\n")
+            return f"\n\{tag} {content}" if content else f"\n\{tag}"
+        else:
+            return f"\{tag} {msg}"
 

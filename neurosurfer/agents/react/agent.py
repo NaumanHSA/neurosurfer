@@ -94,10 +94,11 @@ class ReActAgent(BaseAgent):
         specific_instructions: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         _route_extra_instructions: str = "",
-        reset_tracer: bool = True,
         final_target_language: Optional[str] = None,
         final_answer_length: Optional[str] = None,
         final_answer_instructions: Optional[str] = None,
+        reset_tracer: bool = True,
+        return_traces: bool = True,
     ) -> ReactAgentResponse:
         """
         Run the ReAct agent.
@@ -137,7 +138,7 @@ class ReActAgent(BaseAgent):
         
         return ReactAgentResponse(
             response=stream_response if stream else no_stream(stream_response), 
-            traces=self.tracer.results, 
+            traces=self.tracer.results if return_traces else None, 
             tool_calls=self.tool_calls
         )
 

@@ -24,12 +24,17 @@ class TraceStepContext:
         tracer,
         step_id: int,
         kind: str,
+        start_message: Optional[str],
+        end_message: Optional[str],
         label: Optional[str],
         inputs: Dict[str, Any],
         agent_id: Optional[str],
         meta: Dict[str, Any],
     ) -> None:
         self._tracer = tracer
+        self._start_message = start_message
+        self._end_message = end_message
+
         self._step_data: Dict[str, Any] = {
             "step_id": step_id,
             "kind": kind,
@@ -49,8 +54,9 @@ class TraceStepContext:
 
     def __enter__(self) -> "TraceStepContext":
         # increase nesting depth for this tracer
-        self._tracer._depth += 1
+        self.log(message=self._start_message, type="cyan", append_to_logs=False)
 
+        self._tracer._depth += 1
         self._step_data["started_at"] = time.time()
         self._span_cm = self._tracer._span(
             name=f"step.{self._step_data['kind']}",
@@ -113,7 +119,7 @@ class TraceStepContext:
         except:
             pass
 
-    def log(self,  message: str,  type: str = "info",  type_keyword: bool = True, **data: Any) -> None:
+    def log(self,  message: str,  type: str = "info",  type_keyword: bool = True, append_to_logs: bool = True, **data: Any) -> None:
         """
         Add an internal log line to this step.
 
@@ -123,17 +129,19 @@ class TraceStepContext:
         """
         ts = time.time()
         # store in structured trace
-        logs: list = self._step_data.setdefault("logs", [])
-        logs.append(
-            {
-                "ts": ts,
-                "message": message,
-                "data": data or {},
-                "type": type,
-            }
-        )
+        if append_to_logs: 
+            logs: list = self._step_data.setdefault("logs", [])
+            logs.append(
+                {
+                    "ts": ts,
+                    "message": message,
+                    "data": data or {},
+                    "type": type,
+                }
+            )
+
         # print as a log line (aligned with this step)
-        indent_level = max(self._tracer._depth - 1, 0)
+        indent_level = max(self._tracer._depth, 0)
         self._tracer._log_line(
             step_id=self._step_data["step_id"],
             indent_level=indent_level,
@@ -158,18 +166,16 @@ class TraceStepContext:
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         end = time.time()
-        self._step_data["duration_ms"] = int(
-            (end - self._step_data["started_at"]) * 1000
-        )
+        self._step_data["duration_ms"] = int((end - self._step_data["started_at"]) * 1000)
         if exc_type is not None:
             self._step_data["ok"] = False
             self._step_data["error"] = repr(exc)
 
         # end span
         self._span_cm.__exit__(exc_type, exc, tb)
-
         # decrease nesting depth
         self._tracer._depth -= 1
+        self.log(message=self._end_message, type="cyan", append_to_logs=False)
 
         # record step
         self._tracer._record_step(self._step_data)

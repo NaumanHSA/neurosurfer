@@ -21,7 +21,7 @@ from .manager import ManagerAgent, ManagerConfig
 from .schema import Graph, GraphNode, NodeExecutionResult, GraphExecutionResult
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
 from .utils import topo_sort, import_string, normalize_and_validate_graph_inputs
-from ..common.utils import rprint
+from .export import GraphExporter
 
 class GraphExecutor:
     """
@@ -56,6 +56,7 @@ class GraphExecutor:
         rag_agent: Optional[RAGAgent] = None,
         manager_llm: Optional[BaseChatModel] = None,
         manager_config: Optional[ManagerConfig] = None,
+        exporter: Optional[GraphExporter] = None,
         tracer: Optional[Tracer] = None,
         artifact_store: Optional[ArtifactStore] = None,
         logger: Optional[logging.Logger] = None,
@@ -65,13 +66,19 @@ class GraphExecutor:
         self.llm = llm
         self.toolkit = toolkit
         self.rag_agent = rag_agent
+        self.exporter = exporter
         self.logger = logger or logging.getLogger(__name__)
         self.tracer = tracer
         self.log_traces = log_traces
         self.artifacts = artifact_store or ArtifactStore()
 
         # Manager uses same LLM by default
-        self.manager = ManagerAgent(manager_llm or llm, config=manager_config)
+        self.manager = ManagerAgent(
+            manager_llm or llm, 
+            config=manager_config,
+            tracer=tracer,
+            log_traces=log_traces,
+        )
 
         self._node_map: Dict[str, GraphNode] = self.graph.node_map()
         self._order = topo_sort(self.graph.nodes)
@@ -224,6 +231,17 @@ class GraphExecutor:
             config=node_config,
             logger=agent_logger,
             tracer=self.tracer,
+            # Tracer(
+            #     config=TracerConfig(log_steps=self.log_traces),
+            #     meta={
+            #         "agent_type": "react_agent",
+            #         "model": self.llm.model_name,
+            #         "toolkit": toolkit is not None,
+            #         "log_steps": self.log_traces,
+            #     },
+            #     depth=self.tracer._depth,
+            #     logger_=agent_logger,
+            # ),
             log_traces=self.log_traces
         )
         self._agents[node.id] = agent
@@ -264,6 +282,17 @@ class GraphExecutor:
             config=node_config,
             logger=agent_logger,
             tracer=self.tracer,
+            # Tracer(
+            #     config=TracerConfig(log_steps=self.log_traces),
+            #     meta={
+            #         "agent_type": "agent",
+            #         "model": self.llm.model_name,
+            #         "toolkit": toolkit is not None,
+            #         "log_steps": self.log_traces,
+            #     },
+            #     logger_=agent_logger,
+            #     depth=self.tracer._depth,
+            # ),
             log_traces=self.log_traces,
         )
         self._agents[node.id] = agent
@@ -280,6 +309,8 @@ class GraphExecutor:
         manager_max_new_tokens: int,
         trace_step: Optional[TraceStepContext] = None,
     ) -> NodeExecutionResult:
+
+        # Get agent for node
         agent = self._get_agent_for_node(node)
         user_prompt = self.manager.compose_user_prompt(
             node=node,
@@ -292,13 +323,19 @@ class GraphExecutor:
         system_prompt = self._build_system_prompt(node, graph_inputs)
         output_schema = self._load_output_schema_if_needed(node)
 
+        # get rag context if node has rag enabled and rag agent is available
+        if node.kind == "react" and node.rag:
+            trace_step.log(message="Rag in ReAct Agents is currently not supported. Use tools instead. Skipping RAG...", type="warning")
         rag_context = None
-        if node.rag and self.rag_agent:
-            rag_context = self.rag_agent.retrieve(
+        if node.kind == "base" and node.rag and self.rag_agent:
+            trace_step.log(message="Retrieving context from knowledge base...", type="info")
+            rag_results = self.rag_agent.retrieve(
                 user_query=user_prompt,
                 retrieval_mode="smart",
                 reset_tracer=False,
             )
+            rag_context = rag_results.context
+            trace_step.log(message=f"Retrieved context from knowledge base. Context length: {len(rag_context.context)} chats", type="info")
 
         started_at = time.time()
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
@@ -310,6 +347,7 @@ class GraphExecutor:
                 "max_new_tokens": None,
                 "stream": False,
                 "reset_tracer": False,
+                "return_traces": False,
                 "context": {
                     "rag_context": rag_context,
                     # "graph_inputs": graph_inputs,
@@ -335,7 +373,7 @@ class GraphExecutor:
                 )
                 self.logger.warning(error_msg)
 
-            ner = NodeExecutionResult(
+            node_results = NodeExecutionResult(
                 node_id=node.id,
                 mode=node.mode,
                 raw_output=raw,
@@ -347,7 +385,12 @@ class GraphExecutor:
                 traces=node_result.traces,
             )
             self.artifacts.put(node.id, raw)
-            return ner
+
+            # export node output if configured
+            if self.exporter and node.export:
+                exported_to = self.exporter.export_single_node(node=node, result=node_results)
+                trace_step.log(message=f"Exported node {node.id} output to {exported_to}", type="info")
+            return node_results
 
         except Exception as e:
             duration_ms = int((time.time() - started_at) * 1000)

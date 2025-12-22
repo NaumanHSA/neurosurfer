@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Literal
 
 from neurosurfer.models.chat_models.base import BaseChatModel
 from neurosurfer.tools import Toolkit
@@ -16,7 +16,7 @@ from .executor import GraphExecutor   # the class you showed above
 from .manager import ManagerConfig
 from .artifacts import ArtifactStore
 from .loader import load_graph         # or wherever your loader lives
-from .export import export
+from .export import GraphExporter, GraphExportConfig
 
 
 class GraphAgent:
@@ -59,6 +59,7 @@ class GraphAgent:
         artifact_store: Optional[ArtifactStore] = None,
         logger: Optional[logging.Logger] = None,
         log_traces: bool = True,
+        log_traces_format: Literal["text", "markdown"] = "text",
         export_dir: Union[Path, str] = "exports",
         knowledge_sources: Optional[list[Union[str, Path]]] = None,  # dirs/files for KB
         rag_agent: Optional[RAGAgent] = None,
@@ -91,8 +92,12 @@ class GraphAgent:
             Optional logger. If None, a default namespaced logger is used.
         log_traces:
             Whether node-level agents should log traces through the tracer.
+        log_traces_format:
+            Whether node-level agents should log traces through the tracer.
         """
         self.id = id
+        self.log_traces = log_traces
+        self.log_traces_format = log_traces_format
         self.logger = logger or logging.getLogger("neurosurfer.agents.GraphAgent")
 
         # Resolve graph spec with YAML taking precedence
@@ -137,6 +142,16 @@ class GraphAgent:
             self.logger.info("Ingesting knowledge base for GraphAgent...")
             self.rag.ingest(sources=knowledge_sources, reset_state=True)
 
+        self.exporter = GraphExporter(
+            config=GraphExportConfig(
+                export_base_dir=self.export_dir,
+                include_trace_dump=True,
+                traces_filename="traces_{ts}.json",
+            ),
+            tracer=self.tracer,
+            log_traces=self.log_traces,
+        )
+
         self.executor = GraphExecutor(
             graph=self.graph,
             llm=self.llm,
@@ -144,21 +159,20 @@ class GraphAgent:
             rag_agent=self.rag,
             manager_llm=manager_llm or llm,
             manager_config=manager_config,
+            exporter=self.exporter,
             tracer=self.tracer,
             artifact_store=self.artifacts,
             logger=self.logger,
             log_traces=self.log_traces,
         )
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
     def run(
         self,
         inputs: Any,
         *,
         manager_temperature: Optional[float] = None,
         manager_max_new_tokens: Optional[int] = None,
+        reset_tracer: bool = True,
     ) -> GraphExecutionResult:
         """
         Execute the graph once with the given inputs.
@@ -178,6 +192,9 @@ class GraphAgent:
         GraphExecutionResult
             Contains the graph spec, all node results, and the final outputs.
         """
+        if reset_tracer:
+            self.tracer.reset()
+
         with self.tracer(
             agent_id=self.id,
             kind="graph.execute",
@@ -187,38 +204,25 @@ class GraphAgent:
                 "manager_temperature": manager_temperature,
                 "manager_max_new_tokens": manager_max_new_tokens,
             },
+            start_message=f"Executing Graph...",
+            end_message=f"Graph Execution Complete!",
         ) as graph_tracer:
+
+            self.exporter._resolve_base_dir(graph_tracer)
             graph_results: GraphExecutionResult = self.executor.run(
                 inputs=inputs,
                 manager_temperature=manager_temperature,
                 manager_max_new_tokens=manager_max_new_tokens,
                 trace_step=graph_tracer,
             )
-            # export results if configured in the graph nodes.
-            export(graph_results=graph_results, export_base_dir=Path(self.export_dir))
-            return graph_results
 
-    async def arun(
-        self,
-        inputs: Any,
-        *,
-        manager_temperature: Optional[float] = None,
-        manager_max_new_tokens: Optional[int] = None,
-    ) -> GraphExecutionResult:
-        """
-        Async wrapper around `run`, useful in async apps / notebooks.
-
-        This simply offloads the sync `run` into a thread executor.
-        """
-        loop = asyncio.get_running_loop()
-        graph_results: GraphExecutionResult = await loop.run_in_executor(
-            None,
-            lambda: self.run(
-                inputs=inputs,
-                manager_temperature=manager_temperature,
-                manager_max_new_tokens=manager_max_new_tokens,
-            ),
-        )
+            # export traces if configured
+            if self.exporter.config.include_trace_dump:
+                out = self.exporter.export_traces(graph_results=graph_results)
+                graph_tracer.log(message=f"Exported graph traces to {out}", type="info")
+        
+        graph_results.traces = self.tracer.results
+        graph_results.logs = self.tracer.render(format=self.log_traces_format)
         return graph_results
 
     # Convenience accessors

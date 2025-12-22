@@ -261,3 +261,5 @@ class GraphExecutionResult(BaseModel):
     graph: Graph
     nodes: Dict[str, NodeExecutionResult]
     final: Dict[str, Any]
+    traces: Optional[TraceResult] = None
+    logs: Optional[str] = None

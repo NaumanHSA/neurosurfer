@@ -29,12 +29,13 @@ class ManagerAgent:
     def __init__(
         self, 
         llm: BaseChatModel, 
+        id: str = "manager",
         config: ManagerConfig = None,
         tracer: Optional[Tracer] = None,
         logger: Optional[logging.Logger] = None,
         log_traces: bool = True,
     ):
-        self.id = "manager"
+        self.id = id
         self.llm = llm
         self.config = config or ManagerConfig()
         self.logger = logger or logging.getLogger(__name__)
@@ -53,9 +54,6 @@ class ManagerAgent:
         temperature: Optional[float],
         max_new_tokens: Optional[int],
     ) -> str:
-        if self.log_traces:
-            rprint(f"\n[{self.id}] Tracing Start!")
-
         purpose = node.purpose or ""
         goal = node.goal or ""
         expected = node.expected_result or ""
@@ -83,18 +81,12 @@ class ManagerAgent:
             graph_inputs=str(graph_inputs),
             dependency_node_results=dependency_node_results,
         )
-        llm_params = {
-            "user_prompt": manager_prompt,
-            "system_prompt": MANAGER_SYSTEM_PROMPT,
-            "temperature": temperature if temperature is not None else self.config.temperature,
-            "max_new_tokens": max_new_tokens if max_new_tokens is not None else self.config.max_new_tokens,
-            "stream": False,
-        }
-
         with self.tracer(
             agent_id=self.id,
             kind="llm.call",
             label="manager.compose_user_prompt",
+            start_message=f"\nPreparing Next Node...",
+            end_message=f"Next Node Ready For Execution!",
             inputs={
                 "system_prompt_len": len(MANAGER_SYSTEM_PROMPT),
                 "user_prompt_len": len(manager_prompt),
@@ -102,18 +94,19 @@ class ManagerAgent:
                 "dependency_results": dependency_node_results,
             },
         ) as t:
+            llm_params = {
+                "user_prompt": manager_prompt,
+                "system_prompt": MANAGER_SYSTEM_PROMPT,
+                "temperature": temperature if temperature is not None else self.config.temperature,
+                "max_new_tokens": max_new_tokens if max_new_tokens is not None else self.config.max_new_tokens,
+                "stream": False,
+            }
             instructions = self.llm.ask(**llm_params).choices[0].message.content.strip()
             dep_context = self._format_dependency_context(dependency_results)
 
             # Final prompt = instructions + verbatim dependency context
             next_agent_user_prompt = "\n\n".join([instructions, dep_context]).strip()
             t.outputs(output=next_agent_user_prompt)
-
-        if self.log_traces:
-            rprint(f"[{self.id}] Tracing End!\n")
-
-        # if self.log_traces:
-        #     print(f"\n\nNext Agent Prompt:\n{next_agent_user_prompt}\n\n")
         return next_agent_user_prompt
 
     def _format_dependency_context(self, dependency_results: Dict[str, Any]) -> str:
