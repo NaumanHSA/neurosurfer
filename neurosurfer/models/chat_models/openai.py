@@ -68,7 +68,6 @@ class OpenAIModel(BaseChatModel):
             self.logger.info(
                 f"[OpenAIModel] Initialized client for model={self.model_name} base_url={self.base_url or 'default'}"
             )
-        
         try:
             from transformers import AutoTokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
@@ -154,7 +153,6 @@ class OpenAIModel(BaseChatModel):
                 max_new_tokens=max_new_tokens,
                 extra=kwargs,
             )
-            
             try:
                 completion = self.client.chat.completions.create(timeout=self.timeout, **args)
                 content = completion.choices[0].message.content or ""
@@ -181,7 +179,6 @@ class OpenAIModel(BaseChatModel):
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                 )
-            
             except (APIConnectionError, RateLimitError, APIStatusError) as e:
                 err = f"[OpenAIModel] API error: {type(e).__name__}: {e}"
                 if self.verbose:

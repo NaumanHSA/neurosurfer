@@ -136,7 +136,7 @@ class GraphAgent:
         # --- RAG wiring ---
         self.rag: Optional[RAGAgent] = rag_agent
         if self.rag is None and knowledge_sources:
-            self.rag = RAGAgent(llm=self.llm, config=RAGAgentConfig(), tracer=self.tracer)
+            self.rag = RAGAgent(id="rag_agent", llm=self.llm, config=RAGAgentConfig(), tracer=self.tracer)
         
         if self.rag and knowledge_sources and auto_ingest_kb:
             self.logger.info("Ingesting knowledge base for GraphAgent...")

@@ -4,6 +4,7 @@ from .executor import GraphExecutor
 from .loader import load_graph, load_graph_from_dict
 from .artifacts import ArtifactStore
 from .agent import GraphAgent
+from .schema import GraphExecutionResult
 
 __all__ = [
     "GraphAgent",
@@ -17,4 +18,5 @@ __all__ = [
     "load_graph",
     "load_graph_from_dict",
     "ArtifactStore",
+    "GraphExecutionResult",
 ]

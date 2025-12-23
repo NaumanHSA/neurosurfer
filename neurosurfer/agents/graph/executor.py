@@ -231,17 +231,6 @@ class GraphExecutor:
             config=node_config,
             logger=agent_logger,
             tracer=self.tracer,
-            # Tracer(
-            #     config=TracerConfig(log_steps=self.log_traces),
-            #     meta={
-            #         "agent_type": "react_agent",
-            #         "model": self.llm.model_name,
-            #         "toolkit": toolkit is not None,
-            #         "log_steps": self.log_traces,
-            #     },
-            #     depth=self.tracer._depth,
-            #     logger_=agent_logger,
-            # ),
             log_traces=self.log_traces
         )
         self._agents[node.id] = agent
@@ -282,17 +271,6 @@ class GraphExecutor:
             config=node_config,
             logger=agent_logger,
             tracer=self.tracer,
-            # Tracer(
-            #     config=TracerConfig(log_steps=self.log_traces),
-            #     meta={
-            #         "agent_type": "agent",
-            #         "model": self.llm.model_name,
-            #         "toolkit": toolkit is not None,
-            #         "log_steps": self.log_traces,
-            #     },
-            #     logger_=agent_logger,
-            #     depth=self.tracer._depth,
-            # ),
             log_traces=self.log_traces,
         )
         self._agents[node.id] = agent
@@ -335,7 +313,7 @@ class GraphExecutor:
                 reset_tracer=False,
             )
             rag_context = rag_results.context
-            trace_step.log(message=f"Retrieved context from knowledge base. Context length: {len(rag_context.context)} chats", type="info")
+            trace_step.log(message=f"Retrieved context from knowledge base. Context length: {len(rag_context)} chats", type="info")
 
         started_at = time.time()
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None

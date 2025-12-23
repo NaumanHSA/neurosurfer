@@ -9,85 +9,6 @@ from typing import Callable, Dict, Optional, Generator, Union, Literal, List, An
 from datetime import datetime
 
 
-def create_context(results):
-    docs_dict = dict()
-    context = ''
-    for r in results:
-        filename = r['metadata']['filename']
-        chunk = r['text'].replace(f"{filename} — ", "")
-        if filename not in docs_dict:
-            docs_dict[filename] = []
-        docs_dict[filename].append(chunk)
-        # print(f"{r['metadata']['filename']} — Distance: {r['distance']:.3f}\n{r['text']}")
-        
-    for file_name, chunks in docs_dict.items():
-        context += f"\n################### {file_name} ###################"
-        chunks_merged = '\n\n'.join(chunks)
-        context += f"\n{chunks_merged}\n"
-    return context
-
-def build_chat_context(chat_history, n_recent_chats=10):
-    """
-    Builds a formatted conversation context string from the last 10 chat history records.
-    
-    Args:
-        chat_history (list): List of dicts like {"role": "user" or "assistant", "content": "..."}
-    
-    Returns:
-        str: Formatted context string.
-    """
-    if not chat_history:
-        return "No prior conversation."
-
-    # Get at most the last n_recent_chats messages
-    recent_history = chat_history[-n_recent_chats:]
-
-    # Build the context string
-    context_lines = []
-    for msg in recent_history:
-        role = msg.get("role", "").capitalize()
-        content = msg.get("content", "").strip()
-        context_lines.append(f"{role}: {content}")
-
-    context_str = "\n".join(context_lines)
-    return context_str
-
-def chat_completion_wrapper(call_id: str, model_name:str, content:str):
-    return {
-        'id': call_id,
-        'model': model_name,
-        'created': str(datetime.now()),
-        'object': 'chat.completion',
-        'choices': [
-            {
-                'index': 0,
-                'message': {
-                    'role': 'assistant',
-                    'content': str(content)
-                },
-                'logprobs': None,
-                'finish_reason': "stop"
-            }
-        ]
-    }
-    
-def get_text_only_history(chat_history: List[Dict], num_recent_chats: int = 10):
-    # Generic base64 data URI pattern for any mime type
-    base64_pattern = re.compile(r"\n*\s*data:[a-zA-Z0-9\-\+\.\/]+;base64,[A-Za-z0-9+/=\r\n]+",  re.IGNORECASE)
-    cleaned_history = []
-    recent_history = chat_history[-min(len(chat_history), num_recent_chats):]
-    for msg in recent_history:
-        content = msg.get("content", "")
-        # Remove base64 blocks
-        text_only = base64_pattern.sub("", content).strip()
-        if text_only:
-            cleaned_history.append({
-                "role": msg["role"],
-                "content": text_only
-            })
-    return cleaned_history
-
-
 def generate_folder_structure(
     root_path: Union[str, os.PathLike],
     max_depth: int = 5,
@@ -153,16 +74,3 @@ def generate_folder_structure(
     if tmpdir:
         shutil.rmtree(tmpdir, ignore_errors=True)
     return result
-
-def is_prompt_like(text):
-    return (
-        "You are" in text[:200] or
-        "Based on the query" in text or
-        "Your task is" in text or
-        "Your job is" in text or
-        "Your goal is" in text or
-        "{question}" in text or
-        "Respond with" in text or
-        "{context}" in text or
-        "{query}" in text
-    )

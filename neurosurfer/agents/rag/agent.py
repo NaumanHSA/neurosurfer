@@ -74,12 +74,13 @@ class RAGAgent(Agent):
         log_traces: Optional[bool] = True,
         logger: Optional[logging.Logger] = logging.getLogger(__name__),
     ):
+        self.id = id
         self.logger = logger
         self.log_traces = log_traces
         self.tracer: Tracer = tracer or Tracer(
             config=TracerConfig(log_steps=log_traces),
             meta={
-                "agent_type": id,
+                "agent_type": self.id,
                 "agent_config": config.__dict__,
                 "model": llm.model_name,
                 "toolkit": toolkit is not None,
@@ -260,6 +261,8 @@ class RAGAgent(Agent):
         with self.tracer(
             agent_id=self.id,
             kind="agent",
+            start_message="Starting RAGAgent retrieve...",
+            end_message="Completed RAGAgent retrieve!",
             label="agent.rag.retrieve",
             inputs={
                 "agent_type": type(self).__name__,

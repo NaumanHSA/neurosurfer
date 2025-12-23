@@ -230,13 +230,15 @@ class Agent:
                     max_new_tokens=mnt,
                 )
             else:
-                rag_context = context.get("rag_context", None)
-                if rag_context:
-                    user_prompt = (
-                        f"Your Task to Complete:\n{user_prompt}\n\n"
-                        "Here is some additional context from your knowledge base:\n\n"
-                        f"{rag_context}"
-                    )
+                rag_context = None
+                if isinstance(context, dict):
+                    rag_context = context.get("rag_context", None)
+                    if rag_context:
+                        user_prompt = (
+                            f"Your Task to Complete:\n{user_prompt}\n\n"
+                            "Here is some additional context from your knowledge base:\n\n"
+                            f"{rag_context}"
+                        )
                 # Free-text mode
                 llm_params = {
                     "user_prompt": user_prompt,

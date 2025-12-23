@@ -8,10 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from enum import Enum
 
 
-# ============================================================================
 # BASE MODEL CONFIGURATION
-# ============================================================================
-
 class BaseModelConfig(BaseSettings):
     """
     Base configuration shared across all model types.
@@ -45,10 +42,7 @@ class BaseModelConfig(BaseSettings):
         return self.model_dump(exclude_none=exclude_none, exclude_unset=False)
 
 
-# ============================================================================
 # APPLICATION CONFIGURATION
-# ============================================================================
-
 class AppConfig(BaseSettings):
     """
     General application configuration.
@@ -188,10 +182,7 @@ class ChunkerConfig(BaseSettings):
     """Drop chunks that have fewer than this many non-whitespace characters."""
 
 
-# ============================================================================
 # MAIN CONFIGURATION
-# ============================================================================
-
 class Config:
     """
     Main configuration class aggregating all sub-configurations.
@@ -247,10 +238,6 @@ class Config:
         logger.setLevel(self.app.logs_level.upper())
         return logger
 
-
-# ============================================================================
-# SINGLETON INSTANCE & BACKWARD COMPATIBILITY
-# ============================================================================
 
 # Singleton instance - import this in your code
 config = Config()
