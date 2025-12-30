@@ -10,12 +10,15 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - NEUROSURF_BACKEND_HOST=0.0.0.0
-      - NEUROSURF_UI_HOST=0.0.0.0
-      - NEUROSURF_BACKEND_PORT=8081
-      - NEUROSURF_UI_PORT=5173
-      - NEUROSURF_UI_OPEN=false
-      - NEUROSURF_MODEL_PATH=/models/Qwen3-8B-unsloth-bnb-4bit
+      - NEUROSURFER_BACKEND_APP=neurosurfer.examples.quickstart_app_agent:ns
+      - NEUROSURFER_BACKEND_HOST=0.0.0.0
+      - NEUROSURFER_UI_HOST=0.0.0.0
+      - NEUROSURFER_BACKEND_PORT=8081
+      - NEUROSURFER_UI_PORT=5173
+      - NEUROSURFER_UI_OPEN=false
+      - CHAT_ANSWER_LANGUAGE=english
+      - CHAT_ANSWER_LENGTH=detailed
+      - NEUROSURFER_MODEL_PATH=/models/Qwen3-8B-unsloth-bnb-4bit
     ports:
       - "8081:8081"
       - "5173:5173"

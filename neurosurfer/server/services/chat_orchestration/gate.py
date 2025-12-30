@@ -107,11 +107,11 @@ class GateLLM:
                 gate_tracer.outputs(decision=f"Error: Failed to decide on route. Defaulting to `direct`")
                 return GateDecision(
                     route="direct",
+                    needs_clarification=False,
                     optimized_query=user_query,
                     query_language_detected="unknown",
+                    reason="Failed to parse routing response, falling back to direct answer",
                     use_files=[],
-                    clarification_question=None,
-                    reason="Fallback: could not parse routing JSON",
                     raw_response=raw,
                 )
 
@@ -134,7 +134,7 @@ class GateLLM:
         Normalize JSON fields and enforce defaults.
         """
         route_raw = str(obj.get("route", "direct")).strip().lower()
-        if route_raw not in {"direct", "rag", "code", "clarify"}:
+        if route_raw not in {"direct", "rag", "code", "clarify", "reject"}:
             route: RouteType = "direct"
         else:
             route = route_raw  # type: ignore[assignment]
@@ -152,28 +152,14 @@ class GateLLM:
         if not isinstance(use_files_raw, list):
             use_files_raw = []
         use_files = [str(k) for k in use_files_raw]
-
-        clarification_question_raw = obj.get("clarification_question", None)
-        clarification_question: Optional[str]
-        if route == "clarify":
-            clarification_question = (
-                str(clarification_question_raw).strip()
-                if clarification_question_raw
-                else "Could you please clarify your request?"
-            )
-        else:
-            clarification_question = None
-
-        reason = str(obj.get("reason") or "").strip()
-        if not reason:
-            reason = f"Router chose route={route}"
-
+        needs_clarification = obj.get("needs_clarification", False)
+        reason = obj.get("reason", "Unknown")
         return GateDecision(
             route=route,
+            needs_clarification=needs_clarification,
             optimized_query=optimized_query,
             query_language_detected=query_language_detected,
-            use_files=use_files,
-            clarification_question=clarification_question,
             reason=reason,
+            use_files=use_files,
             raw_response=raw_response,
         )

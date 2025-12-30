@@ -54,7 +54,7 @@
     "jspdf-autotable": "^5.0.2",
     "jspdf-customfonts": "^0.0.4-rc.4",
     "jspdf-md-renderer": "^1.8.3",
-    "katex": "^0.16.22",
+    "katex": "^0.16.27",
     "lucide-react": "^0.468.0",
     "marked": "^16.4.0",
     "mermaid": "^11.11.0",
@@ -62,7 +62,9 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^9.1.0",
     "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "tailwind-merge": "^3.3.1",
     "uuid": "^9.0.1",
     "zustand": "^4.5.5"

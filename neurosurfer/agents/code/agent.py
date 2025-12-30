@@ -91,7 +91,7 @@ class CodeAgent(ReActAgent):
         tk = Toolkit()
         py_cfg = PythonExecToolConfig(
             max_code_retries=3,
-            include_code_in_answer=True,
+            include_code_in_answer=False,
             max_table_rows=20,
         )
         py_tool = PythonExecTool(llm=llm, config=py_cfg, logger=logger)

@@ -101,7 +101,7 @@ async def load_model():
         LOGGER.warning("Torch not found...")
 
     from neurosurfer.models.chat_models.transformers import TransformersModel
-    MODEL_SOURCE = os.getenv("NEUROSURF_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit")
+    MODEL_SOURCE = os.getenv("NEUROSURFER_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit")
     llm = TransformersModel(
         # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
         model_name=MODEL_SOURCE,
@@ -121,19 +121,19 @@ async def load_model():
     )
     from neurosurfer.server.services.chat_orchestration import MainWorkflowConfig, CodeAgentConfig
     ns._init_chat_workflow(
-        config=MainWorkflowConfig(  
-            default_language="english",
-            default_answer_length="detailed",
+        config=MainWorkflowConfig(
+            default_language=os.getenv("CHAT_ANSWER_LANGUAGE", "english"),
+            default_answer_length=os.getenv("CHAT_ANSWER_LENGTH", "detailed"),
             enable_rag=True,
             enable_code=True,
             log_traces=True,
             max_context_chars=16000,
             max_history_chars=12000,
             max_new_tokens=8000,
-            temperature=0.7
+            temperature=0.3
         ),
         code_agent_config=CodeAgentConfig(
-            temperature=0.7,
+            temperature=0.3,
             max_new_tokens=8000,
             mode="analysis_only"
         )
@@ -216,9 +216,9 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
     conversation_messages = args.messages.converstaion
     chat_history = conversation_messages[-num_recent:-1]
 
-    print(f"\nChat History:\n{chat_history}\n\n")
+    # print(f"\nChat History:\n{chat_history}\n\n")
     # Model call (stream or non-stream handled by router)
-    kwargs = {"temperature": args.temperature, "max_new_tokens": args.max_tokens}
+    # kwargs = {"temperature": args.temperature, "max_new_tokens": args.max_tokens}
 
     final_answer = ns.run_agent(
         user_id=args.user_id,

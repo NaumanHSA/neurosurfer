@@ -183,7 +183,7 @@ class ReActAgent(BaseAgent):
         self.stop_event = False
         iteration = 0
         final_answer = ""
-        while not self.stop_event:
+        while not self.stop_event or iteration >= self.config.max_loop_iterations:
             # set persistent memory for the history
             self.set_persistent_memory(history=history.to_prompt())
             reasoning_prompt = self._build_prompt(query, history)

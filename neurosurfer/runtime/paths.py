@@ -17,13 +17,13 @@ APP_SLUG = "neurosurfer"  # used for env var overrides
 def get_cache_dir(create: bool = True, suffix: Optional[str] = None) -> Path:
     """
     Return the per-user cache directory for Neurosurfer, creating it if needed.
-    Respects NEUROSURF_CACHE_DIR if set; otherwise uses platform-specific defaults.
+    Respects NEUROSURFER_CACHE_DIR if set; otherwise uses platform-specific defaults.
     Linux:  ~/.cache/Neurosurfer
     macOS:  ~/Library/Caches/Neurosurfer
     Windows: %LOCALAPPDATA%\\Neurosurfer\\Cache (per platformdirs)
     """
     # Highest priority: explicit override via env
-    override = os.environ.get("NEUROSURF_CACHE_DIR")
+    override = os.environ.get("NEUROSURFER_CACHE_DIR")
     if override:
         base = Path(override).expanduser()
     else:

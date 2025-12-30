@@ -52,9 +52,9 @@ Start the server via the **CLI** and use Docker/Compose or a reverse proxy in st
 neurosurfer serve
 ```
 
-- Backend binds to `NEUROSURF_BACKEND_HOST` / `NEUROSURF_BACKEND_PORT` (from config).  
+- Backend binds to `NEUROSURFER_BACKEND_HOST` / `NEUROSURFER_BACKEND_PORT` (from config).  
 - UI root auto‑detected; override with `--ui-root /path/to/neurowebui`.  
-- UI talks to the backend using `VITE_BACKEND_URL` (injected automatically when binding to `0.0.0.0` via `NEUROSURF_PUBLIC_HOST`).
+- UI talks to the backend using `VITE_BACKEND_URL` (injected automatically when binding to `0.0.0.0` via `NEUROSURFER_PUBLIC_HOST`).
 
 **Common variants**
 
@@ -96,9 +96,9 @@ RUN pip install -U pip \
  && pip install -e . \
  && pip install 'neurosurfer[torch]'
 
-ENV NEUROSURF_SILENCE=1 \
-    NEUROSURF_BACKEND_HOST=0.0.0.0 \
-    NEUROSURF_BACKEND_PORT=8000
+ENV NEUROSURFER_SILENCE=1 \
+    NEUROSURFER_BACKEND_HOST=0.0.0.0 \
+    NEUROSURFER_BACKEND_PORT=8000
 
 EXPOSE 8000
 
@@ -114,9 +114,9 @@ services:
     build: .
     image: neurosurfer-api:latest
     environment:
-      NEUROSURF_SILENCE: "1"
-      NEUROSURF_BACKEND_HOST: "0.0.0.0"
-      NEUROSURF_BACKEND_PORT: "8000"
+      NEUROSURFER_SILENCE: "1"
+      NEUROSURFER_BACKEND_HOST: "0.0.0.0"
+      NEUROSURFER_BACKEND_PORT: "8000"
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -154,11 +154,11 @@ Configuration lives with the backend and is also influenced by CLI/env. For a de
 
 **Common environment variables**
 
-- `NEUROSURF_PUBLIC_HOST` — used to craft `VITE_BACKEND_URL` when backend binds `0.0.0.0`/`::`  
-- `NEUROSURF_UI_ROOT` — path to the UI project for dev mode  
-- `NEUROSURF_SILENCE=1` — suppress banner/optional‑deps warnings on import  
-- `NEUROSURF_BACKEND_HOST` / `NEUROSURF_BACKEND_PORT` — default bind for the API  
-- `NEUROSURF_BACKEND_LOG`, `NEUROSURF_BACKEND_WORKERS`, `NEUROSURF_BACKEND_WORKER_TIMEOUT` — backend behavior
+- `NEUROSURFER_PUBLIC_HOST` — used to craft `VITE_BACKEND_URL` when backend binds `0.0.0.0`/`::`  
+- `NEUROSURFER_UI_ROOT` — path to the UI project for dev mode  
+- `NEUROSURFER_SILENCE=1` — suppress banner/optional‑deps warnings on import  
+- `NEUROSURFER_BACKEND_HOST` / `NEUROSURFER_BACKEND_PORT` — default bind for the API  
+- `NEUROSURFER_BACKEND_LOG`, `NEUROSURFER_BACKEND_WORKERS`, `NEUROSURFER_BACKEND_WORKER_TIMEOUT` — backend behavior
 
 !!! tip "Model/runtime dependencies"
     The server core is light. Install the full LLM stack when you need local inference/finetuning:

@@ -38,8 +38,8 @@ LOGGER = configure_logging()
 # ------------------------------------------------------------------------------
 # Banner & soft checks
 # ------------------------------------------------------------------------------
-# Respect NEUROSURF_SILENCE=1 (or NEUROSURF_NO_BANNER=1) to suppress banner/warnings
-if os.getenv("NEUROSURF_SILENCE", "").lower() not in ("1", "true", "yes"):
+# Respect NEUROSURFER_SILENCE=1 (or NEUROSURFER_NO_BANNER=1) to suppress banner/warnings
+if os.getenv("NEUROSURFER_SILENCE", "").lower() not in ("1", "true", "yes"):
     print_banner_once()
 
 # Single consolidated warning if LLM deps are missing (no import failure)
@@ -53,9 +53,9 @@ CACHE_DIR = get_cache_dir(create=True)
 # ------------------------------------------------------------------------------
 # Optional eager assertion (OFF by default)
 # If you *really* want to fail fast on import (e.g., in a specific app),
-# opt in with: NEUROSURF_EAGER_RUNTIME_ASSERT=1
+# opt in with: NEUROSURFER_EAGER_RUNTIME_ASSERT=1
 # ------------------------------------------------------------------------------
-if os.getenv("NEUROSURF_EAGER_RUNTIME_ASSERT", "").lower() in ("1", "true", "yes"):
+if os.getenv("NEUROSURFER_EAGER_RUNTIME_ASSERT", "").lower() in ("1", "true", "yes"):
     try:
         assert_minimum_runtime()
     except Exception as e:

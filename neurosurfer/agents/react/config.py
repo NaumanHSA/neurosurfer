@@ -19,6 +19,7 @@ class ReActConfig:
     return_stream_by_default: bool = False
     log_internal_thoughts: bool = True
     return_internal_thoughts: bool = False
+    max_loop_iterations: int = 5
 
     """
     Configuration for FinalAnswerGenerator.

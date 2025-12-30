@@ -141,8 +141,8 @@ python -c "import neurosurfer; print('ok')"
 You’ll see a banner; if optional deps are missing, you’ll get a single consolidated warning with install hints.
 
 !!! tip "Useful environment flags"
-    - `NEUROSURF_SILENCE=1` — hide banner & warnings  
-    - `NEUROSURF_EAGER_RUNTIME_ASSERT=1` — fail fast at import if LLM deps missing (opt‑in)
+    - `NEUROSURFER_SILENCE=1` — hide banner & warnings  
+    - `NEUROSURFER_EAGER_RUNTIME_ASSERT=1` — fail fast at import if LLM deps missing (opt‑in)
 
 ---
 
@@ -163,7 +163,7 @@ neurosurfer serve --help
 neurosurfer serve
 ```
 
-The backend binds to `NEUROSURF_BACKEND_HOST` / `NEUROSURF_BACKEND_PORT` (from config). The UI root is auto‑detected; pass `--ui-root` if needed. On first run, an `npm install` may occur — you can control this with `--npm-install`.
+The backend binds to `NEUROSURFER_BACKEND_HOST` / `NEUROSURFER_BACKEND_PORT` (from config). The UI root is auto‑detected; pass `--ui-root` if needed. On first run, an `npm install` may occur — you can control this with `--npm-install`.
 
 ### Common options
 
@@ -196,7 +196,7 @@ neurosurfer serve --only-ui --ui-root /path/to/neurowebui
 
 **Public backend URL for UI (when binding 0.0.0.0)**
 ```bash
-export NEUROSURF_PUBLIC_HOST=your.ip.addr
+export NEUROSURFER_PUBLIC_HOST=your.ip.addr
 neurosurfer serve
 ```
 

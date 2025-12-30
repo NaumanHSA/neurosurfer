@@ -43,63 +43,52 @@ class PythonExecTool(BaseTool):
     """
 
     spec = ToolSpec(
-        name="python_execute",
+        name="python_code_generate_and_execute",
         description=(
-            "Execute Python code to solve tasks that require precise computation, "
-            "data analysis, or plotting, using common libraries (numpy, pandas, matplotlib)."
+            "Solve computational or data-analysis tasks by taking a plain-English query, "
+            "automatically generating Python code, executing it, and returning the results. "
+            "The caller must NEVER provide Python code."
         ),
         when_to_use=(
-            "Use this tool whenever the question clearly requires programmatic computation "
-            "or data manipulation beyond what you can reliably do in your head. "
-            "Examples: computing statistics from uploaded CSVs, filtering rows, "
-            "aggregating values, generating plots, or transforming data."
-            "Do NOT use this tool for heavy machine learning training or complex ML pipelines."
+            "Use when precise computation, data manipulation, statistics, or plotting is required. "
+            "Pass ONLY the goal in natural language; this tool handles code generation and execution."
         ),
         inputs=[
-            # Natural-language specification of the task (LLM-provided).
             ToolParam(
                 name="task",
                 type="string",
-                description="Natural-language description of what should be computed with Python.",
+                description="Plain-English description of what should be computed (NO code, NO pseudo-code).",
                 required=True,
                 llm=True,
             ),
-            # Optional hint of which filenames are relevant (LLM can choose).
             ToolParam(
                 name="file_names",
                 type="array",
-                description="Optional list of filenames from the uploaded files that are relevant.",
+                description="Optional list of relevant uploaded filenames.",
                 required=False,
                 llm=False,
             ),
-            # Runtime-only: mapping filename -> {path, mime, size}, injected by backend.
             ToolParam(
                 name="files_context",
                 type="object",
-                description=(
-                    "Mapping of available filenames to their metadata and absolute paths. "
-                    "This is provided by the runtime, not by the LLM."
-                ),
+                description="Runtime-injected file metadata and paths.",
                 required=False,
                 llm=False,
             ),
-            # Runtime-only: working directory path for code execution.
             ToolParam(
                 name="workdir",
                 type="string",
-                description="Working directory where code will be executed and plots saved.",
+                description="Runtime-injected working directory for execution.",
                 required=False,
                 llm=False,
             ),
         ],
         returns=ToolReturn(
             type="string",
-            description=(
-                "A human-readable answer describing the results of the Python execution. "
-                "It may include small tables of values and references to generated plot filenames."
-            ),
+            description="Human-readable summary of results and generated outputs (e.g., tables or plots).",
         ),
     )
+
 
     def __init__(
         self,

@@ -76,7 +76,7 @@ def _is_ci_like() -> bool:
 
 
 def _silenced() -> bool:
-    val = os.environ.get("NEUROSURF_SILENCE", "") or os.environ.get("NEUROSURF_NO_BANNER", "")
+    val = os.environ.get("NEUROSURFER_SILENCE", "") or os.environ.get("NEUROSURFER_NO_BANNER", "")
     return str(val).lower() in ("1", "true", "yes")
 
 

@@ -19,6 +19,7 @@ class CodeAgentConfig(ReActConfig):
 
     # Name to show in tracing / logs
     agent_name: str = "CodeAgent"
+    skip_special_tokens: bool = True
 
     # If True, CodeAgent.run(..., post_process='summarize') will
     # summarize the raw tool/agent output with one extra LLM call.

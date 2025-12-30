@@ -282,7 +282,7 @@ class NeurosurferApp:
             thread_id=thread_id,
             message_id=message_id,
             has_files_message=has_files_message,
-            chat_history_block=chat_history or "",
+            chat_history=chat_history or [],
             stream=stream,
         )
         # return workflow_result
@@ -304,7 +304,8 @@ class NeurosurferApp:
 
         if self._embedder and self._llm:
             self._init_rag(self._embedder, self._llm)
-            self._init_chat_workflow()
+            if not self._chat_workflow:
+                self._init_chat_workflow()
             self.logger.info("RAG service & MainChatWorkflow successfully initialized.")
             
         # if self._embedder and self._llm:

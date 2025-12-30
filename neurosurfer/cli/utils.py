@@ -66,7 +66,7 @@ def looks_like_build_dir(path: Optional[Path]) -> bool:
 def detect_ui_root(arg: Optional[Path]) -> Optional[Path]:
     if arg:
         return arg
-    env = os.environ.get("NEUROSURF_UI_ROOT")
+    env = os.environ.get("NEUROSURFER_UI_ROOT")
     if env:
         return Path(env)
     here = Path(__file__).resolve()
@@ -120,7 +120,7 @@ async def wait_for_http_ok(host: str, port: int, path: str = "/health",
 
 def effective_public_host(host: str) -> str:
     if host in ("0.0.0.0", "::"):
-        return os.environ.get("NEUROSURF_PUBLIC_HOST", "127.0.0.1")
+        return os.environ.get("NEUROSURFER_PUBLIC_HOST", "127.0.0.1")
     return host
 
 

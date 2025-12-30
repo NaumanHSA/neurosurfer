@@ -130,7 +130,7 @@ The NeurosurferUI is a Vite‑powered dev server for development. The CLI can al
 
 ### Root discovery
 
-If `--ui-root` is omitted, we try common relative paths (e.g., `neurosurferui`), or read `NEUROSURF_UI_ROOT`. If not found, the CLI runs **backend only** with a helpful log.
+If `--ui-root` is omitted, we try common relative paths (e.g., `neurosurferui`), or read `NEUROSURFER_UI_ROOT`. If not found, the CLI runs **backend only** with a helpful log.
 
 ```bash
 neurosurfer serve --ui-root /path/to/neurowebui
@@ -142,10 +142,10 @@ With `--npm-install auto` (default), the CLI runs `npm install --force` **only i
 
 ### Backend URL for the UI
 
-If the backend binds to `0.0.0.0` or `::`, browsers can’t use that literal host. The CLI injects **`VITE_BACKEND_URL`** using `NEUROSURF_PUBLIC_HOST` (or `127.0.0.1` by default). Set it explicitly if you’re exposing the backend on a LAN or public IP:
+If the backend binds to `0.0.0.0` or `::`, browsers can’t use that literal host. The CLI injects **`VITE_BACKEND_URL`** using `NEUROSURFER_PUBLIC_HOST` (or `127.0.0.1` by default). Set it explicitly if you’re exposing the backend on a LAN or public IP:
 
 ```bash
-export NEUROSURF_PUBLIC_HOST=192.168.1.25
+export NEUROSURFER_PUBLIC_HOST=192.168.1.25
 neurosurfer serve
 ```
 
@@ -189,7 +189,7 @@ neurosurfer serve --backend-app ./app.py --backend-reload
 ### Use a public backend URL for the UI
 
 ```bash
-export NEUROSURF_PUBLIC_HOST=192.168.1.25
+export NEUROSURFER_PUBLIC_HOST=192.168.1.25
 neurosurfer serve
 ```
 
@@ -226,7 +226,7 @@ Use `--backend-log-level`. During local debugging, `debug` can be handy; `info` 
 We register `SIGINT`/`SIGTERM` handlers. On shutdown, both UI and backend are terminated with a short grace period before a hard kill to avoid lingering watchers/sockets.
 
 !!! tip "Non‑interactive runs (CI)"
-    Set `NEUROSURF_SILENCE=1` to suppress banners in CI, and pin ports carefully to avoid collisions.
+    Set `NEUROSURFER_SILENCE=1` to suppress banners in CI, and pin ports carefully to avoid collisions.
 
 ---
 
@@ -237,23 +237,23 @@ We register `SIGINT`/`SIGTERM` handlers. On shutdown, both UI and backend are te
 | Setting | Flag | Env Var | Default | Description |
 |---|---|---|---|---|
 | Backend app | `--backend-app` | – | `neurosurfer.examples.quickstart_app:ns` | Module attr/factory or file path that yields a `NeurosurferApp`. |
-| Host | `--backend-host` | `NEUROSURF_BACKEND_HOST` | from config | Bind address for API. |
-| Port | `--backend-port` | `NEUROSURF_BACKEND_PORT` | from config | Bind port for API. |
-| Log level | `--backend-log-level` | `NEUROSURF_BACKEND_LOG` | from config | Logging verbosity (`debug`, `info`, etc.). |
+| Host | `--backend-host` | `NEUROSURFER_BACKEND_HOST` | from config | Bind address for API. |
+| Port | `--backend-port` | `NEUROSURFER_BACKEND_PORT` | from config | Bind port for API. |
+| Log level | `--backend-log-level` | `NEUROSURFER_BACKEND_LOG` | from config | Logging verbosity (`debug`, `info`, etc.). |
 | Reload | `--backend-reload` | – | `false` | Auto‑reload for dev. |
-| Workers | `--backend-workers` | `NEUROSURF_BACKEND_WORKERS` | from config | Number of worker processes. |
-| Worker timeout (s) | `--backend-worker-timeout` | `NEUROSURF_BACKEND_WORKER_TIMEOUT` | from config | Worker timeout in seconds. |
+| Workers | `--backend-workers` | `NEUROSURFER_BACKEND_WORKERS` | from config | Number of worker processes. |
+| Worker timeout (s) | `--backend-worker-timeout` | `NEUROSURFER_BACKEND_WORKER_TIMEOUT` | from config | Worker timeout in seconds. |
 
 ### UI (flags & env)
 
 | Setting | Flag | Env Var | Default | Description |
 |---|---|---|---|---|
-| UI root | `--ui-root` | `NEUROSURF_UI_ROOT` | auto‑detect | Path to Vite project (with `package.json`) or a build dir (`index.html`). |
-| UI host | `--ui-host` | `NEUROSURF_UI_HOST` | from config | Bind host for Vite/static server. |
-| UI port | `--ui-port` | `NEUROSURF_UI_PORT` | from config | Bind port for Vite/static server. |
+| UI root | `--ui-root` | `NEUROSURFER_UI_ROOT` | auto‑detect | Path to Vite project (with `package.json`) or a build dir (`index.html`). |
+| UI host | `--ui-host` | `NEUROSURFER_UI_HOST` | from config | Bind host for Vite/static server. |
+| UI port | `--ui-port` | `NEUROSURFER_UI_PORT` | from config | Bind port for Vite/static server. |
 | Strict port | `--ui-strict-port` | – | `false` | Fail if port is in use (Vite). |
-| Open UI in browser | `--ui-open` | `NEUROSURF_UI_OPEN` | **`true`** | Auto‑open browser when UI becomes reachable. Accepts `1/0`, `true/false`. |
-| NPM install policy | `--npm-install` | `NEUROSURF_NPM_INSTALL` | `auto` | `auto`: only if missing `node_modules`; `always`: force; `never`: skip. |
+| Open UI in browser | `--ui-open` | `NEUROSURFER_UI_OPEN` | **`true`** | Auto‑open browser when UI becomes reachable. Accepts `1/0`, `true/false`. |
+| NPM install policy | `--npm-install` | `NEUROSURFER_NPM_INSTALL` | `auto` | `auto`: only if missing `node_modules`; `always`: force; `never`: skip. |
 | Only backend | `--only-backend` | – | `false` | Run API only. |
 | Only UI | `--only-ui` | – | `false` | Run UI only. |
 
@@ -261,18 +261,18 @@ We register `SIGINT`/`SIGTERM` handlers. On shutdown, both UI and backend are te
 
 | Setting | Env Var | Default | Description |
 |---|---|---|---|
-| Public host for URL composition | `NEUROSURF_PUBLIC_HOST` | `127.0.0.1` | Used to craft `VITE_BACKEND_URL` when API binds `0.0.0.0`/`::`. |
-| Silence banners & optional‑deps warnings | `NEUROSURF_SILENCE` | `0` | Set `1` to reduce noise (e.g., CI). |
-| Eager runtime assert (deps) | `NEUROSURF_EAGER_RUNTIME_ASSERT` | `0` | Set `1` to fail fast on missing optional LLM deps. |
+| Public host for URL composition | `NEUROSURFER_PUBLIC_HOST` | `127.0.0.1` | Used to craft `VITE_BACKEND_URL` when API binds `0.0.0.0`/`::`. |
+| Silence banners & optional‑deps warnings | `NEUROSURFER_SILENCE` | `0` | Set `1` to reduce noise (e.g., CI). |
+| Eager runtime assert (deps) | `NEUROSURFER_EAGER_RUNTIME_ASSERT` | `0` | Set `1` to fail fast on missing optional LLM deps. |
 
-> **Note on `--ui-open` default:** The modular implementation treats UI auto‑open as **enabled by default**. You can disable it with `--ui-open=false`, `--ui-open=0`, or by setting `NEUROSURF_UI_OPEN=0`.
+> **Note on `--ui-open` default:** The modular implementation treats UI auto‑open as **enabled by default**. You can disable it with `--ui-open=false`, `--ui-open=0`, or by setting `NEUROSURFER_UI_OPEN=0`.
 
 ---
 
 ## Troubleshooting
 
 - **Port in use**: Use `--ui-strict-port` or pick a free `--ui-port`. For the API, change `--backend-port`.
-- **UI can’t reach API**: Ensure `VITE_BACKEND_URL` resolves. Set `NEUROSURF_PUBLIC_HOST` when binding `0.0.0.0`.
+- **UI can’t reach API**: Ensure `VITE_BACKEND_URL` resolves. Set `NEUROSURFER_PUBLIC_HOST` when binding `0.0.0.0`.
 - **`npm` not found**: Install Node.js/npm or run `--only-backend`.
 - **Long password error on register (bcrypt 72‑byte limit)**: Use a shorter password or configure truncation in your auth layer.
 - **Static UI**: If you point `--ui-root` at a build folder (must contain `index.html`), the CLI will serve it via a lightweight static server.

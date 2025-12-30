@@ -88,12 +88,14 @@ class FinalAnswerGenerator:
         self,
         *,
         user_query: str,
+        route: str,
         context_block: str,
         files_summaries_block: Optional[str] = None,
         chat_history_block: Optional[str] = None,
         target_language: Optional[str] = None,
         answer_length: Optional[str] = None,
-        extra_instructions: Optional[str] = None
+        extra_instructions: Optional[str] = None,
+        route_reason: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """
         Generate the final answer text from the query + context.
@@ -116,20 +118,28 @@ class FinalAnswerGenerator:
             lang = self._normalize_language(target_language)
             length = self._normalize_length(answer_length)
 
-            files_block = (files_summaries_block or "").strip() or "(no files summaries available)"
-            ctx_block = self._truncate_context(context_block or "")
-            history_block = (chat_history_block or "").strip() or "(not provided)"
-            extra_instr = (extra_instructions or "").strip() or "(none)"
-            user_prompt = FINAL_ANSWER_USER_PROMPT_TEMPLATE.format(
-                user_query=(user_query or "").strip(),
-                files_summaries_block=files_block,
-                context_block=ctx_block.strip() or "(no additional context provided)",
-                chat_history_block=history_block,
-                target_language=lang,
-                answer_length=length,
-                extra_instructions=extra_instr,
-            )
-            # print(f"\n\nUser Prompt for Final Answer Generator: {user_prompt}\n\n")
+            if route == "reject":
+                user_prompt = (
+                    f"The user asked for a response that was rejected by the router. "
+                    f"Reason: {route_reason}."
+                    f"\n\nPlease provide a helpful response based on the user's original query in {lang.upper()} language."
+                )
+            else:
+                files_block = (files_summaries_block or "").strip() or "(no files summaries available)"
+                ctx_block = self._truncate_context(context_block or "")
+                history_block = (chat_history_block or "").strip() or "(not provided)"
+                extra_instr = (extra_instructions or "").strip() or "(none)"
+                user_prompt = FINAL_ANSWER_USER_PROMPT_TEMPLATE.format(
+                    user_query=(user_query or "").strip(),
+                    files_summaries_block=files_block,
+                    context_block=ctx_block.strip() or "(no additional context provided)",
+                    chat_history_block=history_block,
+                    target_language=lang,
+                    answer_length=length,
+                    extra_instructions=extra_instr,
+                )
+            print(f"\n\nUser Prompt for Final Answer Generator:\n\n{user_prompt}\n\n")
+
             tracer.inputs(user_prompt=user_prompt, user_prompt_len=len(user_prompt))
             streaming_response = self.llm.ask(
                 system_prompt=self.system_prompt,

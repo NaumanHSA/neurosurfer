@@ -7,13 +7,31 @@ from .rag_context_service import RAGContextResult
 
 RouteType = Literal["direct", "rag", "code", "clarify"]
 
+# @dataclass
+# class GateDecision:
+#     route: RouteType
+#     optimized_query: str
+#     query_language_detected: str
+#     use_files: List[str]
+#     clarification_question: Optional[str]
+#     reason: str
+#     raw_response: str  # for debugging/logging
+
+#     def pretty_str(self) -> str:
+#         return f"Route: {self.route}\n" \
+#                f"Optimized Query: {self.optimized_query}\n" \
+#                f"Query Language Detected: {self.query_language_detected}\n" \
+#                f"Use Files: {self.use_files}\n" \
+#                f"Clarification Question: {self.clarification_question}\n" \
+#                f"Reason: {self.reason}\n"     
+
 @dataclass
 class GateDecision:
     route: RouteType
+    needs_clarification: bool
     optimized_query: str
     query_language_detected: str
     use_files: List[str]
-    clarification_question: Optional[str]
     reason: str
     raw_response: str  # for debugging/logging
 
@@ -21,9 +39,8 @@ class GateDecision:
         return f"Route: {self.route}\n" \
                f"Optimized Query: {self.optimized_query}\n" \
                f"Query Language Detected: {self.query_language_detected}\n" \
+               f"Reason: {self.reason}\n" \
                f"Use Files: {self.use_files}\n" \
-               f"Clarification Question: {self.clarification_question}\n" \
-               f"Reason: {self.reason}\n"        
 
 @dataclass
 class MainWorkflowResult:

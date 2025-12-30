@@ -2,7 +2,10 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
+import 'katex/dist/katex.min.css'
 import { Copy } from 'lucide-react'
 
 function Code({
@@ -16,18 +19,13 @@ function Code({
   const isInline = !!(inline || (!isLang && !text.includes('\n')))
 
   if (isInline) {
-    // Inline code chip
     return (
-      <code
-        className="px-1 py-0.5 rounded bg-muted border border-border text-[0.95em] font-mono"
-        {...props}
-      >
+      <code className="px-1 py-0.5 rounded bg-muted border border-border text-[0.95em] font-mono" {...props}>
         {children}
       </code>
     )
   }
 
-  // Fenced block (with optional language)
   const lang = (className || '').match(/language-(\w+)/)?.[1] ?? 'text'
 
   return (
@@ -38,12 +36,6 @@ function Code({
           <Copy size={18} className="inline border-none bg-transparent hover:scale-110" aria-label="Copy code to clipboard" />
         </button>
       </div>
-
-      {/* Important bits:
-          - whitespace-pre preserves indentation
-          - p-2 gives small padding
-          - we DO NOT add padding on <code>; we’ll strip hljs padding via CSS override below
-      */}
       <div className="code-block__body">
         <code className={className} {...props}>
           {children}
@@ -56,8 +48,11 @@ function Code({
 export default function Markdown({ source, className = '' }: { source: string; className?: string }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[
+        rehypeKatex,
+        [rehypeHighlight, { detect: true, ignoreMissing: true }],
+      ]}
       components={{ code: Code }}
       className={`prose prose-invert max-w-none ${className}`}
     >
@@ -65,4 +60,3 @@ export default function Markdown({ source, className = '' }: { source: string; c
     </ReactMarkdown>
   )
 }
-

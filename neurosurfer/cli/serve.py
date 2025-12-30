@@ -91,7 +91,7 @@ async def serve(opts: ServeOptions) -> int:
     backend_pipe_task = None
     if not opts.only_ui:
         logger.info(f"Starting Neurosurfer backend at http://{opts.backend_host}:{opts.backend_port}")
-        os.environ["NEUROSURF_SILENCE"] = "1"
+        os.environ["NEUROSURFER_SILENCE"] = "1"
         backend_proc = await start_backend_proc(
             backend_app=opts.backend_app,
             backend_host=opts.backend_host,
@@ -123,7 +123,7 @@ async def serve(opts: ServeOptions) -> int:
             if "VITE_BACKEND_URL" not in env:
                 backend_host_for_url = opts.backend_host
                 if backend_host_for_url in ("0.0.0.0", "::"):
-                    backend_host_for_url = os.environ.get("NEUROSURF_PUBLIC_HOST", "127.0.0.1")
+                    backend_host_for_url = os.environ.get("NEUROSURFER_PUBLIC_HOST", "127.0.0.1")
                 env["VITE_BACKEND_URL"] = f"http://{backend_host_for_url}:{opts.backend_port}"
 
             ui_proc = await asyncio.create_subprocess_exec(

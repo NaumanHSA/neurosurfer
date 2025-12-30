@@ -114,7 +114,7 @@ class MainChatWorkflow:
         message_id: int,
         user_query: str,
         has_files_message: bool,
-        chat_history_block: Optional[List[Dict[str, Any]]] = None,
+        chat_history: Optional[List[Dict[str, Any]]] = None,
         stream: bool = True,
         reset_tracer: bool = True
     ) -> MainWorkflowResult:
@@ -132,8 +132,10 @@ class MainChatWorkflow:
             self.tracer.reset()
         
         # parse chat history block into a string
-        if chat_history_block:
-            chat_history_block = self._chat_history_to_string(chat_history_block)
+        chat_history_block = ""
+        if chat_history:
+            chat_history_block = self._chat_history_to_string(chat_history)
+            print(f"\nChat History:\n{chat_history_block}\n\n")
 
         rprint("🧠 Thinking...", color="yellow")
         if self.log_traces:
@@ -168,7 +170,7 @@ class MainChatWorkflow:
             files_summaries_block=files_summaries_block,
             chat_history_block=chat_history_block,
         )
-        needs_clarification = gate_decision.clarification_question is not None
+        needs_clarification = gate_decision.needs_clarification
         main_tracer.log(message=gate_decision.pretty_str(), type="thought", type_keyword=False)
 
         # If the gate says we need clarification, short-circuit.
@@ -178,12 +180,12 @@ class MainChatWorkflow:
                 route="clarify",
                 gate_decision=gate_decision,
                 needs_clarification=True,
-                final_answer_text=gate_decision.clarification_question,
+                final_answer_text="Please clarify your request.",
                 traces=self.tracer.results,
             )
             # For streaming case, wrap the clarification in a trivial generator
             if stream:
-                result.final_answer_stream = self._single_chunk_stream(gate_decision.clarification_question)
+                result.final_answer_stream = self._single_chunk_stream("Please clarify your request.")
             main_tracer.close()
             return result
 
@@ -193,7 +195,10 @@ class MainChatWorkflow:
         rag_context: Optional[RAGContextResult] = None
         code_context: Optional[CodeAgentContextResult] = None
 
-        optimized_query = gate_decision.optimized_query or user_query
+        optimized_query = user_query
+        if gate_decision.optimized_query:
+            optimized_query += f"\nOptimized Query: {gate_decision.optimized_query}\n"
+
         if route == "code" and self.config.enable_code:
             """Call CodeAgentService to build a context block."""
             main_tracer.log(message="Running code pipeline", type="info")
@@ -221,26 +226,11 @@ class MainChatWorkflow:
             )
             context_block = rag_context.context_block
             main_tracer.log(message=f"RAG pipeline completed with retrieved context of size {len(context_block)} chars.", type="info")
-        else:
-            # Either route=="direct" or the feature is disabled.
-            # Build a simple context that tells the final LLM to answer from
-            # general knowledge + chat history.
-            main_tracer.log(message="Running direct pipeline", type="info")
-            context_block = self._build_direct_context(
-                user_query=optimized_query,
-                chat_history_block=chat_history_block,
-                files_summaries_block=None,
-                route=route,
-            )
-            route = "direct"  # normalize if we overrode due to disabled features
-            # if direct, we reduce the file summaries block to what gate llm suggests (generic queries do not always need to know about our uploaded files)
-            files_summaries_block = self._reduce_files_summaries_block(files_summaries_block, gate_decision.use_files)
-
+            
         # Optional: truncate context to avoid huge prompts
         if self.config.max_context_chars > 0 and len(context_block) > self.config.max_context_chars:
             context_block = (
-                context_block[: self.config.max_context_chars]
-                + "\n\n[Context truncated due to length; most recent / most relevant parts kept.]"
+                context_block[: self.config.max_context_chars] + "...\n[Context truncated due to length; most recent / most relevant parts kept.]"
             )
 
         # Final answer generation (streaming or not)
@@ -248,11 +238,13 @@ class MainChatWorkflow:
             main_tracer.log(message="Generating final answer (streaming)", type="info")
             answer_stream = self.final_answer.generate(
                 user_query=optimized_query,
+                route=route,
                 context_block=context_block,
                 files_summaries_block=files_summaries_block,
                 chat_history_block=chat_history_block,
                 target_language=self.config.default_language,
                 answer_length=self.config.default_answer_length,
+                route_reason=gate_decision.reason,
                 extra_instructions="",
             )
             final_text = None
@@ -312,68 +304,41 @@ class MainChatWorkflow:
         # Small helper so type checkers are happy.
         return self.rag_service.rag_orchestrator
 
-    def _build_direct_context(
-        self,
-        *,
-        user_query: str,
-        chat_history_block: str,
-        files_summaries_block: str,
-        route: str,
-    ) -> str:
-        """
-        Construct a small context block for the direct-answer path.
-        """
-        lines: List[str] = []
-
-        if route not in {"direct", "clarify"}:
-            lines.append(
-                f"(NOTE: The router suggested route='{route}', "
-                "but that route is disabled. Answering directly instead.)"
-            )
-            lines.append("")
-
-        lines.append("You should answer based on:")
-        lines.append("- The user's query.")
-        lines.append("- The prior chat history (if any).")
-        lines.append("- Your general world knowledge.")
-        lines.append("")
-        lines.append("USER QUERY:")
-        lines.append(user_query.strip())
-        lines.append("")
-        if chat_history_block.strip():
-            lines.append("CHAT HISTORY (most recent first or suitable ordering):")
-            lines.append(chat_history_block.strip())
-            lines.append("")
-        if files_summaries_block and files_summaries_block.strip():
-            lines.append("UPLOADED FILE SUMMARIES (may or may not be relevant):")
-            lines.append(files_summaries_block.strip())
-            lines.append("")
-
-        return "\n".join(lines).strip()
-
     @staticmethod
     def _single_chunk_stream(text: str) -> Generator[str, None, None]:
-        """
-        Wrap a single text value into a generator, for unified streaming API.
-        """
+        """Wrap a single text value into a generator, for unified streaming API."""
         yield text
 
     def _chat_history_to_string(self, chat_history: List[Dict[str, Any]]) -> str:
-        """
-        Convert a list of chat messages (dicts with role/content)
-        into a readable conversation string.
-        """
-        lines = []
-        for message in chat_history:
-            role = message.get("role", "unknown")
+        """Convert chat history into a compact, readable string"""
+        limit_assistant = 4000
+        limit_user = 4000
+        limit_fallback = 4000
+        def _clip(text: str, limit: int) -> str:
+            text = (text or "").strip().replace("\r\n", "\n")
+            if len(text) <= limit:
+                return text
+            return text[:limit].rstrip() + "..."
+
+        lines: List[str] = []
+        for message in chat_history or []:
+            role = (message.get("role") or "unknown").strip().lower()
+            if role == "system":
+                continue
+
             content = message.get("content", "")
-            lines.append(f"{role.upper()}: {content}")
+            if role == "assistant":
+                content = _clip(content, limit_assistant)
+            elif role == "user":
+                content = _clip(content, limit_user)
+            else:
+                content = _clip(content, limit_fallback)  # fallback for tool/other roles
+            if content:
+                lines.append(f"{role.upper()}: {content}")
         return "\n".join(lines)
 
     def _reduce_files_summaries_block(self, files_summaries_block: str, use_files: List[str]) -> str:
-        """
-        Reduces the files summaries block to only the files that are used in the gate decision.
-        """
+        """Reduces the files summaries block to only the files that are used in the gate decision."""
         try:
             b: Dict[str, Any] = json.loads(files_summaries_block) or {}
             for key in list(b.keys()):
