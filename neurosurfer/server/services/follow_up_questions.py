@@ -186,7 +186,6 @@ class FollowUpQuestions:
         ).choices[0].message.content
 
         parsed = robust_parse_followups(response)
-        print("Foolow up Qustions  --: ----", parsed)
         return self.llm._final_nonstream_response(
             call_id=self.llm.call_id,
             model=self.llm.model_name,

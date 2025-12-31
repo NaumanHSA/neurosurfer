@@ -236,7 +236,7 @@ class NeurosurferApp:
             rag_orchestrator=self._rag_orchestrator,
             config=config,
             code_agent_config=code_agent_config,
-            log_traces=True,
+            log_traces=config.log_traces,
             logger=self.logger,
         )
         self.code_agent = self._chat_workflow.code_service.code_agent

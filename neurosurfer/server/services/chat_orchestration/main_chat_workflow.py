@@ -103,6 +103,7 @@ class MainChatWorkflow:
             temperature=self.config.temperature,
             max_new_tokens=self.config.max_new_tokens,
             base_system_instructions=None,
+            log_traces=self.log_traces,
             logger=self.logger,
         )
 

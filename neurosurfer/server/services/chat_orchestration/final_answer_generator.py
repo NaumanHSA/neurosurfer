@@ -138,8 +138,8 @@ class FinalAnswerGenerator:
                     answer_length=length,
                     extra_instructions=extra_instr,
                 )
-            print(f"\n\nUser Prompt for Final Answer Generator:\n\n{user_prompt}\n\n")
-
+                
+            # print(f"\n\nUser Prompt for Final Answer Generator:\n\n{user_prompt}\n\n")
             tracer.inputs(user_prompt=user_prompt, user_prompt_len=len(user_prompt))
             streaming_response = self.llm.ask(
                 system_prompt=self.system_prompt,
@@ -152,10 +152,11 @@ class FinalAnswerGenerator:
             final_answer = ""
             for chunk in streaming_response:
                 chunk = chunk.choices[0].delta.content or ""
-                tracer.stream(chunk, type="whiteb")
+                if len(final_answer) <= 200:
+                    tracer.stream(chunk, type="whiteb")
                 final_answer += chunk
                 yield chunk
-            tracer.stream("\n\n", type="whiteb")
+            tracer.stream("...\n\n", type="whiteb")
             # normalize_response will yield strings for each chunk
             tracer.outputs(final_answer=final_answer)
 

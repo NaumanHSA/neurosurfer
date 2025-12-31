@@ -102,11 +102,11 @@ async def load_model():
 
     from neurosurfer.models.chat_models.transformers import TransformersModel
     MODEL_SOURCE = os.getenv("NEUROSURFER_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit")
+    max_seq_len = int(os.getenv("MODEL_MAX_SEQ_LEN", "8000"))
     llm = TransformersModel(
         # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
         model_name=MODEL_SOURCE,
-        # max_seq_length=config.base_model.max_seq_length,
-        max_seq_length=8000,
+        max_seq_length=max_seq_len,
         load_in_4bit=config.base_model.load_in_4bit,
         enable_thinking=config.base_model.enable_thinking,
         stop_words=config.base_model.stop_words or [],
@@ -119,18 +119,21 @@ async def load_model():
         provider="Unsloth",
         description="Proxy to Llama"
     )
+    log_traces = os.getenv('LOG_TRACES', 'false') == 'true'
+    enable_rag = os.getenv('ENABLE_RAG', 'true') == 'true'
+    enable_code = os.getenv('ENABLE_CODE_AGENT', 'true') == 'true'
     from neurosurfer.server.services.chat_orchestration import MainWorkflowConfig, CodeAgentConfig
     ns._init_chat_workflow(
         config=MainWorkflowConfig(
             default_language=os.getenv("CHAT_ANSWER_LANGUAGE", "english"),
             default_answer_length=os.getenv("CHAT_ANSWER_LENGTH", "detailed"),
-            enable_rag=True,
-            enable_code=True,
-            log_traces=True,
-            max_context_chars=16000,
-            max_history_chars=12000,
+            enable_rag=enable_rag,
+            enable_code=enable_code,
+            log_traces=log_traces,
+            max_context_chars=10000,
+            max_history_chars=8000,
             max_new_tokens=8000,
-            temperature=0.3
+            temperature=0.3,
         ),
         code_agent_config=CodeAgentConfig(
             temperature=0.3,

@@ -105,9 +105,34 @@ def format_files_listing(
     if not filtered:
         return "(no matching files in context)"
     return json.dumps(filtered, indent=2)
-    
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert results into JSON-safe structures."""
+    # pandas handled in format_result before calling this
+    # numpy scalars
+    try:
+        import numpy as np
+        if isinstance(obj, np.generic):
+            return obj.item()
+    except Exception:
+        pass
+
+    if isinstance(obj, dict):
+        # JSON supports only primitive keys
+        ok_key = lambda k: (k is None) or isinstance(k, (str, int, float, bool))
+        if all(ok_key(k) for k in obj.keys()):
+            return {k: _json_safe(v) for k, v in obj.items()}
+
+        # Non-JSON keys (e.g., tuple) -> list of key/value pairs
+        return [{"key": str(k), "value": _json_safe(v)} for k, v in obj.items()]
+
+    if isinstance(obj, (list, tuple, set)):
+        return [_json_safe(x) for x in obj]
+
+    return obj
+
 def format_result(result: Any, max_table_rows: int = 15) -> str:
-    # Import here to avoid hard dependency at module import time
     try:
         import pandas as pd
     except Exception:
@@ -122,10 +147,30 @@ def format_result(result: Any, max_table_rows: int = 15) -> str:
             if len(result) > max_table_rows:
                 result = result.head(max_table_rows)
             return result.to_markdown()
-    if isinstance(result, (list, dict)):
-        return json.dumps(result, indent=2, default=str)
+    if isinstance(result, (list, dict, tuple, set)):
+        safe = _json_safe(result)
+        return json.dumps(safe, indent=2, ensure_ascii=False, default=str)
     return str(result)
 
+# def format_result(result: Any, max_table_rows: int = 15) -> str:
+#     # Import here to avoid hard dependency at module import time
+#     try:
+#         import pandas as pd
+#     except Exception:
+#         pd = None
+#     if pd is not None:
+#         import pandas as _pd
+#         if isinstance(result, _pd.DataFrame):
+#             if len(result) > max_table_rows:
+#                 result = result.head(max_table_rows)
+#             return result.to_markdown(index=False)
+#         if isinstance(result, _pd.Series):
+#             if len(result) > max_table_rows:
+#                 result = result.head(max_table_rows)
+#             return result.to_markdown()
+#     if isinstance(result, (list, dict)):
+#         return json.dumps(result, indent=2, default=str)
+#     return str(result)
 
 def build_memory_extras_for_result(
     result: Any,

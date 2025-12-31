@@ -19,6 +19,10 @@ services:
       - CHAT_ANSWER_LANGUAGE=english
       - CHAT_ANSWER_LENGTH=detailed
       - NEUROSURFER_MODEL_PATH=/models/Qwen3-8B-unsloth-bnb-4bit
+      - MODEL_MAX_SEQ_LEN=8000
+      - LOG_TRACES=false
+      - ENABLE_RAG=true
+      - ENABLE_CODE_AGENT=true
     ports:
       - "8081:8081"
       - "5173:5173"
