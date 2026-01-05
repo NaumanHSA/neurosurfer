@@ -27,7 +27,7 @@ class OpenAIModel(BaseChatModel):
         (r"<\|begin_of_thought\|>", r"<\|end_of_thought\|>"),
         (r"<think>", r"</think>"),
         (r"<analysis>", r"</analysis>"),
-        (r"``````"),
+        (r"```", r"```"),
     ]
 
     def __init__(

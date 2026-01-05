@@ -87,6 +87,8 @@ class ReActAgent(BaseAgent):
     def run(
         self,
         *,
+        system_prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None,
         query: Optional[str] = None,
         stream: Optional[bool] = None,
         temperature: Optional[float] = None,
@@ -110,6 +112,7 @@ class ReActAgent(BaseAgent):
         self._reset(reset_tracer)
 
         # Resolve config defaults
+        user_prompt = (user_prompt if user_prompt is not None else query) or ""
         stream = self.config.return_stream_by_default if stream is None else bool(stream)
         temperature = float(self.config.temperature if temperature is None else temperature)
         max_new_tokens = int(self.config.max_new_tokens if max_new_tokens is None else max_new_tokens)
@@ -120,7 +123,7 @@ class ReActAgent(BaseAgent):
         )
 
         stream_response = self._run_loop(
-            query=query,
+            query=user_prompt,
             temperature=temperature,
             max_new_tokens=max_new_tokens,
             stream=stream,

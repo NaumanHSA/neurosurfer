@@ -433,8 +433,7 @@ class RAGAgent(Agent):
                 retrieval_mode=retrieval_mode,
                 retrieval_scope=retrieval_scope,
                 retrieval_plan=retrieval_plan,
-                answer_breadth=answer_breadth,
-                trace_step=main_tracer,
+                answer_breadth=answer_breadth
             )
             sys_prompt = system_prompt or RAG_AGENT_SYSTEM_PROMPT
             user_prompt = RAG_USER_PROMPT_TEMPLATE.format(context=retrieved.context, query=user_prompt)

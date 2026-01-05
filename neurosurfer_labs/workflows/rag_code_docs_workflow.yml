@@ -1,0 +1,204 @@
+name: rag_code_docs_workflow
+description: >
+  RAG-first workflow to generate documentation for a target neurosurfer module.
+  Nodes with rag=true must ground outputs in retrieved code from the ingested repo directory.
+
+inputs:
+  - module_path:
+      type: string
+      required: true
+      description: "Repo-relative path, "
+  - doc_title:
+      type: string
+      default: "Module Documentation"
+  - audience:
+      type: string
+      default: "Neurosurfer contributors"
+  - depth:
+      type: string
+      default: "medium"
+      description: "low | medium | deep"
+
+nodes:
+  - id: normalize_request
+    kind: base
+    purpose: "Normalize inputs and restate the documentation task."
+    goal: >
+      Restate what module we are documenting and the artifacts to produce:
+      (1) overview, (2) symbol map, (3) call flow, (4) diagram, (5) usage examples, (6) gotchas.
+      Keep it short and reusable downstream.
+    expected_result: A concise normalized task statement.
+    rag: false
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 1024
+      temperature: 0.2
+
+  - id: retrieve_module_evidence
+    kind: base
+    depends_on: ["normalize_request"]
+    purpose: "Retrieve evidence for the target module."
+    goal: >
+      Using RAG over the ingested repo, retrieve the most relevant chunks for module_path:
+      - module header/docstring/imports
+      - key classes/functions and their signatures
+      - any references to this module from other files (callers)
+      Output an evidence pack with:
+      - file paths
+      - small quoted snippets (short)
+      - what each snippet proves
+      If depth=deep, include more references/callers.
+    expected_result: An evidence pack grounded in retrieved code snippets.
+    rag: true
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.2
+
+  - id: build_symbol_map
+    kind: base
+    depends_on: ["retrieve_module_evidence"]
+    purpose: "Build a structured API/symbol map from evidence."
+    goal: >
+      From retrieved code, list key symbols:
+      - public classes, key methods, key functions
+      - important dataclasses/models/constants
+      - notable exceptions / error paths
+      For each symbol include:
+      - signature (as seen in code)
+      - purpose (1–2 lines)
+      - where defined (file + line hint if available)
+      Keep it grounded; if unsure, mark as "uncertain".
+    expected_result: Structured symbol map.
+    rag: true
+    tools: []
+    mode: structured
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.2
+
+  - id: trace_call_flow
+    kind: base
+    depends_on: ["build_symbol_map"]
+    purpose: "Extract runtime call flow and cross-module interactions."
+    goal: >
+      Using RAG, identify the typical call chain for the module:
+      - main entry points (e.g., run/execute/stream/etc.)
+      - interactions with related modules/classes
+      - data passed between components
+      Output:
+      1) a short call-flow narrative
+      2) a bullet list of dependencies (imports and runtime calls)
+      3) 'callers' list: where this module is invoked from (if found)
+    expected_result: Call-flow description + dependency bullets + callers list.
+    rag: true
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.2
+
+  - id: generate_mermaid_diagram
+    kind: base
+    depends_on: ["trace_call_flow"]
+    purpose: "Turn the discovered call-flow into a Mermaid diagram."
+    goal: >
+      Create a Mermaid flowchart (not sequence diagram) showing the main components and calls.
+      Keep it readable: 8–18 nodes max. Use meaningful node labels.
+      Return ONLY a mermaid code block.
+    expected_result: Mermaid diagram code block.
+    rag: false
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.2
+
+  - id: draft_usage_examples
+    kind: base
+    depends_on: ["trace_call_flow"]
+    purpose: "Produce 2–3 grounded usage examples."
+    goal: >
+      Using RAG, find real usage patterns in the repo (tests, examples, call sites).
+      Produce 2–3 short code snippets that demonstrate how to use the module.
+      If no real usage exists, generate minimal pseudo-usage but mark it clearly as pseudo.
+    expected_result: 2–3 usage examples with notes on whether they are real or pseudo.
+    rag: true
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.2
+
+  - id: write_doc_page
+    kind: base
+    depends_on: ["normalize_request", "retrieve_module_evidence", "build_symbol_map", "trace_call_flow", "generate_mermaid_diagram", "draft_usage_examples"]
+    purpose: "Write a single clean Markdown docs page."
+    goal: >
+      Write an MkDocs-ready Markdown page with sections:
+      - Overview
+      - Responsibilities & Non-goals
+      - Key Types / Functions (from symbol map)
+      - Call Flow (from trace_call_flow)
+      - Mermaid Diagram
+      - Usage Examples
+      - Gotchas / Edge Cases
+      - Evidence (list file paths + brief snippet references)
+      Keep it dev-facing and concise.
+    expected_result: A Markdown docs page.
+    rag: false
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 2400
+      temperature: 0.3
+
+  - id: groundedness_check
+    kind: base
+    depends_on: ["write_doc_page", "retrieve_module_evidence"]
+    purpose: "Strict hallucination check against retrieved evidence."
+    goal: >
+      Using RAG, verify claims in the doc page:
+      - Identify statements not supported by retrieved code snippets.
+      - For each, propose a concrete edit: remove/replace/mark as assumption.
+      Output a strict QA report.
+    expected_result: Structured QA report listing unsupported claims and fixes.
+    rag: true
+    tools: []
+    mode: structured
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.2
+
+  - id: finalize_docs
+    kind: base
+    depends_on: ["write_doc_page", "groundedness_check"]
+    purpose: "Apply fixes and output final docs."
+    goal: >
+      Apply groundedness_check fixes to the doc page.
+      If something cannot be grounded, remove it or label as assumption.
+      Append a short 'Next improvements' section with suggested future lookups.
+    expected_result: Final Markdown documentation page.
+    rag: false
+    tools: []
+    mode: text
+    export: true
+    policy:
+      max_new_tokens: 3000
+      temperature: 0.2
+
+outputs:
+  - retrieve_module_evidence
+  - build_symbol_map
+  - generate_mermaid_diagram
+  - finalize_docs
