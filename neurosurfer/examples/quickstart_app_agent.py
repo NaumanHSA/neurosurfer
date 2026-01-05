@@ -38,6 +38,7 @@ Usage:
 """
 from typing import List, Generator
 import os, shutil, logging
+import dotenv
 
 from neurosurfer.agents.react import ReActAgent, ReActConfig
 from neurosurfer.server.app import NeurosurferApp
@@ -53,6 +54,7 @@ from neurosurfer import CACHE_DIR
 logging.basicConfig(level=config.app.logs_level.upper())
 
 LOGGER = logging.getLogger("neurosurfer")
+dotenv.load_dotenv(override=True)
 
 # Create app instance
 ns = NeurosurferApp(
@@ -103,6 +105,8 @@ async def load_model():
     from neurosurfer.models.chat_models.transformers import TransformersModel
     MODEL_SOURCE = os.getenv("NEUROSURFER_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Qwen3-8B-unsloth-bnb-4bit")
     max_seq_len = int(os.getenv("MODEL_MAX_SEQ_LEN", "8000"))
+    LOGGER.info(f"Loading model from {MODEL_SOURCE} with max_seq_len={max_seq_len}")
+
     llm = TransformersModel(
         # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
         model_name=MODEL_SOURCE,
@@ -215,7 +219,7 @@ def handler(args: ChatHandlerModel) -> AppResponseModel:
     # Prepare inputs
     user_query = args.messages.user_query    # Last user message
     # Minimal chat history excluding system messages, max 10
-    num_recent = 10
+    num_recent = int(os.getenv("NEUROSURFER_MAX_CHAT_HISTORY", 10))
     conversation_messages = args.messages.converstaion
     chat_history = conversation_messages[-num_recent:-1]
 
@@ -237,7 +241,13 @@ def create_app():
     return ns.app
 
 def main():
-    ns.run()
+    ns.run(
+        host=os.getenv("NEUROSURFER_BACKEND_HOST", "0.0.0.0"),
+        port=int(os.getenv("NEUROSURFER_BACKEND_PORT", 8081)),
+        reload=os.getenv("NEUROSURFER_RELOAD", False),
+        log_level=os.getenv("NEUROSURFER_LOG_LEVEL", "info").lower(),
+        workers=int(os.getenv("NEUROSURFER_WORKERS", 1))
+    )
 
 if __name__ == "__main__":
     main()

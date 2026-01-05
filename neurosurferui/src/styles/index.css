@@ -67,7 +67,12 @@
 }
 
 /* Remove dark mode class since we're always dark */
+html {
+  overflow-anchor: none;
+}
+
 body {
+  overflow-anchor: none;
   @apply bg-background text-foreground;
 }
 
@@ -164,4 +169,21 @@ code { background: transparent; }     /* avoid nested backgrounds */
   font-size: .7rem;
   padding: .15rem .5rem;
   border-radius: 8px;
+}
+
+
+html, body { overflow-anchor: none; }
+
+.prose .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.prose .katex-display > .katex {
+  white-space: nowrap; /* or normal if you prefer wrapping */
+}
+
+.prose .katex, .prose .katex * {
+  line-height: normal !important;
 }

@@ -1,4 +1,6 @@
 import inspect, asyncio
+import os
+import dotenv
 import logging
 from typing import (
     Any, Callable, Optional, Type, Awaitable, List, Dict, Union,
@@ -27,7 +29,7 @@ from .security import get_current_user, get_db
 from .models_registry import ModelRegistry
 from .api import _auth_router, _chats_router, chat_completion_router, _files_router
 from .config import CORS_ORIGINS, SECRET_KEY
-from .utils import build_files_context, stream_chat_completion, non_stream_chat_completion
+from .utils import build_files_context, stream_chat_completion, non_stream_chat_completion, parse_csv_env, validate_cors
 from .templates import AGENT_SPECIFIC_INSTRUCTIONS
 
 from neurosurfer.server.services.chat_orchestration import MainChatWorkflow, MainWorkflowConfig
@@ -195,11 +197,18 @@ class NeurosurferApp:
         # # reset rag storage. Remove in production 
         # from .reset import reset_db
         # reset_db()
-        
+
+        dotenv.load_dotenv(override=True)
+        allow_credentials = os.getenv("NS_CORS_ALLOW_CREDENTIALS", "true").lower() in ("1", "true", "yes")
+        default_origins = self.cors_origins  # whatever you pass from config
+        origins = parse_csv_env("NS_CORS_ORIGINS", default_origins)
+        validate_cors(origins, allow_credentials, self.logger)
+        self.logger.info(f"Whitelisted Origins: {origins}")
+
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=self.cors_origins,
-            allow_credentials=True,
+            allow_origins=origins,
+            allow_credentials=allow_credentials,
             allow_methods=["*"],
             allow_headers=["*"]
         )

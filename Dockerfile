@@ -1,7 +1,8 @@
 # ------------------------------------------------------
-# Base image: CUDA 12.4.1, Ubuntu 22.04
+# Base image: CUDA 12.x.x, Ubuntu 22.04
 # ------------------------------------------------------
-ARG CUDA_IMAGE="12.4.1-devel-ubuntu22.04"
+# ARG CUDA_IMAGE="12.4.1-devel-ubuntu22.04"
+ARG CUDA_IMAGE="12.8.0-cudnn-devel-ubuntu22.04"
 FROM nvidia/cuda:${CUDA_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -51,13 +52,18 @@ WORKDIR /app
 
 # ------------------------------------------------------
 # install deps
-COPY requirements.txt ./
-RUN python3 -m pip install -r requirements.txt
-
 # install torch and other llm deps
-RUN python3 -m pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu126
+# RUN python3 -m pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu126
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install --upgrade --force-reinstall \
+      torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+      --index-url https://download.pytorch.org/whl/cu128
+
 RUN python3 -m pip install transformers>="4.56,<5.0" sentence-transformers>="5.1,<6.0" bitsandbytes>="0.48,<0.49" 
 RUN python3 -m pip install unsloth=="2025.8.10" accelerate>="1.10.1,<2.0"
+
+COPY requirements.txt ./
+RUN python3 -m pip install -r requirements.txt
 
 # ------------------------------------------------------
 # 2) Now copy the rest of your project

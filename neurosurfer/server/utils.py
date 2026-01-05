@@ -1,6 +1,7 @@
-from typing import Dict, Any, Generator, Optional
+from typing import Dict, Any, Generator, Optional, List
 from pathlib import Path    
 import os
+import logging
 import uuid
 
 from neurosurfer.models.chat_models import BaseChatModel
@@ -68,3 +69,16 @@ def non_stream_chat_completion(response: str, model_name: Optional[str] = None, 
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens
     )
+
+def parse_csv_env(name: str, default: List[str]) -> List[str]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    items = [x.strip() for x in raw.split(",") if x.strip()]
+    return items or default
+
+def validate_cors(origins: List[str], allow_credentials: bool, logger: logging.Logger):
+    if allow_credentials and "*" in origins:
+        raise ValueError("CORS: cannot use '*' in allow_origins when allow_credentials=True")
+    # Optional: log what you ended up with
+    logger.info(f"CORS allow_origins = {origins} (credentials={allow_credentials})")

@@ -136,7 +136,7 @@ class MainChatWorkflow:
         chat_history_block = ""
         if chat_history:
             chat_history_block = self._chat_history_to_string(chat_history)
-            print(f"\nChat History:\n{chat_history_block}\n\n")
+            # print(f"\nChat History:\n{chat_history_block}\n\n")
 
         rprint("🧠 Thinking...", color="yellow")
         if self.log_traces:
