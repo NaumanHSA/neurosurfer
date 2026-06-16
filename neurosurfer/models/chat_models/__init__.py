@@ -1,1 +1,1 @@
-from .base import BaseChatModel, LLM_RESPONSE_TYPE
+from .base import BaseChatModel, LLM_SYNC_RESPONSE, LLM_ASYNC_RESPONSE

@@ -1,135 +1,108 @@
-# neurosurfer/models/openai_model.py
+from __future__ import annotations
+
+import json
 import logging
-import uuid
 import re
-import os
-from threading import Lock
-from typing import Any, Generator, List, Dict, Union, Tuple, Optional
-from datetime import datetime
+from typing import Any, AsyncIterator, Generator, List, Optional
+
+import httpx
 
 from .base import BaseChatModel
-from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 from neurosurfer.config import config
+from neurosurfer.server.schemas import ChatCompletionResponse, ChatCompletionChunk
 
 
 class OpenAIModel(BaseChatModel):
     """
-    An OpenAI/compatible chat client implementing BaseChatModel with Pydantic responses.
-    
-    Works with:
-      • OpenAI Cloud (leave base_url=None, set a real api_key)
-      • LM Studio local server (e.g., base_url="http://localhost:1234/v1", api_key="lm-studio")
-      • vLLM OpenAI server (e.g., base_url="http://localhost:8000/v1")
-      • Ollama OpenAI compat (e.g., base_url="http://localhost:11434/v1", api_key="ollama")
-    """
+    OpenAI-compatible HTTP client that talks to:
+      - vLLM OpenAI server
+      - OpenAI
+      - any OpenAI-compatible proxy
 
-    REASONING_BLOCKS: List[Tuple[str, str]] = [
-        (r"<\|begin_of_thought\|>", r"<\|end_of_thought\|>"),
-        (r"<think>", r"</think>"),
-        (r"<analysis>", r"</analysis>"),
-        (r"```", r"```"),
-    ]
+    Implements both sync + async for convenience.
+    """
 
     def __init__(
         self,
-        model_name: str = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
-        *,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = os.getenv("OPENAI_API_KEY", None),
-        timeout: Optional[float] = 120.0,
-        stop_words: Optional[List[str]] = config.base_model.stop_words,
+        model_name: str,
+        base_url: str,
+        api_key: str,
+        timeout: float = 120.0,
+        stop_words: Optional[List[str]] = None,
         strip_reasoning: bool = False,
         max_seq_length: int = config.base_model.max_seq_length,
+        enable_thinking: bool = config.base_model.enable_thinking,
         verbose: bool = config.base_model.verbose,
-        logger: logging.Logger = logging.getLogger(),
+        logger: Optional[logging.Logger] = None,
         **kwargs: Any,
     ):
-        super().__init__(max_seq_length=max_seq_length, stop_words=stop_words, verbose=verbose, logger=logger, **kwargs)
+        super().__init__(
+            max_seq_length=max_seq_length,
+            enable_thinking=enable_thinking,
+            stop_words=stop_words or config.base_model.stop_words,
+            verbose=verbose,
+            logger=logger,
+            **kwargs,
+        )
         self.model_name = model_name
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        self.timeout = timeout
         self.strip_reasoning = strip_reasoning
-        self.tokenizer = None
-        self.lock = Lock()
-        self.client = None
-        self.init_model()
 
-    def init_model(self):
-        try:
-            from openai import OpenAI
-        except Exception as e:
-            raise ImportError(
-                "Could not import OpenAI client. Please install with: pip install --upgrade openai"
-            ) from e
+        self._client = httpx.Client(timeout=httpx.Timeout(timeout, read=None))
+        self._aclient = httpx.AsyncClient(timeout=httpx.Timeout(timeout, read=None))
 
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        if self.verbose:
-            self.logger.info(
-                f"[OpenAIModel] Initialized client for model={self.model_name} base_url={self.base_url or 'default'}"
-            )
-        try:
-            from transformers import AutoTokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        except Exception as e:
-            if self.verbose:
-                self.logger.warning(f"[OpenAIModel] Tokenizer not loaded: {e}")
-            self.tokenizer = None
+        # NOTE: regex stripping is not perfect across chunk boundaries,
+        # but good enough as a baseline. For perfect behavior use hooks in server.
+        self._think_re = re.compile(r"<think>.*?</think>", re.DOTALL)
 
-    def _format_messages(
-        self,
-        system_prompt: str,
-        chat_history: List[dict],
-        user_prompt: str,
-    ) -> List[Dict[str, str]]:
-        messages: List[Dict[str, str]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        if chat_history:
-            messages.extend(chat_history)
-        messages.append({"role": "user", "content": user_prompt})
-        return messages
+    def init_model(self) -> None:
+        # HTTP client model: nothing to load
+        return
 
-    def _common_args(
+    def _headers(self) -> dict:
+        h = {"Content-Type": "application/json"}
+        if self.api_key:
+            h["Authorization"] = f"Bearer {self.api_key}"
+        return h
+
+    def _strip(self, s: str) -> str:
+        if not self.strip_reasoning or not isinstance(s, str):
+            return s
+        return self._think_re.sub("", s).strip()
+
+    def _payload(
         self,
         *,
-        messages: List[Dict[str, str]],
+        user_prompt: str,
+        system_prompt: str,
+        chat_history: List[dict],
         temperature: float,
         max_new_tokens: int,
-        extra: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        allowed = {
-            "top_p",
-            "presence_penalty",
-            "frequency_penalty",
-            "logit_bias",
-            "user",
-            "n",
-            "response_format",
-            "seed",
-        }
-        passthrough = {k: v for k, v in extra.items() if k in allowed and v is not None}
+        stream: bool,
+        **kwargs: Any,
+    ) -> dict:
+        messages = self._build_messages(system_prompt, chat_history, user_prompt)
 
-        args: Dict[str, Any] = {
+        payload = {
             "model": self.model_name,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_new_tokens,
-            **passthrough,
+            "stream": stream,
         }
-        if self.stop_words:
-            args["stop"] = self.stop_words
-        return args
 
-    def _estimate_tokens(self, text: str) -> int:
-        """Estimate token count"""
-        if self.tokenizer:
-            try:
-                return len(self.tokenizer.encode(text, add_special_tokens=False))
-            except:
-                pass
-        return len(text.split())  # Fallback approximation
+        # Pass stop words upstream if not overridden (OpenAI API supports "stop")
+        if self.stop_words and "stop" not in kwargs:
+            payload["stop"] = self.stop_words
 
+        # Allow any OpenAI-compatible extra args (top_p, presence_penalty, tools, tool_choice, etc.)
+        payload.update(kwargs or {})
+        return payload
+
+    # -------------------------
+    # sync implementations
+    # -------------------------
     def _call(
         self,
         user_prompt: str,
@@ -139,57 +112,40 @@ class OpenAIModel(BaseChatModel):
         max_new_tokens: int,
         **kwargs: Any,
     ) -> ChatCompletionResponse:
-        """Returns ChatCompletionResponse (Pydantic model)"""
-        from openai import APIConnectionError, RateLimitError, APIStatusError
-
-        self.call_id = str(uuid.uuid4())
-        self.reset_stop_signal()
-        
-        with self.lock:
-            messages = self._format_messages(system_prompt, chat_history, user_prompt)
-            args = self._common_args(
-                messages=messages,
-                temperature=temperature,
-                max_new_tokens=max_new_tokens,
-                extra=kwargs,
+        if self.should_stop():
+            # immediate stop: return empty assistant message
+            return ChatCompletionResponse(
+                id=self.call_id or "chatcmpl-stopped",
+                created=int(__import__("time").time()),
+                model=self.model_name,
+                choices=[{"index": 0, "message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}],
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             )
+
+        payload = self._payload(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            chat_history=chat_history,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            stream=False,
+            **kwargs,
+        )
+
+        r = self._client.post(f"{self.base_url}/chat/completions", headers=self._headers(), json=payload)
+        r.raise_for_status()
+        data = r.json()
+
+        if self.strip_reasoning:
             try:
-                completion = self.client.chat.completions.create(timeout=self.timeout, **args)
-                content = completion.choices[0].message.content or ""
-                
-                # Strip reasoning if enabled
-                if self.strip_reasoning:
-                    content = self.strip_reasoning_text(content)
-                
-                # Calculate token usage
-                prompt_tokens = getattr(completion.usage, 'prompt_tokens', 0) if hasattr(completion, 'usage') else 0
-                completion_tokens = getattr(completion.usage, 'completion_tokens', 0) if hasattr(completion, 'usage') else 0
-                
-                # Fallback to estimation if not provided
-                if prompt_tokens == 0:
-                    prompt_text = " ".join([m["content"] for m in messages])
-                    prompt_tokens = self._estimate_tokens(prompt_text)
-                if completion_tokens == 0:
-                    completion_tokens = self._estimate_tokens(content)
-                
-                return self._final_nonstream_response(
-                    call_id=self.call_id,
-                    model=self.model_name,
-                    content=content,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                )
-            except (APIConnectionError, RateLimitError, APIStatusError) as e:
-                err = f"[OpenAIModel] API error: {type(e).__name__}: {e}"
-                if self.verbose:
-                    self.logger.error(err)
-                return self._final_nonstream_response(
-                    call_id=self.call_id,
-                    model=self.model_name,
-                    content=err,
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                )
+                for ch in data.get("choices", []):
+                    msg = ch.get("message") or {}
+                    if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
+                        msg["content"] = self._strip(msg["content"])
+            except Exception:
+                pass
+
+        return ChatCompletionResponse(**data)
 
     def _stream(
         self,
@@ -200,95 +156,153 @@ class OpenAIModel(BaseChatModel):
         max_new_tokens: int,
         **kwargs: Any,
     ) -> Generator[ChatCompletionChunk, None, None]:
-        """Yields ChatCompletionChunk (Pydantic models)"""
-        from openai import APIConnectionError, RateLimitError, APIStatusError
+        payload = self._payload(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            chat_history=chat_history,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            stream=True,
+            **kwargs,
+        )
 
-        self.call_id = str(uuid.uuid4())
-        self.reset_stop_signal()
-        
-        with self.lock:
-            messages = self._format_messages(system_prompt, chat_history, user_prompt)
-            args = self._common_args(
-                messages=messages,
-                temperature=temperature,
-                max_new_tokens=max_new_tokens,
-                extra=kwargs,
+        with self._client.stream(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            headers=self._headers(),
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if self.should_stop():
+                    # close early: exiting context manager ends upstream connection
+                    break
+                if not line:
+                    continue
+                s = line.decode("utf-8", "ignore")
+                if s.startswith(":") or not s.startswith("data:"):
+                    continue
+
+                data = s[len("data:") :].strip()
+                if data == "[DONE]":
+                    break
+
+                try:
+                    obj = json.loads(data)
+                except Exception:
+                    continue
+
+                if self.strip_reasoning:
+                    try:
+                        for ch in obj.get("choices", []):
+                            delta = ch.get("delta") or {}
+                            if isinstance(delta.get("content"), str):
+                                delta["content"] = self._strip(delta["content"])
+                    except Exception:
+                        pass
+
+                yield ChatCompletionChunk(**obj)
+
+    # -------------------------
+    # async implementations (preferred)
+    # -------------------------
+    async def _acall(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        chat_history: List[dict],
+        temperature: float,
+        max_new_tokens: int,
+        **kwargs: Any,
+    ) -> ChatCompletionResponse:
+        if self.should_stop():
+            return ChatCompletionResponse(
+                id=self.call_id or "chatcmpl-stopped",
+                created=int(__import__("time").time()),
+                model=self.model_name,
+                choices=[{"index": 0, "message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}],
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             )
-            buffer = ""
-            start_yield = True
-            is_first_yield = True
-            
+
+        payload = self._payload(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            chat_history=chat_history,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            stream=False,
+            **kwargs,
+        )
+
+        r = await self._aclient.post(f"{self.base_url}/chat/completions", headers=self._headers(), json=payload)
+        r.raise_for_status()
+        data = r.json()
+
+        if self.strip_reasoning:
             try:
-                stream = self.client.chat.completions.create(stream=True, timeout=self.timeout, **args)
-                for chunk in stream:
-                    if self._stop_signal:
-                        break
-                    
-                    for choice in chunk.choices:
-                        piece: str = getattr(choice.delta, "content", None) or ""
-                        if not piece:
-                            continue
-                        
-                        buffer += piece
-                        
-                        # Client-side stop word check
-                        if any(s in buffer for s in self.stop_words):
-                            stream.close()
-                            break
-                        
-                        # Strip reasoning blocks if enabled
-                        if self.strip_reasoning:
-                            for start_tag, end_tag in self.REASONING_BLOCKS:
-                                if start_tag in piece:
-                                    start_yield = False
-                                if end_tag in piece:
-                                    start_yield = True
-                                    piece = ""
-                        
-                        if start_yield and piece:
-                            # Remove leading whitespace from first yield
-                            if is_first_yield:
-                                piece = piece.lstrip()
-                                is_first_yield = False
-                            
-                            yield self._delta_chunk(
-                                call_id=self.call_id,
-                                model=self.model_name,
-                                content=piece,
-                            )
-                
-                # Final stop chunk
-                yield self._stop_chunk(
-                    call_id=self.call_id,
-                    model=self.model_name,
-                    finish_reason="stop",
-                )
-            
-            except (APIConnectionError, RateLimitError, APIStatusError) as e:
-                err = f"[OpenAIModel] API error: {type(e).__name__}: {e}"
-                if self.verbose:
-                    self.logger.error(err)
-                yield self._delta_chunk(
-                    call_id=self.call_id,
-                    model=self.model_name,
-                    content=err,
-                )
-                yield self._stop_chunk(
-                    call_id=self.call_id,
-                    model=self.model_name,
-                    finish_reason="error",
-                )
+                for ch in data.get("choices", []):
+                    msg = ch.get("message") or {}
+                    if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
+                        msg["content"] = self._strip(msg["content"])
+            except Exception:
+                pass
 
-    def strip_reasoning_text(self, text: str) -> str:
-        """Remove reasoning blocks from text"""
-        for start, end in self.REASONING_BLOCKS:
-            text = re.sub(start + r".*?" + end, "", text, flags=re.DOTALL | re.IGNORECASE)
-        return text.strip()
+        return ChatCompletionResponse(**data)
 
-    def stop_generation(self):
-        """Set stop signal to halt generation"""
-        self.set_stop_signal()
+    async def _astream(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        chat_history: List[dict],
+        temperature: float,
+        max_new_tokens: int,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        payload = self._payload(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            chat_history=chat_history,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            stream=True,
+            **kwargs,
+        )
 
-    def set_stop_words(self, stops: List[str]):
-        """Update stop words list"""
-        self.stop_words = stops or []
+        async with self._aclient.stream(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            headers=self._headers(),
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if self.should_stop():
+                    break
+                if not line:
+                    continue
+                if line.startswith(":") or not line.startswith("data:"):
+                    continue
+
+                data = line[len("data:") :].strip()
+                if data == "[DONE]":
+                    break
+
+                try:
+                    obj = json.loads(data)
+                except Exception:
+                    continue
+
+                if self.strip_reasoning:
+                    try:
+                        for ch in obj.get("choices", []):
+                            delta = ch.get("delta") or {}
+                            if isinstance(delta.get("content"), str):
+                                delta["content"] = self._strip(delta["content"])
+                    except Exception:
+                        pass
+
+                yield ChatCompletionChunk(**obj)
+
+    async def aclose(self) -> None:
+        await self._aclient.aclose()
+        self._client.close()
