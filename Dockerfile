@@ -33,12 +33,6 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
         msodbcsql17 && \
     rm -rf /var/lib/apt/lists/*
 
-# Node.js for NeurowebUI
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
 # ------------------------------------------------------
 # Common env
 # ------------------------------------------------------

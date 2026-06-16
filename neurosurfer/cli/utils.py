@@ -3,80 +3,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import shutil
-import socket
 import sys
 import time
-import webbrowser
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 # ----------------------- Printing -----------------------
 
 def eprint(*args: Any) -> None:
     print(*args, file=sys.stderr)
-
-
-# ----------------------- PATH / WHICH -----------------------
-
-def which(cmd: str, verbose: bool = False) -> Optional[str]:
-    """
-    Robust 'which': return resolved path if the command is in PATH.
-    """
-    path = shutil.which(cmd)
-    if path and verbose:
-        real = os.path.realpath(path)
-        print(f"[which] {cmd} -> {path} (real: {real})")
-    return path
-
-
-# ----------------------- ENV -----------------------
-
-def env_truthy(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "on")
-
-
-# ----------------------- UI discovery -----------------------
-
-def find_packaged_ui_dir() -> Optional[Path]:
-    """
-    Returns neurosurfer/ui_build if bundled and contains index.html.
-    """
-    try:
-        from importlib.resources import files
-        p = files("neurosurfer") / "ui_build"
-        pp = Path(str(p))
-        return pp if pp.exists() and (pp / "index.html").exists() else None
-    except Exception:
-        return None
-
-
-def has_package_json(path: Optional[Path]) -> bool:
-    return bool(path and path.is_dir() and (path / "package.json").exists())
-
-
-def looks_like_build_dir(path: Optional[Path]) -> bool:
-    return bool(path and path.exists() and (path / "index.html").exists())
-
-
-def detect_ui_root(arg: Optional[Path]) -> Optional[Path]:
-    if arg:
-        return arg
-    env = os.environ.get("NEUROSURFER_UI_ROOT")
-    if env:
-        return Path(env)
-    here = Path(__file__).resolve()
-    for candidate in [
-        here.parent.parent / "neurosurferui",  # repo layout
-        here.parent / "neurosurferui",         # package-local
-    ]:
-        if candidate.exists():
-            return candidate
-    return None
 
 
 # ----------------------- Readiness probes -----------------------
@@ -124,37 +59,15 @@ def effective_public_host(host: str) -> str:
     return host
 
 
-# ----------------------- Browser -----------------------
-
-def open_browser_safe(url: str) -> None:
-    try:
-        webbrowser.open_new_tab(url)
-        return
-    except Exception:
-        pass
-    # fallbacks
-    with contextlib.suppress(Exception):
-        if sys.platform.startswith("linux"):
-            os.spawnlp(os.P_NOWAIT, "xdg-open", "xdg-open", url)
-        elif sys.platform == "darwin":
-            os.spawnlp(os.P_NOWAIT, "open", "open", url)
-        elif os.name == "nt":
-            os.startfile(url)  # type: ignore[attr-defined]
-
-
 # ----------------------- Banner -----------------------
 
-def print_ready_banner(backend_url: str, ui_url: Optional[str]) -> None:
+def print_ready_banner(backend_url: str) -> None:
     lines = []
     lines.append("")
     lines.append("╔══════════════════════════════════════════════════════════════════════╗")
-    lines.append("║                      🚀 Neurosurfer Server is running!               ║")
+    lines.append("║                      🚀 Neurosurfer Gateway is running!              ║")
     lines.append("╠══════════════════════════════════════════════════════════════════════╣")
     lines.append(f"║  API     : {backend_url:<58}║")
-    if ui_url:
-        lines.append(f"║  UI      : {ui_url:<58}║")
-    else:
-        lines.append("║  UI      : (not enabled)                                             ║")
     lines.append("╠══════════════════════════════════════════════════════════════════════╣")
     lines.append("║  Press Ctrl+C to stop.                                               ║")
     lines.append("╚══════════════════════════════════════════════════════════════════════╝")

@@ -12,7 +12,7 @@
 
 </div>
 
-**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval** with a ready-to-run **FastAPI** backend and a **React** dev UI. Start lean, add power as you go — CPU-only or GPU-accelerated.
+**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval**, with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go — CPU-only or GPU-accelerated.
 
 ---
 
@@ -21,9 +21,8 @@
 - 🤖 **Agents**: Production-ready patterns for ReAct, SQL, RAG, Router etc. think → act → observe → answer
 - 🧠 **Models**: Unified interface for OpenAI-style and local backends like Transformers/Unsloth, vLLM, Llama.cpp etc.
 - 📚 **RAG**: Simple, swappable retrieval core: embed → search → format → **token-aware trimming**
-- ⚙️ **FastAPI Server**: OpenAI-compatible endpoints for chat + tools — custom endpoints, chat handlers, RAG etc.
-- 🖥️ **NeurowebUI**: React chat UI (GPT-style) that communicates with the server out-of-the-box
-- 🧪 **CLI**: `neurosurfer serve` to run server/UI — custom backend app and UI support
+- ⚙️ **OpenAI-Compatible Gateway**: `/v1/models` + `/v1/chat/completions` — proxy to upstream backends (vLLM/OpenAI) or route to your own agents, with hooks for request/response customization
+- 🧪 **CLI**: `neurosurfer serve` to run the backend — custom backend app support
 
 ---
 
@@ -64,8 +63,8 @@
 
 - **Agents**: ReAct & SQLAgent upgraded with bounded retries, spec-aware input validation, and better final-answer streaming; new **ToolsRouterAgent** for quick one-shot tool picks.
 - **Models**: Cleaner OpenAI-style responses across backends; smarter token budgeting + fallbacks when tokenizer isn’t available.
-- **Server**: Faster startup, better logging/health endpoints, and safer tool execution paths; OpenAI-compatible routes refined for streaming/tool-calling.
-- **CLI**: `serve` now runs backend-only or UI-only and auto-injects `VITE_BACKEND_URL`; new subcommands for ingest/traces to standardize local workflows.
+- **Server**: Rebuilt as a lean OpenAI-compatible gateway — proxy to upstream backends (vLLM/OpenAI) or register agents as models, with hooks for request/response customization.
+- **CLI**: `serve` now runs the backend gateway only (the bundled NeurowebUI has been removed).
 
 > Looking for older updates? Check the repo **Releases** and **Changelog**.
 
@@ -85,11 +84,10 @@ pip install -U neurosurfer
 pip install -U "neurosurfer[torch]"
 ```
 
-**Run the dev server (backend + UI):**
+**Run the dev server:**
 ```bash
 neurosurfer serve
 ```
-- Auto-detects UI; pass `--ui-root` if needed. First run may `npm install`.  
 - Backend binds to config defaults; override with flags or envs.
 
 **Hello LLM Example:**

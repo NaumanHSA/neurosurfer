@@ -71,18 +71,12 @@ class AppConfig(BaseSettings):
         "http://server-ip:5173"
     ])
     
-    # UI settings
-    ui_host: str = Field(default="0.0.0.0")
-    ui_port: int = Field(default=5173, gt=0, le=65535)
-    ui_protocol: str = Field(default="http")
-
     # Server settings
     reload: bool = Field(default=False)
     workers: int = Field(default=1)
     enable_docs: bool = Field(default=True)
-    
+
     # Paths
-    ui_path: str = Field(default="ui_build")
     temp_path: str = Field(default="temp")
     logs_path: str = Field(default="logs")
     database_path: str = Field(default="./db_storage")

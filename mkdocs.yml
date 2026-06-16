@@ -224,7 +224,6 @@ nav:
           - Chat Handlers: server/backend/chat-handlers.md
           - Custom Endpoints: server/backend/custom-endpoints.md
           - Auth & Users: server/backend/auth.md
-      - NeurosurferUI (Frontend): server/neurosurferui.md
       - Example Application: server/example-app.md
   - CLI: cli.md
   - Examples:

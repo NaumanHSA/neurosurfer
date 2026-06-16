@@ -98,7 +98,7 @@ where = [""]
 include = ["neurosurfer*"]
 
 [tool.setuptools.package-data]
-neurosurfer = ["py.typed", "ui_build/**"]
+neurosurfer = ["py.typed"]
 
 [tool.ruff]
 line-length = 100

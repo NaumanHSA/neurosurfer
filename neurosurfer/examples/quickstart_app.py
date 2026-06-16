@@ -1,232 +1,120 @@
-# app.py
-"""
-Neurosurfer Application Entry Point
+import os
+import time
+import logging
+from typing import Any, Dict
 
-This module serves as the main application file that configures and launches the Neurosurfer
-AI-powered chat application. It integrates various components including:
+from neurosurfer.server import NeurosurferServer
+from neurosurfer.server.backends import UpstreamBackend
+from neurosurfer.server.hooks import Hook, HookContext, StripReasoningHook, SystemPromptInjectorHook
 
-- FastAPI server setup via NeurosurferApp
-- AI model initialization (LLM and embedding models)
-- RAG (Retrieval-Augmented Generation) system setup
-- Chat request handling with context management
-- File upload and processing capabilities
+from neurosurfer.models.chat_models.openai import OpenAIModel
 
-The application provides a complete AI chat interface with:
-- Multiple model support (configurable via CONFIG)
-- Vector-based document retrieval and context injection
-- Session-based chat management
-- Real-time streaming responses
-- File upload for context enhancement
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+LOGGER = logging.getLogger("neurosurfer.quickstart")
 
-Global Variables:
-    BASE_DIR (str): Temporary directory for code sessions and file processing
-    LLM (BaseChatModel): The primary language model instance
-    EMBEDDER_MODEL (BaseEmbedder): Embedding model for vector similarity
-    LOGGER (logging.Logger): Application logger instance
-    RAG (RAGOrchestrator): RAG system for context retrieval
 
-Functions:
-    load_model(): Initializes AI models and RAG system on startup
-    cleanup(): Cleans up temporary files on shutdown
-    handler(): Processes chat requests with RAG enhancement
+# -------------------------
+# Custom hook example
+# -------------------------
+class AddMetadataHook(Hook):
+    """
+    Example customization:
+    - Add a metadata field to the request (Open-WebUI usually passes extra fields; we allow them)
+    - Add a header-ish flag inside metadata so you can route behavior later
+    """
 
-Usage:
-    Run this file directly to start the Neurosurfer server:
-        python app.py
+    async def before_chat(self, ctx: HookContext, req: dict) -> dict:
+        meta = req.get("metadata") or {}
+        meta["ns_gateway"] = True
+        meta["request_id"] = ctx.request_id
+        req["metadata"] = meta
+        return req
 
-    The server will be available at the configured host and port (see CONFIG.py).
-"""
-from typing import List, Generator
-import os, shutil, logging
+    async def after_chat(self, ctx: HookContext, resp: dict) -> dict:
+        # Example: attach request_id for debugging
+        resp.setdefault("metadata", {})
+        resp["metadata"]["request_id"] = ctx.request_id
+        return resp
 
-from neurosurfer.models.embedders import BaseEmbedder
-from neurosurfer.models.chat_models import BaseChatModel
-from neurosurfer.agents.rag.chunker import Chunker
-from neurosurfer.agents.rag.filereader import FileReader
+    async def stream_chunk(self, ctx: HookContext, chunk: dict) -> dict:
+        # Example: no-op, but you can edit chunk["choices"][0]["delta"]["content"]
+        return chunk
 
-from neurosurfer.server.app import NeurosurferApp
-from neurosurfer.server.schemas import ChatHandlerModel, ChatHandlerMessages, AppResponseModel
-from neurosurfer.server.runtime import RequestContext
-from neurosurfer.server.services.rag import RAGResult
 
-from neurosurfer.config import config
-from neurosurfer import CACHE_DIR
-logging.basicConfig(level=config.app.logs_level.upper())
+# -------------------------
+# Config
+# -------------------------
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001/v1")
+VLLM_API_KEY = os.getenv("VLLM_API_KEY", "abc")  # vLLM usually ignores but OpenAI clients expect it
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen3-8B-unsloth-bnb-4bit")
 
-LOGGER = logging.getLogger("neurosurfer")
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", "8081"))
 
-# Create app instance
-ns = NeurosurferApp(
-    app_name=config.app.app_name,
-    api_keys=[],
-    enable_docs=config.app.enable_docs,
-    cors_origins=config.app.cors_origins,
-    host=config.app.host_ip,
-    port=config.app.host_port,
-    reload=config.app.reload,
-    log_level=config.app.logs_level,
-    workers=config.app.workers
+# -------------------------
+# 1) Create OpenAIModel that points to vLLM
+#    (useful for agent execution, warmups, internal calls)
+# -------------------------
+llm = OpenAIModel(
+    model_name=MODEL_NAME,
+    base_url=VLLM_BASE_URL,
+    api_key=VLLM_API_KEY,
+    strip_reasoning=False,
+    max_seq_length=8192,
+    logger=LOGGER,
 )
 
-@ns.on_startup
-async def load_model():
-    """
-    Initialize AI models and RAG system during application startup.
+# -------------------------
+# 2) Create gateway server
+#    Module-level `ns` so the CLI (`neurosurfer serve`) can import and run it directly.
+# -------------------------
+ns = NeurosurferServer(
+    app_name="Neurosurfer OpenAI Gateway",
+    host=HOST,
+    port=PORT,
+    enable_docs=True,
+    api_keys=[],  # put ["token1"] if you want Open-WebUI to require it
+    cors_origins=["*"],
+    cors_allow_credentials=False,
+    workers=int(os.getenv("WORKERS", "1")),
+    log_level=os.getenv("UVICORN_LOG_LEVEL", "info"),
+)
 
-    This asynchronous startup function performs the following initialization tasks:
-    1. Sets up application logging
-    2. Checks for GPU availability and logs hardware info
-    3. Loads the main language model (LLM) from configuration
-    4. Registers the model in the application's model registry
-    5. Performs a warmup inference to ensure models are ready
+# -------------------------
+# 3) Register hooks (customization layer)
+# -------------------------
+ns.add_hook(SystemPromptInjectorHook("You are a helpful assistant."))
+ns.add_hook(AddMetadataHook())
+# If your model outputs <think>...</think>, enable:
+# ns.add_hook(StripReasoningHook())
 
-    Global Variables Modified:
-        LOGGER: Set to application logger instance
-        LLM: Set to initialized TransformersModel instance
+# -------------------------
+# 4) Register upstream backend (vLLM)
+#    This makes /v1/models include vLLM models and routes requests to vLLM.
+# -------------------------
+ns.register_backend(
+    UpstreamBackend(
+        name="vllm",
+        base_url=VLLM_BASE_URL,
+        api_key=VLLM_API_KEY,
+        models_mode="proxy",  # forward /models from vLLM
+    ),
+    default=True,
+)
 
-    Configuration Dependencies:
-        - config.model.unsloth: LLM model configuration
-
-    Note:
-        - This function runs automatically when the FastAPI app starts
-        - GPU detection helps optimize model loading and inference
-        - The warmup call ensures models are properly loaded and ready
-    """
-    global LOGGER
-    try:
-        import torch
-        LOGGER.info(f"GPU Available: {torch.cuda.is_available()}")
-        if torch.cuda.is_available():
-            LOGGER.info(f"GPU Name: {torch.cuda.get_device_name(0)}")
-    except Exception:
-        LOGGER.warning("Torch not found...")
-
-    from neurosurfer.models.chat_models.transformers import TransformersModel
-    MODEL_SOURCE = os.getenv("NEUROSURFER_MODEL_PATH", "/home/nomi/workspace/Model_Weights/Mistral-Nemo-Instruct-2407-bnb-4bit")
-    llm = TransformersModel(
-        # model_name="unsloth/Llama-3.2-1B-Instruct-bnb-4bit",
-        model_name=MODEL_SOURCE,
-        # max_seq_length=config.base_model.max_seq_length,
-        max_seq_length=8000,
-        load_in_4bit=config.base_model.load_in_4bit,
-        enable_thinking=config.base_model.enable_thinking,
-        stop_words=config.base_model.stop_words or [],
-        logger=LOGGER,
-    )
-    # registered models are visible in the UI. You must register a model for it to be available in the UI.
-    ns.register_model(
-        model=llm,
-        family="llama",
-        provider="Unsloth",
-        description="Proxy to Llama"
-    )
-    # Warmup
-    joke = llm.ask(user_prompt="Say hi!", system_prompt=config.base_model.system_prompt, stream=False)
-    LOGGER.info(f"LLM ready: {joke.choices[0].message.content}")
-
-@ns.on_shutdown
-def cleanup():
-    """Clean up temporary files and directories on application shutdown."""
-    pass
-
-@ns.chat()
-def handler(args: ChatHandlerModel) -> AppResponseModel:
-    """
-    Process chat completion requests with RAG-enhanced context.
-
-    This is the main chat handler that processes incoming chat requests, optionally
-    enhances them with relevant context from uploaded documents using RAG, and
-    generates responses using the configured language model.
-
-    Args:
-        args (ChatHandlerModel): The chat handler model contains:
-            - user_id: User/session identifier
-            - thread_id: Session/thread identifier for context management
-            - message_id: Message identifier for context management
-            - has_files_message: Whether the message contains files
-            - model: The model to use for generation, selected from the UI
-            - messages: ChatHandlerMessages
-                - user_query: Last user message
-                - user_msgs: List of user messages
-                - assistant_msgs: List of assistant messages
-                - system_msgs: List of system messages
-                - converstaion: List of conversation messages
-            - temperature: Sampling temperature for response generation
-            - max_tokens: Maximum tokens to generate in response
-            - stream: Whether to stream the response
-            - system_prompt: Optional system prompt for generation
-            - tools: Optional list of tools to use for generation
-            - tool_choice: Optional tool choice for generation
-            - metadata: Optional metadata for generation
-            - files: Optional list of uploaded files for context
-
-    Returns:
-        The AppResponseModel, which can be either:
-            - Complete response object (non-streaming)
-            - Streaming response generator (streaming mode)
-
-    Processing Flow:
-        1. Extract user messages, system messages, and conversation history
-        2. Apply RAG enhancement if files/context available for the thread
-        3. Configure generation parameters (temperature, max_tokens)
-        4. Call LLM with enhanced query and chat history
-
-    RAG Enhancement:
-        - Checks if RAG system is available and thread_id is provided
-        - Applies document retrieval and context injection
-        - Logs RAG usage statistics (similarity scores, usage decisions)
-        - Falls back to original query if no relevant context found
-
-    Configuration:
-        - Uses DEFAULT_SYSTEM_PROMPT if no system message provided
-        - Applies temperature/max_tokens limits with fallbacks to config defaults
-        - Maintains recent chat history (last 10 messages by default)
-
-    Note:
-        - Thread-based context allows for persistent conversations
-        - File uploads are processed and converted to document chunks
-        - Streaming responses are supported for real-time interaction
-        - RAG context injection happens before LLM generation
-    """
-    global LOGGER
-
-    # Prepare inputs
-    user_query = args.messages.user_query    # Last user message
-
-    rag_res: RAGResult = ns.apply_rag(
-        user_id=args.user_id,
-        thread_id=args.thread_id,
-        message_id=args.message_id,
-        user_query=user_query,
-        has_files_message=args.has_files_message,
-    )
-    user_query = rag_res.augmented_query
-    if rag_res.used:
-        LOGGER.info(f"[RAG] used context (top_sim={rag_res.meta.get('top_similarity', 0):.3f})")
-    else:
-        LOGGER.info(f"[RAG] no context (reason={rag_res.meta.get('reason')})")
-
-    llm = ns.get_model(args.model).llm
-    # Minimal chat history excluding system messages, max 10
-    num_recent = 10
-    conversation_messages = args.messages.converstaion
-    chat_history = conversation_messages[-num_recent:-1]
-
-    # Model call (stream or non-stream handled by router)
-    kwargs = {"temperature": args.temperature, "max_new_tokens": args.max_tokens}
-    return llm.ask(
-        user_prompt=user_query,
-        system_prompt=args.system_prompt,
-        chat_history=chat_history,
-        stream=args.stream,
-        **kwargs
-    )
-
-def create_app():
-    return ns.app
 
 def main():
+    # Optional warmup (prove vLLM is reachable) — done here, not at import time.
+    try:
+        resp = llm.ask(user_prompt="Say hi in 3 words.", system_prompt="", stream=False)
+        LOGGER.info("Warmup OK: %s", resp.choices[0].message.content)
+    except Exception as e:
+        LOGGER.warning("Warmup failed (is vLLM running at %s?): %s", VLLM_BASE_URL, e)
+
+    LOGGER.info("Gateway starting on http://%s:%d", HOST, PORT)
+    LOGGER.info("Point Open-WebUI to: http://%s:%d/v1", HOST, PORT)
     ns.run()
+
 
 if __name__ == "__main__":
     main()

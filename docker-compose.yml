@@ -10,25 +10,15 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - NEUROSURFER_BACKEND_APP=neurosurfer.examples.quickstart_app_agent:ns
+      - NEUROSURFER_BACKEND_APP=neurosurfer.examples.quickstart_app:ns
       - NEUROSURFER_BACKEND_HOST=0.0.0.0
-      - NEUROSURFER_UI_HOST=0.0.0.0
       - NEUROSURFER_BACKEND_PORT=8081
-      - NEUROSURFER_UI_PORT=5173
-      - NEUROSURFER_UI_OPEN=false
-      - NEUROSURFER_MODEL_PATH=/models/Qwen3-8B-unsloth-bnb-4bit
-      - MODEL_MAX_SEQ_LEN=12000
-      - LOG_TRACES=false
-      - ENABLE_RAG=true
-      - ENABLE_CODE_AGENT=true
+      - VLLM_BASE_URL=http://localhost:8001/v1
+      - MODEL_NAME=Qwen3-8B-unsloth-bnb-4bit
       - NS_CORS_ALLOW_CREDENTIALS=true
       - NS_CORS_ORIGINS="http://localhost:5173,http://192.168.0.198:5173"
-      - NEUROSURFER_MAX_CHAT_HISTORY=10
-      - CHAT_ANSWER_LANGUAGE=english
-      - CHAT_ANSWER_LENGTH=detailed
     ports:
       - "8081:8081"
-      - "5173:5173"
     volumes:
       - /home/nomi/workspace/Model_Weights:/models:ro
     deploy:
