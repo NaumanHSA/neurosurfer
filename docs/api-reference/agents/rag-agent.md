@@ -38,7 +38,7 @@ neurosurfer/agents/rag/
 
 ```python
 RAGAgent(
-    llm: BaseModel,
+    llm: BaseChatModel,
     vectorstore: BaseVectorDB,
     embedder: BaseEmbedder,
     *,
@@ -50,7 +50,7 @@ RAGAgent(
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `llm` | [`BaseModel`](../models/chat-models/base-model.md) | Any supported chat model. Must expose `ask(...)` and (ideally) `max_seq_length`. A tokenizer is optional. |
+| `llm` | [`BaseChatModel`](../models/chat-models/base-model.md) | Any supported chat model. Must expose `ask(...)` and (ideally) `max_seq_length`. A tokenizer is optional. |
 | `vectorstore` | [`BaseVectorDB`](../vectorstores/base-vectordb.md) | Must expose `similarity_search(query_embedding, top_k, metadata_filter, similarity_threshold)`. |
 | `embedder` | [`BaseEmbedder`](../models/embedders/base-embedder.md) | Must expose `embed(sequence[str], normalize_embeddings=bool) -> list[list[float]]`. |
 | `config` | [`RAGAgentConfig`](#ragagentconfig) \| `None` | Retrieval, context‑formatting, and budgeting knobs (defaults used when `None`). |

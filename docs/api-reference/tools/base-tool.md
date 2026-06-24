@@ -16,14 +16,14 @@
 
 ## `ToolResponse`
 
-A lightweight dataclass describing a tool’s result. It supports **final answers**, **intermediate observations**, and **streaming** (via Python generators).
+A lightweight dataclass describing a tool’s result. It supports **final answers**, **intermediate results**, and **streaming** (via Python generators).
 
 ### Fields
 
 | Field | Type | Required | Description |
 |---|---|:---:|---|
-| `final_answer` | `bool` | ✓ | If `True`, the agent should treat `observation` as the **final** answer and stop tool use. |
-| `observation` | `str \| Generator[Any, None, None]` | ✓ | The tool’s output. Use a **string** for single-shot responses or a **generator** to **stream tokens/lines/chunks**. |
+| `final_answer` | `bool` | ✓ | If `True`, the agent should treat `results` as the **final** answer and stop tool use. |
+| `results` | `str \| Generator[Any, None, None]` | ✓ | The tool’s output. Use a **string** for single-shot responses or a **generator** to **stream tokens/lines/chunks**. |
 | `extras` | `dict` |  | Arbitrary metadata to persist in agent memory and pass to subsequent tool calls (e.g., IDs, cursors, diagnostics). |
 
 ### Examples
@@ -35,7 +35,7 @@ from neurosurfer.tools.base_tool import ToolResponse
 
 ToolResponse(
     final_answer=False,
-    observation="Found 3 matching rows in `users` table",
+    results="Found 3 matching rows in `users` table",
     extras={"row_ids": [1, 2, 3]}
 )
 ```
@@ -52,7 +52,7 @@ def _stream_lines(lines) -> Generator[str, None, None]:
 
 ToolResponse(
     final_answer=True,
-    observation=_stream_lines(["Step 1...", "Step 2...", "Done."]),
+    results=_stream_lines(["Step 1...", "Step 2...", "Done."]),
 )
 ```
 
@@ -125,7 +125,7 @@ class EchoTool(BaseTool):
     )
 
     def __call__(self, *, text: str, **kwargs) -> ToolResponse:
-        return ToolResponse(final_answer=True, observation=text)
+        return ToolResponse(final_answer=True, results=text)
 ```
 
 ### Tool that uses injected runtime context
@@ -146,9 +146,9 @@ class SQLQueryTool(BaseTool):
     def __call__(self, *, query: str, limit: int = 100, **kwargs) -> ToolResponse:
         db = kwargs.get("db_engine")
         if db is None:
-            return ToolResponse(final_answer=True, observation="DB engine not available.")
+            return ToolResponse(final_answer=True, results="DB engine not available.")
         rows = db.execute(query).fetchmany(size=limit)
-        return ToolResponse(final_answer=False, observation={"rows": [dict(r) for r in rows]})
+        return ToolResponse(final_answer=False, results={"rows": [dict(r) for r in rows]})
 ```
 
 ### Streaming tool
@@ -169,7 +169,7 @@ class StreamLinesTool(BaseTool):
         def _gen() -> Generator[str, None, None]:
             for ln in lines:
                 yield ln
-        return ToolResponse(final_answer=True, observation=_gen())
+        return ToolResponse(final_answer=True, results=_gen())
 ```
 
 ---
@@ -180,9 +180,9 @@ class StreamLinesTool(BaseTool):
 2. Agent validates candidate inputs via `ToolSpec.check_inputs(raw)`.
 3. Agent calls `tool(**validated_inputs, **runtime_ctx)`.
 4. Tool returns `ToolResponse`:
-   - `final_answer=True` → agent halts tool-use and presents the observation.
+   - `final_answer=True` → agent halts tool-use and presents the results.
    - `final_answer=False` → agent may call more tools using `extras` if present.
-5. If `observation` is a **generator**, agent streams results to the user/UI.
+5. If `results` is a **generator**, agent streams results to the user/UI.
 
 ---
 
@@ -192,7 +192,7 @@ class StreamLinesTool(BaseTool):
 - **Use `extras` sparingly**: Include only what’s useful for follow-on calls (IDs, cursors, references).
 - **Fail soft**: If a dependency (e.g., DB) isn’t provided, return a helpful message rather than raising.
 - **Be deterministic**: Idempotent tools make planning easier; document any side effects in `description`/`when_to_use`.
-- **Stream when valuable**: Large or long-running results benefit from generator-based `observation`.
+- **Stream when valuable**: Large or long-running results benefit from generator-based `results`.
 - **Security**: Validate/escape user inputs before executing commands/queries; document constraints in the spec.
 
 ---

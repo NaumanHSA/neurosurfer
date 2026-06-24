@@ -1,0 +1,12 @@
+name: architect
+version: "0.1.0"
+description: >
+  The Architect — researches user intent, asks clarifying questions, designs a
+  multi-node workflow plan, writes each node's agent config, and assembles the
+  final registered WorkflowPackage.
+entrypoint: graph.yaml
+created_by: neurosurfer
+created_at: "2026-01-01T00:00:00+00:00"
+tags:
+  - builtin
+  - architect

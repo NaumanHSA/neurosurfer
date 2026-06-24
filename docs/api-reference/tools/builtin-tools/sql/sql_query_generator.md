@@ -28,7 +28,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 
 ## Runtime Dependencies & Config
 
-- **Constructor:** `SQLQueryGenerator(llm: BaseModel | None = None, logger: logging.Logger | None = None)`
+- **Constructor:** `SQLQueryGenerator(llm: BaseChatModel | None = None, logger: logging.Logger | None = None)`
 - **Prompt:** `SQL_QUERY_GENERATION_PROMPT` (strict rules)
   - Avoid `*`; prefer `TOP n`; `LIKE '%value%'` for text matches; `=` for numeric/date
   - BIT columns: `1/0` for TRUE/FALSE
@@ -44,7 +44,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 
 1. Renders system & user prompts using the given `schema_context` and `query`.
 2. Calls the LLM and extracts `response["choices"][0]["message"]["content"]`.
-3. Strips code fences, returns `ToolResponse(final_answer=False, observation=sql_query, extras={{"sql_query": sql_query}})`.
+3. Strips code fences, returns `ToolResponse(final_answer=False, results=sql_query, extras={{"sql_query": sql_query}})`.
 
 ---
 

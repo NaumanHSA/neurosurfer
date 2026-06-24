@@ -40,9 +40,9 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 
 1. Executes the SQL using the configured `db_engine`.
 2. Builds `db_results` (list of dict rows).
-3. Returns `ToolResponse(final_answer=False, observation=<message>, extras={{"db_results": db_results}})`.
+3. Returns `ToolResponse(final_answer=False, results=<message>, extras={{"db_results": db_results}})`.
 
-On exception: logs an error and returns `ToolResponse(final_answer=False, observation=[{{"error": "<message>"}}])`.
+On exception: logs an error and returns `ToolResponse(final_answer=False, results=[{{"error": "<message>"}}])`.
 
 ---
 

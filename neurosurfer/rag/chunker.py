@@ -68,7 +68,7 @@ import os, re, json
 from dataclasses import dataclass
 import ast
 import copy
-from neurosurfer.config import config, ChunkerConfig
+from .config import ChunkerConfig
 
 
 StrategyFn = Callable[[str, Optional[str]], List[str]]
@@ -141,7 +141,7 @@ class Chunker:
             - Custom handler infrastructure
             - Router and logging hooks
         """
-        self.cfg = config.chunker
+        self.cfg = ChunkerConfig()
         self.blacklist_patterns = [
             re.compile(p) for p in [
                 r'.*\.lock$', r'.*\.env.*', r'.*\.git.*', r'.*node_modules.*', r'.*__pycache__.*',
@@ -251,6 +251,19 @@ class Chunker:
     # ---------------------------
     # Hardened custom handler execution
     # ---------------------------
+    @staticmethod
+    def _is_numeric_junk(text: str, threshold: float = 0.65, min_numeric_lines: int = 4) -> bool:
+        """Return True for chunks that are mostly bare numbers — PDF table extraction residue.
+
+        A chunk where ≥65% of non-empty lines contain no letters (digits, dashes, dots only)
+        and there are at least 4 such lines is useless for RAG and should be discarded.
+        """
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        if len(lines) < min_numeric_lines:
+            return False
+        no_letter = sum(1 for l in lines if not re.search(r'[A-Za-z]', l))
+        return no_letter >= min_numeric_lines and (no_letter / len(lines)) >= threshold
+
     def _sanitize_chunks(self, chunks: List[str]) -> List[str]:
         cleaned: List[str] = []
         total_chars = 0
@@ -259,6 +272,8 @@ class Chunker:
                 continue
             s = ch.strip("\n")
             if len(s.strip()) < self.cfg.min_chunk_non_ws_chars:
+                continue
+            if self._is_numeric_junk(s):
                 continue
             if total_chars + len(s) > self.cfg.max_total_output_chars:
                 # cap the last allowable piece

@@ -1,0 +1,194 @@
+"""Canonical, provider-neutral message / content / event model.
+
+The engine depends only on these types and on the ``Provider`` protocol — never
+on ``anthropic`` or ``openai`` directly. Each provider adapter translates between
+these canonical types and its own wire format.
+
+Canonical content blocks mirror Anthropic's block model (text / thinking /
+tool_use / tool_result) because it is the richer of the two; the OpenAI adapter
+projects them onto chat-completion's flatter shape.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Content blocks
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TextBlock(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ThinkingBlock(BaseModel):
+    """Extended-thinking block. Anthropic-only; carries a signature that must be
+    preserved verbatim when appended back into history."""
+
+    type: Literal["thinking"] = "thinking"
+    thinking: str
+    signature: str | None = None
+
+
+class ToolUseBlock(BaseModel):
+    type: Literal["tool_use"] = "tool_use"
+    id: str
+    name: str
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolResultBlock(BaseModel):
+    type: Literal["tool_result"] = "tool_result"
+    tool_use_id: str
+    content: str = ""
+    is_error: bool = False
+
+
+ContentBlock = Annotated[
+    TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock,
+    Field(discriminator="type"),
+]
+
+
+class Message(BaseModel):
+    """A single conversation turn. ``system`` is passed out-of-band to the
+    provider, so a message role is only ever ``user`` or ``assistant``."""
+
+    role: Literal["user", "assistant"]
+    content: list[ContentBlock]
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _coerce_string_content(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [{"type": "text", "text": v}]
+        return v
+
+    def text(self) -> str:
+        return "".join(b.text for b in self.content if isinstance(b, TextBlock))
+
+    @classmethod
+    def user_text(cls, text: str) -> Message:
+        return cls(role="user", content=[TextBlock(text=text)])
+
+    @classmethod
+    def assistant_text(cls, text: str) -> Message:
+        return cls(role="assistant", content=[TextBlock(text=text)])
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tools, usage, config
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class ToolSchema(BaseModel):
+    """Provider-neutral tool description. Rendered to Anthropic's tool format or
+    OpenAI's ``function`` format by the respective adapter."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+
+class Usage(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+
+    def total(self) -> int:
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_input_tokens
+            + self.cache_creation_input_tokens
+        )
+
+    def add(self, other: Usage) -> Usage:
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cache_read_input_tokens=self.cache_read_input_tokens
+            + other.cache_read_input_tokens,
+            cache_creation_input_tokens=self.cache_creation_input_tokens
+            + other.cache_creation_input_tokens,
+        )
+
+
+@dataclass
+class GenerationConfig:
+    max_tokens: int = 8192
+    temperature: float = 1.0
+    # Adaptive thinking + effort are applied by capability-supporting providers.
+    enable_thinking: bool = True
+    effort: str = "high"
+    stop_sequences: list[str] = field(default_factory=list)
+    # When True, the provider streams; otherwise a single completion is returned.
+    stream: bool = True
+
+
+@dataclass
+class CanonicalResponse:
+    """The assembled assistant turn — what gets appended back to history."""
+
+    content: list[ContentBlock]
+    stop_reason: str
+    usage: Usage
+    model: str = ""
+
+    def text(self) -> str:
+        parts = [b.text for b in self.content if isinstance(b, TextBlock)]
+        if parts:
+            return "".join(parts)
+        # Thinking-only models (DeepSeek-R1, Gemma QAT, …) put everything in
+        # reasoning_content; fall back so callers always get a non-empty string.
+        return "".join(b.thinking for b in self.content if isinstance(b, ThinkingBlock))
+
+    def tool_uses(self) -> list[ToolUseBlock]:
+        return [b for b in self.content if isinstance(b, ToolUseBlock)]
+
+    def as_message(self) -> Message:
+        return Message(role="assistant", content=list(self.content))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Streaming events (provider-normalized)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class TextDelta:
+    text: str
+
+
+@dataclass
+class ThinkingDelta:
+    text: str
+
+
+@dataclass
+class ToolUseStart:
+    index: int
+    id: str
+    name: str
+
+
+@dataclass
+class ToolUseArgsDelta:
+    index: int
+    partial_json: str
+
+
+@dataclass
+class Done:
+    """Terminal event carrying the fully assembled response."""
+
+    response: CanonicalResponse
+
+
+StreamEvent = TextDelta | ThinkingDelta | ToolUseStart | ToolUseArgsDelta | Done

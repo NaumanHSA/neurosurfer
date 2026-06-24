@@ -51,29 +51,98 @@ exclude_dirs_in_code: Set[str] = {
 
 
 supported_file_types: Set[str] = {
-    # General text and document files
-    ".txt", ".pdf", ".html", ".htm", ".docx", ".doc", ".odt",
-    
-    # Spreadsheets and data files
-    ".csv", ".xls", ".xlsx", ".tsv", ".ods", ".json", ".xml", ".yaml", ".yml",
+    # ----------------------------------------------------
+    # General text formats
+    # ----------------------------------------------------
+    ".txt", ".text", ".ascii",
 
-    # Presentations
-    ".ppt", ".pptx", ".odp",
+    # ----------------------------------------------------
+    # Rich Text / Markup / Documents
+    # ----------------------------------------------------
+    ".pdf", ".docx", ".doc", ".odt", ".rtf",
+    ".html", ".htm", ".xhtml", ".xml",
+    ".md", ".markdown", ".mdx",
+    ".rst", ".tex", ".latex",
 
-    # Code files
-    ".py", ".java", ".js", ".ts", ".jsx", ".tsx",
-    ".cpp", ".c", ".h", ".cs", ".go", ".rb", ".rs", ".php", ".swift", ".kt",
-    ".sh", ".bat", ".ps1", ".scala", ".lua", ".r",
+    # ----------------------------------------------------
+    # Data / tabular formats
+    # ----------------------------------------------------
+    ".csv", ".tsv", ".tab",
+    ".xls", ".xlsx", ".xlsm", ".ods",
+    ".json", ".jsonl",
+    ".yaml", ".yml",
 
-    # Config and markup
-    ".env", ".ini", ".toml", ".cfg", ".conf", ".properties",
+    # ----------------------------------------------------
+    # Config & environment
+    # ----------------------------------------------------
+    ".env", ".ini", ".cfg", ".conf", ".config", ".properties",
+    ".toml",
 
+    # ----------------------------------------------------
     # Logs
-    ".log",
+    # ----------------------------------------------------
+    ".log", ".out", ".err",
 
-    # Markdown / Rich text
-    ".rst", ".rtf",
+    # ----------------------------------------------------
+    # Code files (common languages)
+    # ----------------------------------------------------
+    ".py", ".pyi",
+    ".java", ".kt", ".kts",
+    ".js", ".jsx", ".cjs", ".mjs",
+    ".ts", ".tsx",
+    ".cpp", ".cc", ".cxx", ".hpp", ".h", ".c",
+    ".cs",
+    ".go",
+    ".rb",
+    ".rs",
+    ".php",
+    ".swift",
+    ".scala",
+    ".lua",
+    ".r",
+    ".sh", ".bash", ".zsh",
+    ".ps1", ".psm1",
+    ".bat", ".cmd",
+    ".sql",
+    ".dockerfile", ".dockerignore",
+    ".makefile", "makefile",
+    ".gradle", ".pom", ".sbt",
 
-    # Misc text files
-    ".tex", ".srt", ".vtt"
+    # ----------------------------------------------------
+    # Web templates / frontend text
+    # ----------------------------------------------------
+    ".css", ".scss", ".sass", ".less",
+    ".vue", ".svelte",
+    ".handlebars", ".hbs", ".mustache",
+    ".ejs", ".twig", ".jinja", ".jinja2",
+
+    # ----------------------------------------------------
+    # Notebooks (extract markdown + code)
+    # ----------------------------------------------------
+    ".ipynb",
+
+    # ----------------------------------------------------
+    # Graph / DSL formats
+    # ----------------------------------------------------
+    ".dot", ".gv",        # Graphviz
+    ".plantuml", ".puml", # PlantUML diagrams
+    ".mermaid",           # Mermaid diagrams
+
+    # ----------------------------------------------------
+    # Subtitles / annotations
+    # ----------------------------------------------------
+    ".srt", ".vtt",
+
+    # ----------------------------------------------------
+    # Documentation datasets
+    # ----------------------------------------------------
+    ".bib",       # BibTeX
+    ".enw",       # EndNote
+    ".ris",       # RIS reference format
+
+    # ----------------------------------------------------
+    # Misc structured text
+    # ----------------------------------------------------
+    ".csv.gz", ".txt.gz",   # Compressed text data
+    ".ndjson",              # Newline-delimited JSON
 }

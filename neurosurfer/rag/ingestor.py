@@ -27,7 +27,7 @@ Workflow:
 
 Example:
     >>> from neurosurfer.rag.ingestor import RAGIngestor
-    >>> from neurosurfer.models.embedders import SentenceTransformerEmbedder
+    >>> from neurosurfer.embeddings import _LocalEmbedder
     >>> from neurosurfer.vectorstores import ChromaVectorStore
     >>> 
     >>> embedder = SentenceTransformerEmbedder()
@@ -63,11 +63,14 @@ from typing import (
     Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple, Union
 )
 
-from ..models.embedders import BaseEmbedder
-from ..vectorstores.base import BaseVectorDB, Doc
+from neurosurfer.embeddings import Embedder as BaseEmbedder
+from neurosurfer.vectorstores.base import BaseVectorDB, Doc
+
 from .filereader import FileReader
 from .chunker import Chunker
 from .constants import supported_file_types, exclude_dirs_in_code
+from .url_fetcher import URLFetcher, URLFetcherConfig, URLFetchResult
+
 
 ProgressCallback = Callable[[Dict[str, Any]], None]
 
@@ -113,7 +116,7 @@ class RAGIngestor:
     Example:
         >>> ingestor = RAGIngestor(
         ...     embedder=embedder,
-        ...     vector_store=vectorstore,
+        ...     vectorstore=vectorstore,
         ...     batch_size=64,
         ...     progress_cb=lambda p: print(f"Progress: {p['percent']:.1f}%")
         ... )
@@ -131,7 +134,7 @@ class RAGIngestor:
         self,
         *,
         embedder: BaseEmbedder,
-        vector_store: BaseVectorDB,
+        vectorstore: BaseVectorDB,
         file_reader: Optional[FileReader] = None,
         chunker: Optional[Chunker] = None,
         logger: Optional[logging.Logger] = None,
@@ -145,10 +148,10 @@ class RAGIngestor:
         tmp_dir: Optional[str] = None,
     ):
         self.embedder = embedder
-        self.vs = vector_store
+        self.vs = vectorstore
         self.reader = file_reader or FileReader()
         self.chunker = chunker or Chunker()
-        self.log = logger or logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(__name__)
         self.progress_cb = progress_cb
         self.cancel_event = cancel_event or threading.Event()
         self.batch_size = batch_size
@@ -159,8 +162,19 @@ class RAGIngestor:
         self.tmp_dir = tmp_dir or "./tmp"
         os.makedirs(self.tmp_dir, exist_ok=True)
 
+        # Initialize URL fetcher
+        self.url_fetcher = URLFetcher(
+            config=URLFetcherConfig(
+                cache_dir=os.path.join(self.tmp_dir, "url_cache"),
+            ),
+            file_reader=self.reader,
+            logger=self.logger,
+        )
         self._queue: List[Tuple[str, str, Dict[str, Any]]] = []  # (source_id, text, metadata)
         self._seen_hashes: set[str] = set()
+
+    def set_vectorstore(self, vectorstore: BaseVectorDB) -> None:
+        self.vs = vectorstore
 
     # ----------------------
     # Queueing inputs
@@ -182,7 +196,7 @@ class RAGIngestor:
             if not text: 
                 continue
             rel = str(Path(p).relative_to(root)) if root and Path(p).is_relative_to(root) else str(p)
-            md = {**self.default_md, **extra_metadata, "filename": rel, "source_type": "file"}
+            md = {**self.default_md, **extra_metadata, "file_path": rel, "source_type": "file"}
             self._enqueue(source_id=rel, text=text, metadata=md)
         return self
 
@@ -209,7 +223,7 @@ class RAGIngestor:
                 if not text:
                     continue
                 rel = str(path.relative_to(directory))
-                md = {**self.default_md, **extra_metadata, "filename": rel, "source_type": "file"}
+                md = {**self.default_md, **extra_metadata, "file_path": rel, "source_type": "file"}
                 self._enqueue(source_id=rel, text=text, metadata=md)
         return self
 
@@ -232,22 +246,20 @@ class RAGIngestor:
     def add_urls(
         self, 
         urls: Sequence[str], 
-        fetcher: Optional[Callable[[str], Optional[str]]] = None,
         extra_metadata: Optional[Dict[str, Any]] = None
     ) -> "RAGIngestor":
         """Pass a custom fetcher to keep this offline-friendly. Example fetcher can use requests/bs4."""
         extra_metadata = extra_metadata or {}
-        fetcher = fetcher or (lambda _: None)  # no-op by default
         for url in urls:
+            result = None
             try:
-                content = fetcher(url)  # should return cleaned text
+                result = self.url_fetcher.fetch(url)
             except Exception as e:
-                self.log.warning(f"URL fetch failed: {url}: {e}")
-                content = None
-            if not content:
+                self.logger.warning(f"URL fetch failed: {url}: {e}")
+            if not result or not result.text:
                 continue
-            md = {**self.default_md, **extra_metadata, "url": url, "source_type": "url"}
-            self._enqueue(source_id=url, text=content, metadata=md)
+            md = {**self.default_md, **extra_metadata, "url": url, "source_type": result.source_type, "content_type": result.content_type}
+            self._enqueue(source_id=url, text=result.text, metadata=md)
         return self
 
     def add_git_folder(
@@ -309,9 +321,180 @@ class RAGIngestor:
             )
         return self
 
-    # ----------------------
-    # Build / ingest
-    # ----------------------
+    def ingest(
+        self,
+        sources: Optional[Union[str, Path, Iterable[Union[str, Path, str]]]] = None,
+        *,
+        url_fetcher: Optional[Callable[[str], Optional[str]]] = None,
+        include_exts: Optional[set[str]] = supported_file_types,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+        reset_state: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Unified high-level ingestion wrapper.
+
+        This method accepts a mix of paths, URLs, and raw text, routes them to the
+        appropriate add_* methods, and then runs the full pipeline via `build()`.
+
+        Supported source forms:
+            - File path (string or Path)
+            - Directory path (string or Path)
+            - .zip archive (string or Path)
+            - Git repo folder (directory containing a .git subfolder)
+            - URL string (starting with http:// or https://)
+            - Raw text string (everything else)
+
+        Parameters
+        ----------
+        sources:
+            A single source or iterable of sources. Each element can be:
+            - str
+            - pathlib.Path
+        url_fetcher:
+            Optional callable used by `add_urls`. Signature: (url: str) -> Optional[str].
+        include_exts:
+            Allowed file extensions for file/directory/zip ingestion. Defaults to
+            `supported_file_types`.
+        extra_metadata:
+            Extra metadata merged into each queued document's metadata.
+        reset_state:
+            If True, clears previous queue and seen-hash set before processing.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A summary dictionary, typically the result of `build()`. On error, returns:
+                {
+                    "status": "error",
+                    "error": "<message>",
+                    "unsupported": [...optional list of unsupported items...]
+                }
+        """
+        # Normalize and guard: allow ingest() to just run build() on previously-queued data.
+        if reset_state:
+            self._queue.clear()
+            self._seen_hashes.clear()
+
+        if sources is None:
+            if not self._queue:
+                msg = "No sources provided and ingestion queue is empty."
+                self.logger.warning(msg)
+                return {"status": "error", "error": msg}
+            try:
+                return self.build()
+            except Exception as e:
+                self.logger.exception("Ingestion run failed")
+                return {"status": "error", "error": str(e)}
+
+        # Normalize sources into a flat list
+        if isinstance(sources, (str, Path)):
+            raw_items: List[Union[str, Path]] = [sources]
+        elif isinstance(sources, Iterable):
+            raw_items = list(sources)
+        else:
+            msg = (
+                f"Unsupported 'sources' type: {type(sources)!r}. "
+                "Expected str, Path, or an iterable of those."
+            )
+            self.logger.error(msg)
+            return {"status": "error", "error": msg}
+
+        extra_metadata = extra_metadata or {}
+        include_exts = {e.lower() for e in (include_exts or set())}
+        unsupported: List[Any] = []
+        accepted_count = 0
+
+        for src in raw_items:
+            # ----------------------
+            # Path-like handling
+            # ----------------------
+            if isinstance(src, Path):
+                path = src
+                is_path = True
+            elif isinstance(src, str):
+                stripped = src.strip()
+                if not stripped:
+                    # Empty string → ignore silently
+                    continue
+
+                # URL detection
+                if stripped.startswith("http://") or stripped.startswith("https://"):
+                    self.add_urls([stripped], extra_metadata=extra_metadata)
+                    accepted_count += 1
+                    continue
+                
+                try:
+                    path = Path(stripped)
+                    is_path = path.exists()
+                except Exception:
+                    is_path = False   # Treat as raw text
+                if not is_path:
+                    # Treat as raw text
+                    self.add_texts(
+                        [stripped],
+                        base_id="text",
+                        metadatas=[{**extra_metadata}],
+                    )
+                    accepted_count += 1
+                    continue
+            else:
+                unsupported.append(src)
+                continue
+
+            # Existing path routing
+            try:
+                if path.is_dir():
+                    # Git repo detection
+                    if (path / ".git").is_dir():
+                        self.add_git_folder(path, include_exts=include_exts, extra_metadata=extra_metadata)
+                    else:
+                        self.add_directory(path, include_exts=include_exts, extra_metadata=extra_metadata)
+                    accepted_count += 1
+
+                elif path.is_file():
+                    # Zip archive
+                    if path.suffix.lower() == ".zip":
+                        self.add_zipfile(path, include_exts=include_exts, extra_metadata=extra_metadata)
+                    else:
+                        self.add_files([path], include_exts=include_exts, extra_metadata=extra_metadata)
+                    accepted_count += 1
+                else:
+                    # Path object that is neither file nor dir (very rare)
+                    unsupported.append(src)
+
+            except Exception as e:
+                self.logger.exception(f"Failed to enqueue source {src!r}: {e}")
+                unsupported.append(src)
+
+        # Post-validation
+        if not self._queue:
+            msg = "No content was queued for ingestion. All inputs were either empty, filtered out, or unsupported."
+            if unsupported:
+                msg += f" Unsupported items: {unsupported!r}"
+            self.logger.error(msg)
+            return {
+                "status": "error",
+                "error": msg,
+                "unsupported": [str(u) for u in unsupported],
+            }
+        if unsupported:
+            self.logger.warning("Some sources were skipped as unsupported: %r", unsupported)
+
+        # Execute pipeline
+        try:
+            summary = self.build()
+        except Exception as e:
+            self.logger.exception("Ingestion run failed")
+            return {"status": "error", "error": str(e)}
+
+        # Attach wrapper-level info
+        summary.setdefault("status", "ok")
+        summary["accepted_sources"] = accepted_count
+        if unsupported:
+            summary["unsupported"] = [str(u) for u in unsupported]
+        summary["total_docs_in_collection"] = self.vs.count()
+        return summary
+
     def build(self) -> Dict[str, Any]:
         """
         Execute the ingestion:
@@ -345,7 +528,7 @@ class RAGIngestor:
                     result = fut.result()
                     chunk_records.extend(result)
                 except Exception as e:
-                    self.log.exception(f"Chunking failed: {e}")
+                    self.logger.exception(f"Chunking failed: {e}")
                 completed += 1
                 if self.progress_cb:
                     self.progress_cb({
@@ -378,9 +561,9 @@ class RAGIngestor:
             batch = unique_chunks[i:i + self.batch_size]
             texts = [b[1] for b in batch]
             try:
-                embeddings = self.embedder.embed(texts, normalize_embeddings=self.normalize_embeddings)
+                embeddings = self.embedder.embed(texts)
             except Exception as e:
-                self.log.exception(f"Embedding batch failed (idx={i}): {e}")
+                self.logger.exception(f"Embedding batch failed (idx={i}): {e}")
                 continue
 
             for (source_id, chunk_text, md), emb in zip(batch, embeddings):
@@ -402,7 +585,7 @@ class RAGIngestor:
             # Some stores prefer smaller bulks; split again if you need
             self.vs.add_documents(docs_to_add)
         except Exception as e:
-            self.log.exception(f"Vector store add_documents failed: {e}")
+            self.logger.exception(f"Vector store add_documents failed: {e}")
             raise
 
         if self.progress_cb:
@@ -421,7 +604,7 @@ class RAGIngestor:
     # Optional retrieval (smoke test)
     # ----------------------
     def embed_query(self, text: str) -> List[float]:
-        return self.embedder.embed([text], normalize_embeddings=self.normalize_embeddings)[0]
+        return self.embedder.embed([text])[0]
 
     def search(self, text: str, top_k: int = 5) -> List[Tuple[Doc, float]]:
         q = self.embed_query(text)

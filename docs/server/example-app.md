@@ -46,7 +46,7 @@ Keep shared components explicit—model, embedder, logger, RAG, and a temp direc
 
 ```python
 from neurosurfer.models.embedders.base import BaseEmbedder
-from neurosurfer.models.chat_models import BaseModel as BaseChatModel
+from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
 from neurosurfer.server.services.rag_orchestrator import RAGOrchestrator
 
 BASE_DIR = "./tmp/code_sessions"; os.makedirs(BASE_DIR, exist_ok=True)
@@ -213,7 +213,7 @@ from typing import List, Generator
 import os, shutil, logging
 
 from neurosurfer.models.embedders.base import BaseEmbedder
-from neurosurfer.models.chat_models import BaseModel as BaseChatModel
+from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
 from neurosurfer.rag.chunker import Chunker
 from neurosurfer.rag.filereader import FileReader
 

@@ -233,7 +233,7 @@ def handler(request, ctx):
             return {"error": {"code": "invalid_tool_input", "message": str(e)}}
 
         out = tool(**data, llm=LLM, embedder=EMBEDDER, rag=RAG, stream=request.stream)
-        obs = out.observation
+        obs = out.results
 
         if request.stream and hasattr(obs, "__iter__") and not isinstance(obs, (str, bytes)):
             for token in obs:
@@ -320,7 +320,7 @@ def handler(request, ctx):
         return {"error": {"code": "invalid_tool_input", "message": str(e)}}
 
     out = tool(**data, llm=LLM, embedder=EMBEDDER, rag=RAG, stream=request.stream)
-    obs = out.observation
+    obs = out.results
 
     if request.stream and hasattr(obs, "__iter__") and not isinstance(obs, (str, bytes)):
         for token in obs:

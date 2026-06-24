@@ -1,7 +1,7 @@
 # LlamaCppModel
 
 **Module:** `neurosurfer.models.chat_models.llamacpp`  
-**Inherits:** [`BaseModel`](base-model.md)
+**Inherits:** [`BaseChatModel`](base-model.md)
 
 ## Overview
 

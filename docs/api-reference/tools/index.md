@@ -89,7 +89,7 @@ class Calculator(BaseTool):
     )
     def __call__(self, *, op: str, a: float, b: float, **_) -> ToolResponse:
         ops = {"add": a+b, "sub": a-b, "mul": a*b, "div": a/b if b else float('inf')}
-        return ToolResponse(final_answer=True, observation=str(ops.get(op, 'NaN')))
+        return ToolResponse(final_answer=True, results=str(ops.get(op, 'NaN')))
 
 # 2) Register it in a toolkit
 toolkit = Toolkit()
@@ -101,7 +101,7 @@ validated = toolkit.registry["calculator"].spec.check_inputs(
     {"op": "mul", "a": 6, "b": 7}
 )
 result = toolkit.registry["calculator"](**validated)           # -> ToolResponse
-print("Answer:", result.observation)                           # "42"
+print("Answer:", result.results)                           # "42"
 ```
 
 ---
@@ -112,7 +112,7 @@ print("Answer:", result.observation)                           # "42"
 2. **Validation** — The agent validates inputs with `ToolSpec.check_inputs(...)`.  
 3. **Invocation** — The agent calls `tool(**validated_inputs, **runtime_ctx)` and gets a `ToolResponse`.  
 4. **Control Flow** — If `final_answer=True`, the agent stops. Otherwise, it may chain more tools using `extras` for context.  
-5. **Observability** — Tools should log responsibly and return meaningful `observation` text (or a streaming generator) for a great UX.
+5. **Observability** — Tools should log responsibly and return meaningful `results` text (or a streaming generator) for a great UX.
 
 ---
 
@@ -121,7 +121,7 @@ print("Answer:", result.observation)                           # "42"
 - **Be explicit** — precise names and descriptions improve agent planning.
 - **Validate strictly** — reject extra unknown inputs; type-check everything.
 - **Small, composable tools** — easier to plan, test, and swap.
-- **Stream when it helps** — long results or progressive tasks benefit from generator output in `ToolResponse.observation`.
+- **Stream when it helps** — long results or progressive tasks benefit from generator output in `ToolResponse.results`.
 - **Document side effects** — specify in `description`/`when_to_use` if a tool writes to disk, calls external services, or mutates state.
 - **Version carefully** — if you change inputs/returns, consider versioning the tool name (`…_v2`).
 

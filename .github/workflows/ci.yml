@@ -1,0 +1,60 @@
+name: CI
+
+# Push does not trigger CI (active development — frequent pushes). Runs on PRs
+# and can be started manually from the Actions tab.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Lint, type-check, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Lint (ruff)
+        run: ruff check neurosurfer tests
+
+      - name: Type check (mypy)
+        run: mypy neurosurfer
+
+      - name: Test (pytest)
+        run: pytest -q
+
+  package:
+    name: Build and validate package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: twine check dist/*
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --target runtime -t neurosurfer:ci .

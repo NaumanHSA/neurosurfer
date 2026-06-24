@@ -1,6 +1,6 @@
 # Chat Models API
 
-Large language models shipped with Neurosurfer share a unified interface through [`BaseModel`](base-model.md). Choose the backend that matches your deployment constraints—cloud APIs, local GPUs, llama.cpp, or remote vLLM servers.
+Large language models shipped with Neurosurfer share a unified interface through [`BaseChatModel`](base-model.md). Choose the backend that matches your deployment constraints—cloud APIs, local GPUs, llama.cpp, or remote vLLM servers.
 
 ## Supported backends
 

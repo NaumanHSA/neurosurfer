@@ -1,33 +1,30 @@
-# Code of Conduct (Short)
+# Code of Conduct
 
-## Our Pledge
-We are committed to a welcoming, harassment-free community for everyone, regardless of age, body size, disability (visible or invisible), ethnicity, sex characteristics, gender identity or expression, experience level, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity/orientation.
+## Our commitment
 
-## Our Standards
-**Do:** 
-- Be respectful, empathetic, and inclusive.
-- Welcome differing opinions; give and receive constructive feedback.
-- Assume good intent; focus on what benefits the community.
+neurosurfer is an open, welcoming project. Everyone who participates —
+through issues, pull requests, discussions, or any other channel — is expected
+to treat others with respect and act in good faith.
 
-**Don't:**
-- Harass, troll, or use insulting/derogatory language.
-- Use sexualized language or make unwelcome advances.
-- Publish others’ private information without explicit permission.
-- Disrupt discussions or derail threads.
+## Expected behavior
 
-## Scope
-This Code applies in all project spaces (GitHub, Discord, issues/PRs, docs) and when representing the project in public.
+- Be constructive and assume good intent.
+- Give and receive feedback gracefully.
+- Focus on the technical problem, not the person.
+- Respect that people have different experience levels and backgrounds.
 
-## Reporting
-Report violations privately to **naumanhsa965@gmail.com**. We’ll review and respond promptly while respecting reporter privacy.
+## Unacceptable behavior
+
+- Personal attacks, insults, or harassment of any kind.
+- Publishing others' private information without consent.
+- Any conduct that would reasonably be considered inappropriate in a
+  professional setting.
 
 ## Enforcement
-Community leaders may edit/remove content, issue warnings, or apply temporary/permanent bans. Consequences are proportionate to impact:
-- **Correction:** Private note clarifying expectations.
-- **Warning:** Formal notice; further incidents lead to restrictions.
-- **Temporary Ban:** Limited participation for a set period.
-- **Permanent Ban:** Removal from community spaces.
 
-## Attribution
-Adapted from the **Contributor Covenant v2.1**  
-<https://www.contributor-covenant.org/version/2/1/code_of_conduct.html>
+Violations can be reported to **naumanhsa965@gmail.com**. All reports are
+kept confidential. Maintainers reserve the right to remove content or block
+contributors who repeatedly violate these standards.
+
+This project is small and aims to stay low-friction. Most issues can be
+resolved with a direct, respectful conversation.

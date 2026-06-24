@@ -1,0 +1,159 @@
+## Example Graph YAML: “Docs from Codebase (Global KB + RAG-enabled nodes)”
+
+# This workflow assumes:
+# - You initialize `GraphAgent/GraphExecutor` with `knowledge_sources=[<path-to-project-root>]`
+#   so the entire repo is ingested once into a *global* KB.
+# - Nodes with `rag: true` will automatically retrieve relevant chunks from that KB and inject them
+#   into the prompt context before the node runs.
+
+# Goal:
+# - User picks a module (e.g., `neurosurfer/tracing`)
+# - Agent retrieves relevant code/docs from the repo (RAG)
+# - Produces a documentation plan + outline
+# - Generates Markdown docs
+# - Optionally runs a “review/QA” pass for correctness + completeness.
+
+name: docs_from_codebase_workflow
+description: >
+  Build documentation for a specific module from a full project codebase
+  using a global RAG knowledge base. The flow (1) scopes the module,
+  (2) extracts key APIs and concepts from code, (3) plans docs,
+  (4) generates the docs, and (5) reviews them for quality.
+
+inputs:
+  - project_name:
+      type: string
+      default: "neurosurfer"
+  - module_path:
+      type: string
+      required: true
+      description: "Module folder or import path, e.g. 'neurosurfer/tracing' or 'neurosurfer.tracing'"
+  - target_audience:
+      type: string
+      default: "Intermediate ML / SWE engineers"
+  - tone:
+      type: string
+      default: "Practical, concise, tutorial-style"
+  - doc_depth:
+      type: string
+      default: "medium"
+      description: "one of: shallow | medium | deep"
+  - output_format:
+      type: string
+      default: "mkdocs"
+      description: "one of: mkdocs | readme | internal_wiki"
+
+nodes:
+  - id: scope_module
+    purpose: "Identify and scope the documentation target module."
+    goal: >
+      Convert module_path into a clear scope: key files, subpackages, public APIs,
+      and what 'counts' as in-scope vs out-of-scope for documentation.
+    expected_result: >
+      A structured scope including:
+      - module_root
+      - key_files
+      - public_objects_to_document
+      - non_goals
+      - doc_entry_points
+    mode: structured
+    rag: true
+    export: true
+    policy:
+      max_new_tokens: 2048
+      temperature: 0.3
+
+  - id: extract_module_map
+    depends_on: ["scope_module"]
+    purpose: "Extract an API + concept map for the target module from the codebase."
+    goal: >
+      Using retrieved code context, build a map:
+      - main classes/functions (signatures + responsibilities)
+      - data models and fields
+      - typical call flows
+      - configuration knobs
+      - examples we should include
+      - edge cases / gotchas
+    expected_result: >
+      A structured 'module_map' JSON with sections:
+      - overview
+      - components
+      - flows
+      - config
+      - examples
+      - pitfalls
+    mode: structured
+    rag: true
+    export: true
+    policy:
+      max_new_tokens: 2500
+      temperature: 0.4
+
+  - id: plan_docs
+    depends_on: ["scope_module", "extract_module_map"]
+    purpose: "Plan the documentation structure and page layout."
+    goal: >
+      Turn the module_map into a documentation plan optimized for the requested audience and format.
+      Include page titles, section headings, and what each section should explain.
+    expected_result: >
+      A structured plan with:
+      - doc_tree (pages)
+      - per_page_sections
+      - per_page_goals
+      - per_page_examples_to_include
+      - source_files_to_reference
+    mode: structured
+    rag: false
+    export: true
+    policy:
+      max_new_tokens: 2000
+      temperature: 0.5
+
+  - id: write_docs
+    depends_on: ["plan_docs", "extract_module_map"]
+    purpose: "Generate the actual documentation in Markdown."
+    goal: >
+      Write documentation pages (Markdown) based on the plan and code facts.
+      Include:
+      - overview
+      - concepts
+      - API reference (high-level, not full auto-doc)
+      - usage examples
+      - troubleshooting
+      Enforce the constraint: only document what exists in the repo.
+    expected_result: >
+      A complete Markdown documentation output. If output_format=mkdocs,
+      structure as multiple pages separated by clear page delimiters.
+    mode: text
+    rag: true
+    export: true
+    policy:
+      max_new_tokens: 12000
+      temperature: 0.6
+
+  - id: review_docs
+    depends_on: ["write_docs", "extract_module_map"]
+    purpose: "Review the docs for correctness, completeness, and clarity."
+    goal: >
+      Verify that documented APIs exist and match the code context.
+      Flag hallucinations, missing critical sections, unclear instructions,
+      and propose concrete edits.
+    expected_result: >
+      A structured review:
+      - strengths
+      - issues (with severity)
+      - suggested edits
+      - missing examples
+      - glossary additions (optional)
+    mode: structured
+    rag: true
+    export: true
+    policy:
+      max_new_tokens: 2500
+      temperature: 0.3
+
+outputs:
+  - plan_docs
+  - write_docs
+  - review_docs
+

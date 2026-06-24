@@ -1,7 +1,7 @@
 # OpenAIModel
 
 **Module:** `neurosurfer.models.chat_models.openai`  
-**Inherits:** [`BaseModel`](base-model.md)
+**Inherits:** [`BaseChatModel`](base-model.md)
 
 ## Overview
 
@@ -44,7 +44,7 @@ OpenAIModel(
 | `timeout` | `float \| None` | `120.0` | Maximum seconds to wait for a response. |
 | `stop_words` | `list[str] \| None` | `config.base_model.stop_words` | Optional stop sequence list checked on the client side. |
 | `strip_reasoning` | `bool` | `config.base_model.strip_reasoning` | If `True`, remove reasoning/thinking blocks before returning content. |
-| `max_seq_length` | `int` | `config.base_model.max_seq_length` | Advertised context window, forwarded to `BaseModel`. |
+| `max_seq_length` | `int` | `config.base_model.max_seq_length` | Advertised context window, forwarded to `BaseChatModel`. |
 | `verbose` | `bool` | `config.base_model.verbose` | Emit detailed logs during initialisation and errors. |
 | `logger` | `logging.Logger` | `logging.getLogger()` | Logger instance reused across operations. |
 
@@ -114,7 +114,7 @@ OPENAI_MODEL_NAME=gpt-4o-mini
 
 ## Related APIs
 
-- [`BaseModel`](base-model.md) – shared helpers and lifecycle hooks
+- [`BaseChatModel`](base-model.md) – shared helpers and lifecycle hooks
 - [`TransformersModel`](transformers-model.md) – local Hugging Face backend
 
 *mkdocstrings output is temporarily disabled while import hooks are updated.*

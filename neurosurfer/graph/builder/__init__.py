@@ -1,0 +1,22 @@
+"""The Architect — a built-in WorkflowPackage that designs and builds
+other WorkflowPackages from a plain-English user intent.
+
+The Architect's graph lives in ``package/`` (a pre-authored WorkflowPackage
+that ships with neurosurfer). It is loaded directly from the source tree,
+not from the user's registry.
+
+Public API (usable from pure Python — no CLI dependency):
+
+    from neurosurfer.graph.builder import ArchitectBuilder, ArchitectConversation
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from .build import ArchitectBuilder
+from .conversation import ArchitectConversation
+
+_PACKAGE_DIR = Path(__file__).parent / "package"
+
+__all__ = ["ArchitectBuilder", "ArchitectConversation"]

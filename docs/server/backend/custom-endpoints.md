@@ -18,8 +18,8 @@ Use `@app.endpoint(path, method="post", request=..., response=..., dependencies=
   path: str,
   *,
   method: "get" | "post" | "put" | "patch" | "delete" = "post",
-  request: BaseModel | None = None,
-  response: BaseModel | None = None,
+  request: BaseChatModel | None = None,
+  response: BaseChatModel | None = None,
   dependencies: list[Callable] | None = None,
 )
 def handler(...): ...

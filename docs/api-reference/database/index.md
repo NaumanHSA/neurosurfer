@@ -61,7 +61,7 @@ db = SQLDatabase(
 print(db.get_table_info(["users"]))   # CREATE TABLE + sample rows
 
 # 2) Build a schema store (with or without LLM summaries)
-llm = OpenAILikeModel(model="gpt-4o-mini")  # any BaseModel-compatible LLM
+llm = OpenAILikeModel(model="gpt-4o-mini")  # any BaseChatModel-compatible LLM
 store = SQLSchemaStore(db_uri="postgresql://user:pass@localhost:5432/analytics", llm=llm, storage_path="./")
 for _ in store.train(summarize=True, force=True):  # generator yields progress counts
     pass

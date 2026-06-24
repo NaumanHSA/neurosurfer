@@ -1,7 +1,7 @@
 # TransformersModel
 
 **Module:** `neurosurfer.models.chat_models.transformers`  
-**Inherits:** [`BaseModel`](base-model.md)
+**Inherits:** [`BaseChatModel`](base-model.md)
 
 ## Overview
 

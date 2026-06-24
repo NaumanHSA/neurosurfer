@@ -18,7 +18,7 @@ Welcome to **Neurosurfer** — a production‑grade AI framework with multi‑LL
 
     ---
 
-    Serve the backend and (optionally) the NeurowebUI with one command.
+    Serve the backend gateway with one command.
 
     [:octicons-arrow-right-24: Go to CLI](#cli-usage)
 
@@ -44,10 +44,9 @@ Welcome to **Neurosurfer** — a production‑grade AI framework with multi‑LL
 
 ## 📋 Prerequisites
 
-Neurosurfer installs as a lightweight core so you can get started quickly. A typical setup uses Python 3.9+ and a virtual environment. If you plan to run the NeurowebUI locally, you’ll also need Node.js and npm. Hardware acceleration is optional but recommended when working with larger models.
+Neurosurfer installs as a lightweight core so you can get started quickly. A typical setup uses Python 3.9+ and a virtual environment. Hardware acceleration is optional but recommended when working with larger models.
 
 - **Python** `>= 3.9` and **pip** (or **uv/pipx/poetry**)
-- **Node.js + npm** for the NeurowebUI dev server (optional)
 - **GPU** (optional): NVIDIA CUDA on Linux x86_64, or Apple Silicon (MPS) on macOS arm64. CPU‑only works fine for smaller models or demos.
 
 !!! tip "Keep installs lightweight"
@@ -141,14 +140,14 @@ python -c "import neurosurfer; print('ok')"
 You’ll see a banner; if optional deps are missing, you’ll get a single consolidated warning with install hints.
 
 !!! tip "Useful environment flags"
-    - `NEUROSURF_SILENCE=1` — hide banner & warnings  
-    - `NEUROSURF_EAGER_RUNTIME_ASSERT=1` — fail fast at import if LLM deps missing (opt‑in)
+    - `NEUROSURFER_SILENCE=1` — hide banner & warnings  
+    - `NEUROSURFER_EAGER_RUNTIME_ASSERT=1` — fail fast at import if LLM deps missing (opt‑in)
 
 ---
 
 ## 🖥️ CLI Usage
 
-The CLI runs the backend API and (optionally) the NeurowebUI dev server. Start simple with `neurosurfer serve`, then refine with flags as you scale.
+The CLI runs the backend gateway API. Start simple with `neurosurfer serve`, then refine with flags as you scale.
 
 ### Help
 
@@ -157,26 +156,24 @@ neurosurfer --help
 neurosurfer serve --help
 ```
 
-### Start backend + UI (dev)
+### Start the backend (dev)
 
 ```bash
 neurosurfer serve
 ```
 
-The backend binds to `NEUROSURF_BACKEND_HOST` / `NEUROSURF_BACKEND_PORT` (from config). The UI root is auto‑detected; pass `--ui-root` if needed. On first run, an `npm install` may occur — you can control this with `--npm-install`.
+The backend binds to `NEUROSURFER_BACKEND_HOST` / `NEUROSURFER_BACKEND_PORT` (from config).
 
 ### Common options
 
-- **Backend app** (`--backend-app`): module path like `pkg.module:app_or_factory()` or a Python file with a `NeurosurferApp` instance. The default is `neurosurfer.examples.quickstart_app:ns`.
+- **Backend app** (`--backend-app`): module path like `pkg.module:app_or_factory()` or a Python file with a `NeurosurferServer` instance. The default is `neurosurfer.examples.quickstart_app:ns`.
 - **Backend**: `--backend-host`, `--backend-port`, `--backend-log-level`, `--backend-reload`, `--backend-workers`, `--backend-worker-timeout`.
-- **UI**: `--ui-root`, `--ui-host`, `--ui-port`, `--ui-strict-port`, `--ui-open`, `--npm-install {auto|always|never}`.
-- **Split**: `--only-backend` or `--only-ui`.
 
 ### Examples
 
-**Backend only**
+**Custom host/port**
 ```bash
-neurosurfer serve --only-backend --backend-host 0.0.0.0 --backend-port 8000
+neurosurfer serve --backend-host 0.0.0.0 --backend-port 8000
 ```
 
 **Serve your own file**
@@ -189,14 +186,9 @@ neurosurfer serve --backend-app ./app.py --backend-reload
 neurosurfer serve --backend-app mypkg.myapp:ns
 ```
 
-**Run UI only**
+**Public backend URL (when binding 0.0.0.0)**
 ```bash
-neurosurfer serve --only-ui --ui-root /path/to/neurowebui
-```
-
-**Public backend URL for UI (when binding 0.0.0.0)**
-```bash
-export NEUROSURF_PUBLIC_HOST=your.ip.addr
+export NEUROSURFER_PUBLIC_HOST=your.ip.addr
 neurosurfer serve
 ```
 

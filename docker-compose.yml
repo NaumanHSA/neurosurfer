@@ -1,0 +1,31 @@
+services:
+  neurosurfer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: neurosurfer:V1.0.0
+    container_name: neurosurfer
+    env_file:
+      - .env
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - NEUROSURFER_BACKEND_APP=neurosurfer.examples.quickstart_app:ns
+      - NEUROSURFER_BACKEND_HOST=0.0.0.0
+      - NEUROSURFER_BACKEND_PORT=8081
+      - VLLM_BASE_URL=http://localhost:8001/v1
+      - MODEL_NAME=Qwen3-8B-unsloth-bnb-4bit
+      - NS_CORS_ALLOW_CREDENTIALS=true
+      - NS_CORS_ORIGINS="http://localhost:5173,http://192.168.0.198:5173"
+    ports:
+      - "8081:8081"
+    volumes:
+      - /home/nomi/workspace/Model_Weights:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    runtime: nvidia
+    # command is already set via CMD in Dockerfile, so usually you don't need this:
+    # command: ["python3", "-m", "neurosurfer.cli.main", "serve"]

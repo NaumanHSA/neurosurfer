@@ -27,7 +27,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 
 ## Runtime Dependencies & Config
 
-- **Constructor:** `RelevantTableSchemaFinderLLM(llm: BaseModel, sql_schema_store: SQLSchemaStore, logger: logging.Logger | None = None)`
+- **Constructor:** `RelevantTableSchemaFinderLLM(llm: BaseChatModel, sql_schema_store: SQLSchemaStore, logger: logging.Logger | None = None)`
 - **Prompt:** `RELEVENT_TABLES_PROMPT` (note: result must be a valid Python list literal)
 - **Top K:** `top_k = 6` (upper bound; LLM can return fewer)
 - **Token trimming:** uses `RAGRetrieverAgent._trim_context_by_token_limit(...)` to fit summaries and adjust `max_new_tokens`.
@@ -44,7 +44,7 @@ Pairs with: [`BaseTool`](../../base-tool.md) • [`ToolSpec`](../../tool-spec.md
 2. Trims context to token budget if needed.
 3. Calls LLM; expects output like `['Users', 'Orders']`.
 4. Builds a message and **schema context** by fetching schemas via `sql_schema_store.get_table_data(name)`.
-5. Returns `ToolResponse(final_answer=False, observation=<message>, extras={{"schema_context": ...}})`.
+5. Returns `ToolResponse(final_answer=False, results=<message>, extras={{"schema_context": ...}})`.
 
 ---
 

@@ -1,0 +1,125 @@
+"""Configuration loading for neurosurfer.
+
+Settings come from environment variables (optionally seeded from a local ``.env``
+file). The engine is provider-neutral; ``LLM_PROVIDER`` selects which adapter the
+registry builds, and the rest of the values configure that adapter plus paths.
+
+``Config`` is a composition of one dataclass per concern (``llm``, ``tasks``,
+``memory``, ``sessions``, ``observability``) — see the sibling modules.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .base import env_int, load_dotenv
+from .llm import DEFAULT_ANTHROPIC_MODEL, DEFAULT_CONTEXT_WINDOW, LLMConfig
+from .memory import MemoryConfig
+from .observability import ObservabilityConfig
+from .projects import ProjectsConfig
+from .sessions import SessionsConfig
+from .tasks import TasksConfig
+
+__all__ = [
+    "Config",
+    "load_config",
+    "LLMConfig",
+    "TasksConfig",
+    "MemoryConfig",
+    "SessionsConfig",
+    "ObservabilityConfig",
+    "ProjectsConfig",
+    "DEFAULT_ANTHROPIC_MODEL",
+    "DEFAULT_CONTEXT_WINDOW",
+]
+
+
+@dataclass
+class Config:
+    """Resolved runtime configuration, namespaced by concern."""
+
+    llm: LLMConfig = field(default_factory=LLMConfig)
+    tasks: TasksConfig = field(default_factory=TasksConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    projects: ProjectsConfig = field(default_factory=ProjectsConfig)
+
+    def ensure_dirs(self) -> None:
+        self.tasks.dir.mkdir(parents=True, exist_ok=True)
+        self.observability.transcripts_dir().mkdir(parents=True, exist_ok=True)
+        self.observability.runs_state_dir().mkdir(parents=True, exist_ok=True)
+        self.sessions.dir.mkdir(parents=True, exist_ok=True)
+        self.projects.dir.mkdir(parents=True, exist_ok=True)
+
+    def redacted(self) -> dict[str, object]:
+        """Config snapshot safe to print (keys masked)."""
+
+        def mask(v: str | None) -> str:
+            if not v:
+                return "<unset>"
+            return v[:6] + "…" if len(v) > 8 else "<set>"
+
+        return {
+            "provider": self.llm.provider,
+            "model": self.llm.model,
+            "anthropic_api_key": mask(self.llm.anthropic_api_key),
+            "openai_base_url": self.llm.openai_base_url,
+            "openai_api_key": mask(self.llm.openai_api_key),
+            "context_window": self.llm.context_window,
+            "tasks_dir": str(self.tasks.dir),
+            "state_dir": str(self.observability.state_dir),
+            "memory_dir": str(self.memory.dir),
+            "memory_enabled": self.memory.enabled,
+            "embeddings_backend": self.memory.embeddings_backend,
+            "sessions_dir": str(self.sessions.dir),
+            "log_level": self.observability.log_level,
+        }
+
+
+def load_config(env_file: Path | None = None) -> Config:
+    """Build a :class:`Config` from the environment (+ optional .env file)."""
+    load_dotenv(env_file or Path.cwd() / ".env")
+
+    provider = os.environ.get("LLM_PROVIDER", "anthropic").strip().lower()
+    if provider not in ("anthropic", "openai"):
+        provider = "anthropic"
+
+    default_model = DEFAULT_ANTHROPIC_MODEL if provider == "anthropic" else "local-model"
+    model = os.environ.get("MODEL", default_model).strip()
+
+    tasks_dir = os.environ.get("NEUROSURFER_TASKS_DIR")
+    state_dir = os.environ.get("NEUROSURFER_STATE_DIR")
+    memory_dir = os.environ.get("NEUROSURFER_MEMORY_DIR")
+    sessions_dir = os.environ.get("NEUROSURFER_SESSIONS_DIR")
+
+    cfg = Config(
+        llm=LLMConfig(
+            provider=provider,
+            model=model,
+            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+            openai_base_url=os.environ.get("OPENAI_BASE_URL", "http://localhost:1234/v1").strip(),
+            openai_api_key=os.environ.get("OPENAI_API_KEY", "not-needed").strip() or "not-needed",
+            context_window=env_int("CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW),
+        ),
+        memory=MemoryConfig(
+            enabled=os.environ.get("NEUROSURFER_MEMORY", "1").strip().lower()
+            not in ("0", "false", "no", "off"),
+            embeddings_backend=os.environ.get("NEUROSURFER_EMBEDDINGS", "none").strip().lower(),
+            token_budget=env_int("NEUROSURFER_MEMORY_BUDGET", 1000),
+        ),
+        observability=ObservabilityConfig(
+            log_level=os.environ.get("NEUROSURFER_LOG_LEVEL", "INFO").strip().upper(),
+        ),
+    )
+    if tasks_dir:
+        cfg.tasks.dir = Path(tasks_dir).expanduser()
+    if state_dir:
+        cfg.observability.state_dir = Path(state_dir).expanduser()
+    if memory_dir:
+        cfg.memory.dir = Path(memory_dir).expanduser()
+    if sessions_dir:
+        cfg.sessions.dir = Path(sessions_dir).expanduser()
+    return cfg

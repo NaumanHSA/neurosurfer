@@ -60,7 +60,7 @@ class HelloTool(BaseTool):
         returns=ToolReturn(type="string", description="A greeting"),
     )
     def __call__(self, *, name: str, **kwargs) -> ToolResponse:
-        return ToolResponse(final_answer=True, observation=f"Hello, {name}!")
+        return ToolResponse(final_answer=True, results=f"Hello, {name}!")
 
 toolkit = Toolkit()
 toolkit.register_tool(HelloTool())

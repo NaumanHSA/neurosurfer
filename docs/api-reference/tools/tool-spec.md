@@ -143,7 +143,7 @@ class EchoTool(BaseTool):
         returns=ToolReturn(type="string", description="The echoed text"),
     )
     def __call__(self, *, text: str, **kwargs) -> ToolResponse:
-        return ToolResponse(final_answer=True, observation=text)
+        return ToolResponse(final_answer=True, results=text)
 ```
 
 ### Strict input validation

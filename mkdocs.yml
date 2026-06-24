@@ -176,7 +176,7 @@ nav:
       - api-reference/models/index.md
       - Chat Models:
         - api-reference/models/chat-models/index.md
-        - BaseModel: api-reference/models/chat-models/base-model.md
+        - BaseChatModel: api-reference/models/chat-models/base-model.md
         - OpenAIModel: api-reference/models/chat-models/openai-model.md
         - LlamaCppModel: api-reference/models/chat-models/llamacpp-model.md
         - TransformersModel: api-reference/models/chat-models/transformers-model.md
@@ -224,7 +224,6 @@ nav:
           - Chat Handlers: server/backend/chat-handlers.md
           - Custom Endpoints: server/backend/custom-endpoints.md
           - Auth & Users: server/backend/auth.md
-      - NeurosurferUI (Frontend): server/neurosurferui.md
       - Example Application: server/example-app.md
   - CLI: cli.md
   - Examples:
