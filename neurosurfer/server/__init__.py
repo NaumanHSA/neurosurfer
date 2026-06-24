@@ -1,15 +1,52 @@
-"""Neurosurfer OpenAI-Compatible Gateway Server.
+"""OpenAI-compatible gateway server.
 
-Drop-in replacement for the previous `neurosurfer.server` module.
+Exposes a FastAPI application with ``/v1/chat/completions``, ``/v1/models``,
+and ``/health`` routes.  Backends can be upstream LLM servers (vLLM, LM Studio,
+Ollama, OpenAI) or native :mod:`neurosurfer.agents` instances.
 
-Exposes an OpenAI-compatible API surface so clients like Open-WebUI can connect:
-- GET  /v1/models
-- POST /v1/chat/completions
+Minimal quickstart::
 
-Public API:
+    from neurosurfer.server import NeurosurferServer, UpstreamBackend
+
+    server = NeurosurferServer(port=8000)
+    server.register_backend(
+        UpstreamBackend(name="local", base_url="http://localhost:8001/v1")
+    )
+    server.run()
+
+Register a native agent::
+
+    from neurosurfer.agents import AgenticLoop
     from neurosurfer.server import NeurosurferServer
+
+    loop = AgenticLoop(provider=..., tools=[...])
+    server = NeurosurferServer()
+    server.register_agent(loop, model_id="my-agent")
+    server.run()
+
+Requires the ``[serve]`` extra: ``pip install 'neurosurfer[serve]'``.
 """
 
+from .backends.agent import AgentBackend, AgentSpec
+from .backends.upstream import UpstreamBackend
+from .config import ServerSettings
+from .errors import OpenAIHTTPError
 from .gateway import NeurosurferServer
+from .hooks.base import Hook, HookContext
+from .hooks.builtin import StripReasoningHook, SystemPromptInjectorHook
+from .registry import ModelRouter, RouteTarget
 
-__all__ = ["NeurosurferServer"]
+__all__ = [
+    "AgentBackend",
+    "AgentSpec",
+    "Hook",
+    "HookContext",
+    "ModelRouter",
+    "NeurosurferServer",
+    "OpenAIHTTPError",
+    "RouteTarget",
+    "ServerSettings",
+    "StripReasoningHook",
+    "SystemPromptInjectorHook",
+    "UpstreamBackend",
+]

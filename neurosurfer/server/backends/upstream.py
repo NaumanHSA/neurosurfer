@@ -1,11 +1,17 @@
 from __future__ import annotations
+
 import json
 from typing import AsyncIterator, Optional, Tuple
+
 import httpx
+
 from .base import Backend
 from ..errors import OpenAIHTTPError
 
+
 class UpstreamBackend(Backend):
+    """Proxy backend — forwards requests to an OpenAI-compatible upstream (vLLM, LM Studio, etc.)."""
+
     def __init__(
         self,
         *,
@@ -62,12 +68,10 @@ class UpstreamBackend(Backend):
                     body = await resp.aread()
                     raise OpenAIHTTPError(resp.status_code, body.decode("utf-8", "ignore"))
                 async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    if line.startswith(":"):
+                    if not line or line.startswith(":"):
                         continue
                     if line.startswith("data:"):
-                        data = line[len("data:"):].strip()
+                        data = line[len("data:") :].strip()
                         if data == "[DONE]":
                             break
                         try:
@@ -77,5 +81,5 @@ class UpstreamBackend(Backend):
 
         return True, gen()
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         await self._client.aclose()

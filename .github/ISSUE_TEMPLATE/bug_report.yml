@@ -1,0 +1,80 @@
+name: Bug Report
+description: Something is broken or behaving unexpectedly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+        Please redact any API keys before submitting.
+
+  - type: input
+    id: version
+    attributes:
+      label: neurosurfer version
+      placeholder: "e.g. 0.2.0  (run: neurosurfer --version)"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.12.3  (run: python --version)"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. Ubuntu 22.04, macOS 14, Windows 11"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - Anthropic (claude-*)
+        - LM Studio
+        - Ollama
+        - vLLM
+        - llama.cpp
+        - LiteLLM
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: "e.g. claude-opus-4-8, qwen2.5-coder-32b-instruct"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly. Include the command you ran and what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `neurosurfer run doc_gen`
+        2. Enter repo path `/path/to/repo`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full error output
+      description: Paste the complete error message or stack trace (redact your API key).
+      render: text

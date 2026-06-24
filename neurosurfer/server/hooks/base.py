@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
+
 
 @dataclass
 class HookContext:
@@ -9,7 +11,10 @@ class HookContext:
     user: Optional[str] = None
     client_ip: Optional[str] = None
 
+
 class Hook:
+    """Base hook — override any method to intercept the request/response lifecycle."""
+
     async def before_chat(self, ctx: HookContext, req: dict) -> dict:
         return req
 

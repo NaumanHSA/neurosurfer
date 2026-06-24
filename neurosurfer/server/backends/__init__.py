@@ -1,3 +1,5 @@
+from .agent import AgentBackend, AgentSpec
 from .base import Backend
 from .upstream import UpstreamBackend
-from .agent import AgentBackend
+
+__all__ = ["AgentBackend", "AgentSpec", "Backend", "UpstreamBackend"]

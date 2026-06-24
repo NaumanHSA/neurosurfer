@@ -1,8 +1,13 @@
 from __future__ import annotations
+
 import re
+
 from .base import Hook, HookContext
 
+
 class StripReasoningHook(Hook):
+    """Remove ``<think>...</think>`` blocks from assistant responses."""
+
     def __init__(self, pattern: str = r"<think>.*?</think>", flags: int = re.DOTALL):
         self._re = re.compile(pattern, flags)
 
@@ -16,7 +21,7 @@ class StripReasoningHook(Hook):
                 if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
                     msg["content"] = self._strip(msg["content"])
         except Exception:
-            return resp
+            pass
         return resp
 
     async def stream_chunk(self, ctx: HookContext, chunk: dict) -> dict:
@@ -26,10 +31,13 @@ class StripReasoningHook(Hook):
                 if isinstance(delta.get("content"), str):
                     delta["content"] = self._strip(delta["content"])
         except Exception:
-            return chunk
+            pass
         return chunk
 
+
 class SystemPromptInjectorHook(Hook):
+    """Prepend a fixed system prompt if none is present in the request."""
+
     def __init__(self, system_prompt: str):
         self.system_prompt = system_prompt
 

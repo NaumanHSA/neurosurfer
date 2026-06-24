@@ -1,4 +1,4 @@
-# neurosurfer/tracing/__init__.py
+# neurosurfer/tracing/__init__.py  (promoted from workflows/_runtime in Restructure R1)
 from .span import (
     SpanTracer,
     ConsoleTracer,

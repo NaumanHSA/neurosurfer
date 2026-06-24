@@ -1,22 +1,40 @@
 from __future__ import annotations
+
 import logging
 from typing import Any, Optional
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from .config import ServerSettings
-from .middleware import OpenAIErrorMiddleware
+
 from .api.router import build_router
-from .registry import ModelRouter, RouteTarget
-from .backends.upstream import UpstreamBackend
 from .backends.agent import AgentBackend, AgentSpec
+from .backends.upstream import UpstreamBackend
+from .config import ServerSettings
 from .hooks.base import Hook
+from .middleware import OpenAIErrorMiddleware
+from .registry import ModelRouter, RouteTarget
 
 
 class NeurosurferServer:
+    """OpenAI-compatible FastAPI gateway.
+
+    Usage::
+
+        server = NeurosurferServer(port=8000)
+
+        # Optional: proxy to an upstream LLM backend
+        server.register_backend(UpstreamBackend(name="vllm", base_url="http://localhost:8001/v1"))
+
+        # Optional: expose a native agent as a model
+        loop = AgenticLoop(provider=..., tools=[...])
+        server.register_agent(loop, model_id="my-agent")
+
+        server.run()
+    """
+
     def __init__(
         self,
         *,
-        # IMPORTANT: Treat these as optional overrides. Env/.env should be the source of truth.
         app_name: Optional[str] = None,
         api_keys: Optional[list[str]] = None,
         enable_docs: Optional[bool] = None,
@@ -30,10 +48,9 @@ class NeurosurferServer:
         sse_ping_interval_s: Optional[float] = None,
         logger: Optional[logging.Logger] = None,
     ):
-        # 1) Load settings from env/.env first, then apply overrides explicitly provided.
+        # Load from env/.env first, then apply explicit overrides.
         base = ServerSettings()
         overrides: dict = {}
-
         if app_name is not None:
             overrides["app_name"] = app_name
         if host is not None:
@@ -58,27 +75,20 @@ class NeurosurferServer:
             overrides["sse_ping_interval_s"] = sse_ping_interval_s
 
         self.settings = base.model_copy(update=overrides)
-
-        # 2) Logger
         self.logger = logger or logging.getLogger("neurosurfer.gateway")
 
-        # 3) Runtime state (per-process; fine with uvicorn workers)
         self.hooks: list[Hook] = []
         self.router = ModelRouter()
         self._upstream_backend: Optional[UpstreamBackend] = None
 
-        # 4) FastAPI app
         self.app = FastAPI(
             title=self.settings.app_name,
             docs_url="/docs" if self.settings.enable_docs else None,
             redoc_url=None,
         )
 
-        # 5) Error normalization first (so everything becomes OpenAI-style errors)
         self.app.add_middleware(OpenAIErrorMiddleware)
 
-        # 6) CORS
-        # NOTE: ServerSettings already validates credentials + wildcard origin safety.
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=self.settings.cors_origins,
@@ -87,14 +97,18 @@ class NeurosurferServer:
             allow_headers=self.settings.cors_allow_headers,
         )
 
-        # 7) Lightweight bearer-token auth (optional)
         @self.app.middleware("http")
         async def auth_middleware(request: Request, call_next):
             if self.settings.api_keys:
                 auth = request.headers.get("authorization") or ""
-                token = auth.split(" ", 1)[1] if auth.startswith("Bearer ") and " " in auth else None
+                token = (
+                    auth.split(" ", 1)[1]
+                    if auth.startswith("Bearer ") and " " in auth
+                    else None
+                )
                 if token not in self.settings.api_keys:
                     from fastapi.responses import JSONResponse
+
                     return JSONResponse(
                         status_code=401,
                         content={
@@ -108,9 +122,9 @@ class NeurosurferServer:
                     )
             return await call_next(request)
 
-        # 8) Mount API routes
         self.app.include_router(build_router(self))
 
+    # ── Registration ──────────────────────────────────────────────────────────
 
     def add_hook(self, hook: Hook) -> None:
         self.hooks.append(hook)
@@ -131,6 +145,13 @@ class NeurosurferServer:
         run_fn=None,
         result_to_text=None,
     ) -> None:
+        """Register a native agent as a model endpoint.
+
+        ``agent`` may be an :class:`~neurosurfer.agents.AgenticLoop`,
+        :class:`~neurosurfer.agents.ReactAgent`, or
+        :class:`~neurosurfer.agents.Agent` instance — or any object with a
+        ``run(prompt)`` method.  Pass ``run_fn`` to override the invocation logic.
+        """
         spec = AgentSpec(
             agent=agent,
             model_id=model_id,
@@ -143,11 +164,22 @@ class NeurosurferServer:
         backend = AgentBackend(spec)
         self.router.register_model(model_id, RouteTarget(backend=backend))
 
+    # ── Serving ───────────────────────────────────────────────────────────────
+
     def create_app(self) -> FastAPI:
+        """Return the underlying FastAPI app (for ASGI deployment)."""
         return self.app
 
     def run(self, host: Optional[str] = None, port: Optional[int] = None, **kwargs: Any) -> None:
-        import uvicorn
+        """Start the uvicorn server (blocking)."""
+        try:
+            import uvicorn
+        except ImportError as e:
+            raise ImportError(
+                "uvicorn is required to run the server. "
+                "Install it with: pip install 'neurosurfer[serve]'"
+            ) from e
+
         uvicorn.run(
             self.app,
             host=host or self.settings.host,

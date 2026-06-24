@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from fastapi import APIRouter
+
 
 def mount_health_routes(router: APIRouter, server) -> None:
     @router.get("/")

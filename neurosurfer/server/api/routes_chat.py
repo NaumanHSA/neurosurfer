@@ -1,12 +1,16 @@
 from __future__ import annotations
-import time, uuid
+
+import time
+import uuid
 from typing import AsyncIterator
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..errors import OpenAIHTTPError
 from ..hooks.base import HookContext
 from ..streaming.sse import sse_data, sse_done, sse_ping
+
 
 def mount_chat_routes(router: APIRouter, server) -> None:
     @router.post("/v1/chat/completions")
@@ -30,7 +34,7 @@ def mount_chat_routes(router: APIRouter, server) -> None:
         try:
             target = server.router.resolve(model)
         except KeyError:
-            raise OpenAIHTTPError(404, f"Model not found: {model}")
+            raise OpenAIHTTPError(404, f"Model not found: {model!r}")
 
         if target.upstream_model is not None and server._upstream_backend is not None:
             body["model"] = target.upstream_model

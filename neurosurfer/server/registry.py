@@ -1,14 +1,20 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, Optional
+
 from .backends.base import Backend
+
 
 @dataclass
 class RouteTarget:
     backend: Backend
     upstream_model: Optional[str] = None
 
+
 class ModelRouter:
+    """Routes model IDs to their backends."""
+
     def __init__(self):
         self._models: Dict[str, RouteTarget] = {}
         self._default_backend: Optional[Backend] = None
@@ -24,7 +30,7 @@ class ModelRouter:
             return self._models[model_id]
         if self._default_backend is not None:
             return RouteTarget(backend=self._default_backend, upstream_model=model_id)
-        raise KeyError(f"Unknown model: {model_id}")
+        raise KeyError(f"Unknown model: {model_id!r}")
 
     def all_models(self) -> Dict[str, RouteTarget]:
         return dict(self._models)

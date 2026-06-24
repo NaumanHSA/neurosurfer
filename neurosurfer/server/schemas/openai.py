@@ -1,9 +1,13 @@
 from __future__ import annotations
+
 from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class OpenAIBase(BaseModel):
     model_config = ConfigDict(extra="allow")
+
 
 class ModelPermission(OpenAIBase):
     id: str
@@ -19,6 +23,7 @@ class ModelPermission(OpenAIBase):
     group: Optional[str] = None
     is_blocking: bool = False
 
+
 class ModelCard(OpenAIBase):
     id: str
     object: Literal["model"] = "model"
@@ -29,16 +34,19 @@ class ModelCard(OpenAIBase):
     max_model_len: Optional[int] = None
     permission: List[ModelPermission] = Field(default_factory=list)
 
+
 class ModelList(OpenAIBase):
     object: Literal["list"] = "list"
     data: List[ModelCard]
 
+
 class ChatMessage(OpenAIBase):
-    role: Literal["system", "user", "assistant", "tool"]
+    role: str
     content: Any = None
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
     tool_calls: Optional[list[dict]] = None
+
 
 class ChatCompletionRequest(OpenAIBase):
     model: str
@@ -59,16 +67,12 @@ class ChatCompletionRequest(OpenAIBase):
     stream_options: Optional[dict] = None
     metadata: Optional[dict] = None
 
-class ChatMessage(BaseModel):
-    role: str
-    content: Optional[str] = None
-    tool_calls: Optional[list[dict]] = None
-    # you can add: name, function_call, etc if needed
 
 class ChatCompletionChoice(OpenAIBase):
     index: int = 0
     message: ChatMessage
     finish_reason: Optional[str] = None
+
 
 class ChatCompletionResponse(OpenAIBase):
     id: str
@@ -77,15 +81,18 @@ class ChatCompletionResponse(OpenAIBase):
     model: str
     choices: List[ChatCompletionChoice]
 
+
 class ChatCompletionChunkDelta(OpenAIBase):
     role: Optional[str] = None
     content: Optional[str] = None
     tool_calls: Optional[list[dict]] = None
 
+
 class ChatCompletionChunkChoice(OpenAIBase):
     index: int = 0
     delta: ChatCompletionChunkDelta = Field(default_factory=ChatCompletionChunkDelta)
     finish_reason: Optional[str] = None
+
 
 class ChatCompletionChunk(OpenAIBase):
     id: str

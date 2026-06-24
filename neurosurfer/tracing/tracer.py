@@ -347,10 +347,70 @@ class Tracer:
             for line in formatted_lines:
                 print(line)
 
-    def reset(self):
-        self._result = TraceResult(meta=self._meta)  # single shared instance
+    def reset(self) -> None:
+        self._result = TraceResult(meta=self._meta)
         self._counter = 0
         self._depth = 0
+
+    # ------------------------------------------------------------------
+    # D11: exportable traces (mirrors OpenAI Agents SDK span export and
+    # LangChain's CallbackManager.on_chain_end JSON export).
+    # ------------------------------------------------------------------
+    def export_json(self) -> Dict[str, Any]:
+        """Export the full trace as a JSON-serialisable dict.
+
+        The returned structure is stable and can be written to disk, sent to a
+        trace collector, or fed back into a self-debugging loop (Phase E).
+
+        Schema::
+
+            {
+                "meta": { ... },           # tracer-level metadata
+                "steps": [
+                    {
+                        "step_id": int,
+                        "kind": str,
+                        "label": str | null,
+                        "node_id": str | null,
+                        "agent_id": str | null,
+                        "started_at": float,
+                        "duration_ms": int,
+                        "ok": bool,
+                        "error": str | null,
+                        "inputs": { ... },
+                        "outputs": { ... },
+                        "meta": { ... },
+                        "logs": [ {"ts": float, "type": str, "message": str, ...} ]
+                    },
+                    ...
+                ]
+            }
+        """
+        result = self.results
+        return {
+            "meta": dict(result.meta),
+            "steps": [
+                {
+                    "step_id": s.step_id,
+                    "kind": s.kind,
+                    "label": s.label,
+                    "node_id": s.node_id,
+                    "agent_id": s.agent_id,
+                    "started_at": s.started_at,
+                    "duration_ms": s.duration_ms,
+                    "ok": s.ok,
+                    "error": s.error,
+                    "inputs": s.inputs,
+                    "outputs": s.outputs,
+                    "meta": s.meta,
+                    "logs": [
+                        {"ts": lg.ts, "type": lg.type, "message": lg.message, **lg.data}
+                        for lg in s.logs
+                    ],
+                }
+                for s in result.steps
+            ],
+        }
 
     def _format_message(self, msg: str, tag: str) -> str:
         """
