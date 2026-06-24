@@ -20,6 +20,9 @@ class FinishTool(Tool):
     )
     input_model = FinishArgs
 
+    def progress_message(self, args: dict) -> str:
+        return "Finishing up…"
+
     async def call(self, args: FinishArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         return ToolResult.ok(
             args.summary, finished=True, status=args.status, report=args.summary

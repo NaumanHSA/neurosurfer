@@ -28,6 +28,9 @@ class ToolStarted:
     id: str
     name: str
     args: dict[str, Any]
+    # Human-friendly status line (e.g. "Reading file README.md…"). Front-ends render
+    # this; falls back to name/args when empty.
+    title: str = ""
 
 
 @dataclass

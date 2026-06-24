@@ -26,6 +26,10 @@ class ReadFileTool(Tool):
     def is_read_only(self, args: BaseModel) -> bool:
         return True
 
+    def progress_message(self, args: dict) -> str:
+        path = args.get("path") or "file"
+        return f"Reading file {path}…"
+
     async def call(self, args: ReadFileArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         path = resolve_path(ctx.cwd, args.path)
         if not path.exists():

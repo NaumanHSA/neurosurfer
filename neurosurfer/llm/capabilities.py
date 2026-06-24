@@ -22,6 +22,27 @@ _ANTHROPIC_WINDOWS: dict[str, int] = {
     "claude-haiku-4-5": 200_000,
 }
 
+# Known OpenAI frontier model context windows (prefix-matched).
+# Used by OpenAICompatProvider when context_window is not explicitly provided.
+_OPENAI_FRONTIER_WINDOWS: dict[str, int] = {
+    "o4":          200_000,
+    "o3":          200_000,
+    "o1":          200_000,
+    "gpt-4o":      128_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-4":         8_192,
+    "gpt-3.5":      16_385,
+    "chatgpt-":    128_000,
+}
+
+
+def resolve_openai_context_window(model: str) -> int | None:
+    """Return the known context window for a frontier OpenAI model, or None if unknown."""
+    for prefix, window in _OPENAI_FRONTIER_WINDOWS.items():
+        if model.startswith(prefix):
+            return window
+    return None
+
 
 @dataclass
 class ProviderCapabilities:

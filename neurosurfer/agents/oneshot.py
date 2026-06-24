@@ -93,7 +93,9 @@ class Agent(BaseAgent):
 
             rounds += 1
             for tu in tool_uses:
-                yield events.ToolStarted(tu.id, tu.name, tu.input)
+                yield events.ToolStarted(
+                    tu.id, tu.name, tu.input, title=self.tools.progress_message(tu.name, tu.input)
+                )
             outcomes = await execute_tool_uses(
                 tool_uses,
                 tools=self.tools,

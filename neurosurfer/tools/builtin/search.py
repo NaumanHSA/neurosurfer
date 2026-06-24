@@ -31,6 +31,11 @@ class SearchTool(Tool):
     def is_read_only(self, args: BaseModel) -> bool:
         return True
 
+    def progress_message(self, args: dict) -> str:
+        pat = args.get("pattern") or ""
+        where = args.get("path") or "."
+        return f"Searching for {pat!r} in {where}…"
+
     async def call(self, args: SearchArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         try:
             flags = re.IGNORECASE if args.ignore_case else 0

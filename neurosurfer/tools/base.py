@@ -123,6 +123,15 @@ class Tool(ABC):
     def is_enabled(self) -> bool:
         return True
 
+    def progress_message(self, args: dict[str, Any]) -> str:
+        """A short, human-friendly status line shown while this call runs.
+
+        The agent loop puts this on the ``ToolStarted`` event so front-ends can render
+        "Reading file README.md…" instead of "read_file {'path': 'README.md'}". Override
+        per tool for context-aware text; the default humanises the tool name.
+        """
+        return f"{self.name.replace('_', ' ').capitalize()}…"
+
     @property
     def schema(self) -> ToolSchema:
         return ToolSchema(
@@ -161,6 +170,16 @@ class ToolPool:
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
+
+    def progress_message(self, name: str, args: dict[str, Any]) -> str:
+        """Friendly status line for a tool call; safe for unknown tools."""
+        tool = self.get(name)
+        if tool is None:
+            return f"{name.replace('_', ' ').capitalize()}…"
+        try:
+            return tool.progress_message(args)
+        except Exception:  # noqa: BLE001 - never let a status string break the loop
+            return f"{name.replace('_', ' ').capitalize()}…"
 
     def all(self) -> list[Tool]:
         return [t for t in self._tools.values() if t.is_enabled()]

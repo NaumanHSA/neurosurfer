@@ -18,6 +18,12 @@ _LOGO = r"""
   ██║╚██╗██║██╔══╝  ██║   ██║██╔══██╗██║   ██║
   ██║ ╚████║███████╗╚██████╔╝██║  ██║╚██████╔╝
   ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝
+   ██████╗ ██╗   ██╗██████╗ ███████╗███████╗██████╗
+  ██╔════╝ ██║   ██║██╔══██╗██╔════╝██╔════╝██╔══██╗
+  ╚█████╗  ██║   ██║██████╔╝█████╗  █████╗  ██████╔╝
+   ╚════██╗██║   ██║██╔══██╗██╔══╝  ██╔══╝  ██╔══██╗
+  ██████╔╝ ╚██████╔╝██║  ██║██║     ███████╗██║  ██║
+  ╚═════╝   ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝
 """
 
 _TAGLINE = "AI Agent Framework  ·  lean, local, production-ready"
@@ -127,10 +133,7 @@ async def print_banner(ctx: CLIContext) -> None:
 
     for line in _LOGO.strip("\n").splitlines():
         console.print(f"[{theme.ACCENT}]{line}[/{theme.ACCENT}]")
-    console.print(
-        f"     [{theme.ACCENT_DIM}]s u r f e r[/{theme.ACCENT_DIM}]   "
-        f"[{theme.DIM}]{_TAGLINE}[/{theme.DIM}]"
-    )
+    console.print(f"     [{theme.DIM}]{_TAGLINE}[/{theme.DIM}]")
     console.print()
 
     # ── connectivity probe ─────────────────────────────────────────────────

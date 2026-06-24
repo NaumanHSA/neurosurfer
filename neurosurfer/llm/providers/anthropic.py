@@ -235,8 +235,8 @@ class AnthropicProvider(Provider):
     async def count_tokens(
         self,
         messages: list[Message],
-        system: str | None,
-        tools: list[ToolSchema],
+        system: str | None = None,
+        tools: list[ToolSchema] | None = None,
     ) -> int:
         kwargs: dict[str, Any] = {
             "model": self.model,

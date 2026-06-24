@@ -115,6 +115,8 @@ WORKFLOW_NODE_TOOL_NAMES: frozenset[str] = _BUILTIN_WORKFLOW_NODE_TOOLS
 # A value of "" means "drop this tool" (the node is just an LLM step — e.g. 'llm_writer').
 _TOOL_ALIASES: dict[str, str] = {
     # directory / listing / walking
+    "ls": "list_dir",
+    "ls_dir": "list_dir",
     "list_files": "list_dir",
     "list_directory": "list_dir",
     "list_dir_contents": "list_dir",

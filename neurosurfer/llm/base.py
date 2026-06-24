@@ -46,13 +46,13 @@ class Provider(ABC):
     async def complete(
         self,
         messages: list[Message],
-        system: str | None,
-        tools: list[ToolSchema],
-        config: GenerationConfig,
+        system: str | None = None,
+        tools: list[ToolSchema] | None = None,
+        config: GenerationConfig | None = None,
     ) -> CanonicalResponse:
         """Non-streaming convenience: drain :meth:`stream` and return the result."""
         response: CanonicalResponse | None = None
-        async for event in self.stream(messages, system, tools, config):
+        async for event in self.stream(messages, system, tools or [], config or GenerationConfig()):
             if isinstance(event, Done):
                 response = event.response
         if response is None:  # pragma: no cover - stream always ends with Done
@@ -63,8 +63,8 @@ class Provider(ABC):
     async def count_tokens(
         self,
         messages: list[Message],
-        system: str | None,
-        tools: list[ToolSchema],
+        system: str | None = None,
+        tools: list[ToolSchema] | None = None,
     ) -> int:
         """Count input tokens. Anthropic uses the endpoint; OpenAI-compatible
         providers return a local estimate."""

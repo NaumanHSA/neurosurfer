@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Content blocks
@@ -61,6 +61,13 @@ class Message(BaseModel):
 
     role: Literal["user", "assistant"]
     content: list[ContentBlock]
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _coerce_string_content(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [{"type": "text", "text": v}]
+        return v
 
     def text(self) -> str:
         return "".join(b.text for b in self.content if isinstance(b, TextBlock))
@@ -135,7 +142,12 @@ class CanonicalResponse:
     model: str = ""
 
     def text(self) -> str:
-        return "".join(b.text for b in self.content if isinstance(b, TextBlock))
+        parts = [b.text for b in self.content if isinstance(b, TextBlock)]
+        if parts:
+            return "".join(parts)
+        # Thinking-only models (DeepSeek-R1, Gemma QAT, …) put everything in
+        # reasoning_content; fall back so callers always get a non-empty string.
+        return "".join(b.thinking for b in self.content if isinstance(b, ThinkingBlock))
 
     def tool_uses(self) -> list[ToolUseBlock]:
         return [b for b in self.content if isinstance(b, ToolUseBlock)]

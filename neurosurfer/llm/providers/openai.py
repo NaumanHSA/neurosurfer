@@ -17,7 +17,7 @@ from typing import Any
 
 from ...observability.logging import get_logger
 from ..base import Provider
-from ..capabilities import openai_capabilities
+from ..capabilities import openai_capabilities, resolve_openai_context_window
 from ..retry import with_retry
 from ..tokens import estimate_messages_tokens
 from ..types import (
@@ -171,11 +171,37 @@ class _ToolCallAccumulator:
 
 class OpenAICompatProvider(Provider):
     def __init__(
-        self, base_url: str, api_key: str, model: str,
-        context_window: int, max_output_tokens: int = 8192,
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        context_window: int | None = None,
+        max_output_tokens: int = 8192,
     ):
+        import warnings
+
         import httpx
         from openai import AsyncOpenAI
+
+        resolved = context_window or resolve_openai_context_window(model)
+        if resolved is None:
+            raise ValueError(
+                f"context_window is required for model {model!r}.\n"
+                "Local and custom models don't advertise their context size, so you "
+                "must pass it explicitly:\n\n"
+                "    OpenAICompatProvider(\n"
+                "        model=..., base_url=..., api_key=...,\n"
+                "        context_window=32_768,  # match your model's actual context size\n"
+                "    )\n\n"
+                "Common values: 4_096, 8_192, 16_384, 32_768, 65_536, 131_072."
+            )
+        if context_window is None:
+            # Auto-resolved from known frontier model table — inform the user.
+            warnings.warn(
+                f"context_window not provided for {model!r}; "
+                f"using known value of {resolved:,} tokens.",
+                stacklevel=2,
+            )
 
         # 60 s between streamed chunks is generous for local hardware yet still
         # catches genuine hangs (model OOM, deadlock, server crash).
@@ -185,7 +211,7 @@ class OpenAICompatProvider(Provider):
             timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0),
         )
         self.model = model
-        self.capabilities = openai_capabilities(model, context_window, max_output_tokens)
+        self.capabilities = openai_capabilities(model, resolved, max_output_tokens)
         self.strict_tools = False
 
     async def stream(
@@ -213,6 +239,7 @@ class OpenAICompatProvider(Provider):
             return await self._client.chat.completions.create(**kwargs)
 
         text_buf: list[str] = []
+        thinking_buf: list[str] = []
         accumulator = _ToolCallAccumulator()
         started: set[int] = set()
         finish_reason: str | None = None
@@ -236,6 +263,7 @@ class OpenAICompatProvider(Provider):
                         or getattr(delta, "reasoning", None)
                     )
                     if delta_reasoning:
+                        thinking_buf.append(delta_reasoning)
                         yield ThinkingDelta(text=delta_reasoning)
                     delta_text = getattr(delta, "content", None)
                     if delta_text:
@@ -268,6 +296,9 @@ class OpenAICompatProvider(Provider):
 
         tool_blocks = accumulator.finalize(self.strict_tools)
         out_content: list[ContentBlock] = []
+        thinking = "".join(thinking_buf)
+        if thinking:
+            out_content.append(ThinkingBlock(thinking=thinking))
         text = "".join(text_buf)
         if text:
             out_content.append(TextBlock(text=text))
@@ -291,8 +322,8 @@ class OpenAICompatProvider(Provider):
     async def count_tokens(
         self,
         messages: list[Message],
-        system: str | None,
-        tools: list[ToolSchema],
+        system: str | None = None,
+        tools: list[ToolSchema] | None = None,
     ) -> int:
         # No count endpoint on local servers — local estimate.
-        return estimate_messages_tokens(messages, system, tools)
+        return estimate_messages_tokens(messages, system, tools or [])

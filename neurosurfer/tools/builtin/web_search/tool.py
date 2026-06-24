@@ -58,6 +58,9 @@ class WebSearchTool(Tool):
         except ValueError:
             return False
 
+    def progress_message(self, args: dict) -> str:
+        return f"Searching the web for {args.get('query') or '…'}…"
+
     async def call(self, args: WebSearchArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         engine_name = args.engine or _config.DEFAULT_ENGINE
         try:

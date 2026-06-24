@@ -24,6 +24,9 @@ class WriteFileTool(Tool):
     def is_read_only(self, args: BaseModel) -> bool:
         return False
 
+    def progress_message(self, args: dict) -> str:
+        return f"Writing file {args.get('path') or 'file'}…"
+
     async def call(self, args: WriteFileArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         path = resolve_path(ctx.cwd, args.path)
         try:

@@ -55,6 +55,9 @@ class BrowseTool(Tool):
     def is_enabled(self) -> bool:
         return _playwright_available()
 
+    def progress_message(self, args: dict) -> str:
+        return f"Browsing {args.get('url') or 'page'}…"
+
     async def call(self, args: BrowseArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         url = args.url.strip()
         if not url.lower().startswith(("http://", "https://")):

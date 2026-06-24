@@ -30,6 +30,12 @@ class RunCommandTool(Tool):
     def is_read_only(self, args: BaseModel) -> bool:
         return False
 
+    def progress_message(self, args: dict) -> str:
+        cmd = (args.get("command") or "").strip()
+        if len(cmd) > 60:
+            cmd = cmd[:57] + "…"
+        return f"Running `{cmd}`…" if cmd else "Running command…"
+
     async def call(self, args: RunCommandArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         try:
             proc = await asyncio.create_subprocess_shell(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..base import Tool, ToolContext, ToolResult
 from ..utils import resolve_path
@@ -18,6 +18,17 @@ class ListDirArgs(BaseModel):
         description="Optional glob (e.g. '**/*.py') evaluated under path.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        # Accept "paths" (array or string) as an alias for "path".
+        if "paths" in data and "path" not in data:
+            val = data.pop("paths")
+            data["path"] = val[0] if isinstance(val, list) and val else str(val)
+        return data
+
 
 class ListDirTool(Tool):
     name = "list_dir"
@@ -29,6 +40,15 @@ class ListDirTool(Tool):
 
     def is_read_only(self, args: BaseModel) -> bool:
         return True
+
+    def progress_message(self, args: dict) -> str:
+        path = args.get("path") or args.get("paths") or "."
+        if isinstance(path, list):
+            path = path[0] if path else "."
+        pattern = args.get("pattern")
+        if pattern:
+            return f"Exploring {path} for {pattern}…"
+        return f"Exploring directory {path}…"
 
     async def call(self, args: ListDirArgs, ctx: ToolContext) -> ToolResult:  # type: ignore[override]
         base = resolve_path(ctx.cwd, args.path)

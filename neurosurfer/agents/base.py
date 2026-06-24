@@ -93,20 +93,26 @@ class BaseAgent:
         return self.system_prompt
 
     async def _stream_model(
-        self, *, tool_schemas: list | None = None
+        self, *, tool_schemas: list | None = None, system: str | None = None
     ) -> AsyncIterator[lt.StreamEvent]:
         """Stream one model turn, applying reactive compaction on overflow.
 
         ``tool_schemas`` defaults to the full tool pool's schemas (native tool-use).
         Pass ``[]`` for prompt-driven agents (e.g. ReAct) that must not advertise
         native tools to the provider.
+
+        ``system`` overrides the agent's base system prompt for this turn. Prompt-driven
+        agents (e.g. ReAct) pass their assembled prompt — with the tool catalog and
+        format spec — here so the model actually receives it; otherwise the bare
+        ``self.system_prompt`` is used.
         """
         schemas = self.tools.schemas() if tool_schemas is None else tool_schemas
+        effective_system = system if system is not None else self._effective_system()
         if self.context_manager is not None:
             async for ev in self.context_manager.stream_with_recovery(
                 self.provider,
                 self.history,
-                self._effective_system(),
+                effective_system,
                 schemas,
                 self.gen_config,
             ):
@@ -114,7 +120,7 @@ class BaseAgent:
             return
         async for ev in self.provider.stream(
             self.history.messages,
-            self._effective_system(),
+            effective_system,
             schemas,
             self.gen_config,
         ):
