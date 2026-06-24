@@ -231,6 +231,9 @@ class TaskRunner:
                 memory=memory_store,
                 memory_agent=task.name,
                 session_id=run_id,
+                # The CLI renders the event stream itself (rich spinners + trace via
+                # stream_events); the logging side-channel would duplicate it.
+                verbose=False,
             )
 
             # 8. Initial user message: brief summary of activated inputs (or a

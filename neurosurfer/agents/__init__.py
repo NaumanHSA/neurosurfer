@@ -2,7 +2,7 @@
 
 Agent types (pick per task):
 - :class:`~neurosurfer.agents.agentic_loop.AgenticLoop` — multi-step native tool-use.
-- :class:`~neurosurfer.agents.react_agent.ReactAgent` — multi-step text-parsing ReAct
+- :class:`~neurosurfer.agents.react.ReactAgent` — multi-step text-parsing ReAct
   (for providers without a native tool-calling API).
 - :class:`~neurosurfer.agents.oneshot.Agent` — a single bounded call (+ optional tools
   / structured output).
@@ -31,7 +31,7 @@ from .conversation.events import (
     TurnCompleted,
 )
 from .oneshot import Agent
-from .react_agent import ReactAgent
+from .react import ReactAgent
 from .runtime import Guardrails, PermissionMode, Permissions, TaskHandle, TasksRuntime, initial_mode
 from .subagents import SubAgentRunner
 

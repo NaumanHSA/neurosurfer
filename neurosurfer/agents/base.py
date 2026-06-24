@@ -1,10 +1,11 @@
 """BaseAgent — shared state + plumbing for every agent type.
 
 Holds the provider / tools / history / permissions / context-manager wiring and the
-model-streaming helper. Subclasses implement :meth:`run` with their own strategy:
+model-streaming helper. Subclasses implement :meth:`_run` with their own strategy
+(the public :meth:`run` wraps it to emit the verbose activity trace):
 
 - :class:`~neurosurfer.agents.agentic_loop.AgenticLoop` — multi-step native tool-use.
-- :class:`~neurosurfer.agents.react_agent.ReactAgent` — multi-step text-parsing ReAct
+- :class:`~neurosurfer.agents.react.ReactAgent` — multi-step text-parsing ReAct
   (for providers without a native tool-calling API).
 - :class:`~neurosurfer.agents.oneshot.Agent` — a single bounded call (+ optional tools
   / structured output).
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING
 from neurosurfer.agents.conversation import events
 from neurosurfer.agents.conversation.messages import MessageHistory
 from neurosurfer.agents.runtime.permissions import Guardrails, PermissionMode, Permissions
+from neurosurfer.agents.trace import AgentTrace
 from neurosurfer.llm import types as lt
 from neurosurfer.llm.base import Provider
 from neurosurfer.tools.base import IOHandler, SpawnFn, ToolContext, ToolPool
@@ -51,6 +53,7 @@ class BaseAgent:
         memory: MemoryStore | None = None,
         memory_agent: str | None = None,
         session_id: str | None = None,
+        verbose: bool = True,
     ):
         self.provider = provider
         self.tools = tools
@@ -65,6 +68,11 @@ class BaseAgent:
         self.durable = durable
         self.depth = depth
         self.context_manager = context_manager
+        # When True, the agent renders a live activity trace (animated spinner +
+        # tool lines) as events flow past — so a caller that only handles ``TextDelta``
+        # still sees the agent working. Front-ends with their own renderer (the CLI,
+        # nested sub-agents) pass ``verbose=False``.
+        self.verbose = verbose
 
         self.history = MessageHistory()
         self.file_state: dict = {}
@@ -128,9 +136,40 @@ class BaseAgent:
 
     # ── public entry points ───────────────────────────────────────────────────
     async def run(self, user_input: str) -> AsyncIterator[events.Event]:
-        """Run the agent over *user_input*, yielding events. Implemented per type."""
+        """Run the agent over *user_input*, yielding events.
+
+        The per-type strategy lives in :meth:`_run`; this wrapper taps the stream to
+        emit the activity trace (see :attr:`verbose`). Events are passed through
+        unchanged, so consuming them is identical whether ``verbose`` is on or off.
+        """
+        async for ev in self._tap(self._run(user_input)):
+            yield ev
+
+    async def _run(self, user_input: str) -> AsyncIterator[events.Event]:
+        """The agent's event stream. Implemented per type."""
         raise NotImplementedError
         yield  # pragma: no cover — makes this an async generator for typing
+
+    async def _tap(
+        self, stream: AsyncIterator[events.Event]
+    ) -> AsyncIterator[events.Event]:
+        """Yield every event untouched, driving the live activity trace alongside it.
+
+        Independent of how the caller consumes the events: even a minimal
+        ``async for ev in agent.run(task)`` that only handles ``TextDelta`` still shows
+        the animated thinking/tool spinner when ``verbose`` is set. A fresh
+        :class:`~neurosurfer.agents.trace.AgentTrace` is created per run and always
+        torn down (the spinner must not outlive the stream).
+        """
+        trace = AgentTrace() if self.verbose else None
+        try:
+            async for ev in stream:
+                if trace is not None:
+                    trace.handle(ev)
+                yield ev
+        finally:
+            if trace is not None:
+                trace.close()
 
     async def run_collect(self, user_input: str) -> events.RunResult:
         """Drive :meth:`run` to completion and collect a :class:`RunResult`."""

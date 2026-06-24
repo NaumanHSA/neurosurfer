@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from neurosurfer.agents import events
-from neurosurfer.agents.react_agent import (
+from neurosurfer.agents.react import (
     ReactAgent,
     _build_react_system,
     _parse_action_input,

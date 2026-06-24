@@ -12,7 +12,7 @@ construction:
 
 This is the plain agent for "ask once, get an answer / object." For multi-step
 autonomy use :class:`~neurosurfer.agents.agentic_loop.AgenticLoop`; for
-non-function-calling providers use :class:`~neurosurfer.agents.react_agent.ReactAgent`.
+non-function-calling providers use :class:`~neurosurfer.agents.react.ReactAgent`.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class Agent(BaseAgent):
             pass
         return self.result
 
-    async def run(self, user_input: str) -> AsyncIterator[events.Event]:
+    async def _run(self, user_input: str) -> AsyncIterator[events.Event]:
         self.history.add_user_text(user_input)
 
         if self.output_schema is not None:

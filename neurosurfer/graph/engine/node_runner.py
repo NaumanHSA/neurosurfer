@@ -17,7 +17,7 @@ from typing import Any
 
 from neurosurfer.agents.agentic_loop import AgenticLoop
 from neurosurfer.agents.oneshot import Agent as OneShotAgent
-from neurosurfer.agents.react_agent import ReactAgent
+from neurosurfer.agents.react import ReactAgent
 from neurosurfer.agents.runtime.permissions import Guardrails
 from neurosurfer.llm.base import Provider
 from neurosurfer.llm.types import GenerationConfig

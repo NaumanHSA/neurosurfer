@@ -8,7 +8,7 @@ permission mode out of plan; ``finish`` ends the run. Provider, tools, and
 guardrails are injected via :class:`~neurosurfer.agents.base.BaseAgent`.
 
 This is the production agent for providers with a native tool-calling API. For
-providers without one, use :class:`~neurosurfer.agents.react_agent.ReactAgent`.
+providers without one, use :class:`~neurosurfer.agents.react.ReactAgent`.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from neurosurfer.llm import types as lt
 
 
 class AgenticLoop(BaseAgent):
-    async def run(self, user_input: str) -> AsyncIterator[events.Event]:
+    async def _run(self, user_input: str) -> AsyncIterator[events.Event]:
         self.history.add_user_text(user_input)
         async for ev in self._loop():
             yield ev

@@ -138,6 +138,9 @@ class SubAgentRunner:
             depth=depth,
             # No spawn fn — child agents are leaf nodes (flat model).
             spawn=None,
+            # Child activity is surfaced to the parent console via io.notify below;
+            # the trace side-channel would double up, so keep the child quiet.
+            verbose=False,
         )
 
         log.debug("spawn depth=%d type=%s", depth, defn.agent_type)

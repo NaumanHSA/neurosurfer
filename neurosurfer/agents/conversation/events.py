@@ -2,6 +2,21 @@
 
 The loop is an async generator of these; the consumer renders them. Approvals are
 handled out-of-band via the IOHandler (so they can block), not as events.
+
+The two text channels are the ones consumers care about most:
+
+- :class:`TextDelta` — a chunk of the **user-facing answer**, streamed token by token.
+  This is "the answer": concatenate the ``.text`` of every ``TextDelta`` to rebuild it,
+  or render them live. (``RunFinished.report`` carries the same final answer in one
+  piece for callers that don't stream.)
+- :class:`ThinkingDelta` — a chunk of the model's **reasoning / scaffolding** (e.g. ReAct
+  Thought/Action text, or a native thinking channel). Not part of the answer; front-ends
+  typically collapse it to a "Thinking…" indicator.
+
+You don't have to handle these to *see* what the agent is doing: when an agent runs with
+``verbose=True`` (the default) it renders a live animated status (a spinner whose label shifts
+while the model thinks, "Running <tool>…" while a tool runs, a line per tool call) as a
+side-channel, independent of which events you consume. See :mod:`neurosurfer.agents.trace`.
 """
 
 from __future__ import annotations
