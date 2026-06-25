@@ -1,8 +1,6 @@
 name: Deploy Docs
 on:
-  push:
-    branches: [ main ]   # build docs whenever main updates
-  workflow_dispatch:     # allow manual runs
+  workflow_dispatch:
 
 permissions:
   contents: write        # needed to push to gh-pages

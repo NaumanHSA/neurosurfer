@@ -17,7 +17,6 @@ from .builtin import (
     FinishTool,
     HttpTool,
     ListDirTool,
-    MemoryTool,
     PythonExecTool,
     ReadFileTool,
     RunCommandTool,
@@ -64,7 +63,6 @@ def _builtin_tools() -> list[Tool]:
         AskUserTool(),
         TodoTool(),
         SpawnAgentTool(),
-        MemoryTool(),
         FinishTool(),
     ]
     tools.extend(factory() for factory in _REGISTERED_FACTORIES)
@@ -91,7 +89,7 @@ def all_tools() -> list[Tool]:
 
 # Built-in tools that make sense as building blocks inside a generated workflow node.
 # Excludes agent-loop-control tools (finish / present_plan / todo / ask_user /
-# spawn_agent / memory) and the architect-only write_workflow_node. The Architect
+# spawn_agent) and the architect-only write_workflow_node. The Architect
 # composes workflows from these plus any generated tools — it must not invent names.
 _BUILTIN_WORKFLOW_NODE_TOOLS: frozenset[str] = frozenset({
     "read_file",

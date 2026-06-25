@@ -6,7 +6,6 @@ Subcommands (scriptable):
   task list | show <name>      task registry
   provider list | use <name> | add | delete <name>
   run <task> [k=v ...]         run a task non-interactively
-  resume [run_id]              resume an interrupted run (list if no id)
   serve [--host] [--port] ...  start the OpenAI-compatible gateway
 """
 
@@ -53,17 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
     run_p = sub.add_parser("run", help="Run a registered Task (non-interactive)")
     run_p.add_argument("task")
     run_p.add_argument("inputs", nargs="*", help="key=value inputs")
-
-    resume_p = sub.add_parser("resume", help="Resume an interrupted run (list if no id)")
-    resume_p.add_argument("run_id", nargs="?", help="run id to resume")
-
-    mem_p = sub.add_parser("memory", help="Inspect or curate long-term memory")
-    mem_p.add_argument("memory_command", nargs="?", help="list | search | add | forget | curate")
-    mem_p.add_argument("memory_args", nargs="*", help="subcommand arguments")
-
-    sess_p = sub.add_parser("session", help="Review past sessions/runs")
-    sess_p.add_argument("session_command", nargs="?", help="list | show")
-    sess_p.add_argument("session_args", nargs="*", help="subcommand arguments")
 
     from .commands.serve import add_serve_parser
 
@@ -115,24 +103,6 @@ def main(argv: list[str] | None = None) -> int:
         from .commands.task import handle_run
 
         return _run_async_command(handle_run(ctx, [args.task, *args.inputs]))
-
-    if args.command == "resume":
-        from .commands.resume import handle_resume
-
-        sub_args = [args.run_id] if args.run_id else []
-        return _run_async_command(handle_resume(ctx, sub_args))
-
-    if args.command == "memory":
-        from .commands.memory import handle_memory
-
-        sub_args = ([args.memory_command] if args.memory_command else []) + list(args.memory_args)
-        return _run_async_command(handle_memory(ctx, sub_args))
-
-    if args.command == "session":
-        from .commands.session import handle_sessions
-
-        sub_args = ([args.session_command] if args.session_command else []) + list(args.session_args)
-        return _run_async_command(handle_sessions(ctx, sub_args))
 
     if args.command == "serve":
         from .commands.serve import handle_serve

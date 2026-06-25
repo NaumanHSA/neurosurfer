@@ -22,7 +22,6 @@ from .schema import model_to_schema
 
 if TYPE_CHECKING:  # avoid import cycles; these are wired in later phases
     from ..agents.context.durable_state import DurableState
-    from ..memory.store import MemoryStore
 
 # The user's answer to an out-of-scope write prompt:
 #   "always" → allow + persist the folder to the task's write scope
@@ -90,14 +89,8 @@ class ToolContext:
     guardrails: Any = None
     depth: int = 0
     # Optional callback to persist a newly-approved write folder onto the active
-    # Task's write_scope (wired by the runner/REPL; None ⇒ session-only widening).
+    # Task's write_scope (wired by the runner/REPL; None ⇒ run-only widening).
     persist_scope: Callable[[str], None] | None = None
-    # Long-term memory (Pillar 1). ``memory`` is the store; ``memory_agent`` is the
-    # active agent/task name used for the agent-scoped layer; ``session_id`` tags
-    # provenance. All None on a bare engine run with memory disabled.
-    memory: MemoryStore | None = None
-    memory_agent: str | None = None
-    session_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

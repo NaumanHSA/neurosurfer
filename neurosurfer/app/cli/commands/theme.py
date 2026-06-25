@@ -47,7 +47,7 @@ async def _apply(ctx: CLIContext, name: str) -> None:
     from ..banner import print_banner
 
     _theme.set_theme(name)
-    ctx._save_session()
+    ctx._save_state()
     ctx.console.clear()
     await print_banner(ctx)
     ctx.console.print(

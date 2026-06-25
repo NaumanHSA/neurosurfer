@@ -163,7 +163,7 @@ system_prompt: |
      one response."
 
   ### Rule 6 — Do NOT include generic identity or tone
-  The engine injects identity, tone, and memory instructions automatically.
+  The engine injects identity and tone instructions automatically.
   Write only task-specific flow. No "You are a helpful assistant" lines.
 
   ### 5. Self-evaluate before presenting (silent, mandatory)

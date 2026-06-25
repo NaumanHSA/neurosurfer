@@ -1,10 +1,10 @@
 """CLIContext — shared state passed to slash-command handlers and the app.
 
 Holds the resolved config, the Rich console, the provider store, the task
-registry, and mutable session state (the active task for this session).
+registry, and the active task selected for this CLI invocation.
 
 ``active_task`` is a property: setting it auto-saves the value to a small
-JSON file so the next session restores where you left off.  On first launch
+JSON file so the next launch restores where you left off.  On first launch
 it defaults to the 'general' built-in task if one is registered.
 """
 
@@ -21,8 +21,6 @@ from neurosurfer.tasks.registry import TaskRegistry
 
 if TYPE_CHECKING:
     from rich.console import Console
-
-    from neurosurfer.sessions.store import SessionStore
 
 
 class CLIContext:
@@ -43,9 +41,6 @@ class CLIContext:
         self._active_task = active_task
         self.should_exit: bool = False
         self._extra: dict = {}
-        # Session store (lazy-init via init_session_store)
-        self._session_store: SessionStore | None = None
-        self.active_session_id: str | None = None
 
     # ── active_task property: auto-persists on every change ───────────────────
     @property
@@ -55,31 +50,31 @@ class CLIContext:
     @active_task.setter
     def active_task(self, value: str | None) -> None:
         self._active_task = value
-        self._save_session()
+        self._save_state()
 
-    # ── session persistence ───────────────────────────────────────────────────
-    def _session_file(self) -> Path:
-        return self.cfg.tasks.dir.parent / "session.json"
+    # ── CLI state persistence (active task + theme) ────────────────────────────
+    def _state_file(self) -> Path:
+        return self.cfg.tasks.dir.parent / "cli_state.json"
 
-    def _save_session(self) -> None:
+    def _save_state(self) -> None:
         from . import theme as _theme
 
-        path = self._session_file()
+        path = self._state_file()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
             "active_task": self._active_task,
             "theme": _theme.current().name,
         }))
 
-    def load_session(self) -> None:
+    def load_state(self) -> None:
         """Restore last active task and theme, or defaults on first run."""
         from . import theme as _theme
 
         data: dict = {}
-        session_file = self._session_file()
-        if session_file.exists():
+        state_file = self._state_file()
+        if state_file.exists():
             try:
-                data = json.loads(session_file.read_text())
+                data = json.loads(state_file.read_text())
             except Exception:  # noqa: BLE001
                 pass
 
@@ -96,16 +91,6 @@ class CLIContext:
             self._active_task = "general"
         # else leave as None (no built-in general registered)
 
-    # ── session store ─────────────────────────────────────────────────────────
-    @property
-    def session_store(self) -> SessionStore | None:
-        return self._session_store
-
-    def init_session_store(self) -> None:
-        """Lazy-init the SessionStore.  Call once from run_repl() after create()."""
-        from neurosurfer.sessions.store import SessionStore
-        self._session_store = SessionStore(self.cfg.sessions.dir)
-
     # ── factory ───────────────────────────────────────────────────────────────
     @classmethod
     def create(cls, cfg: Config) -> CLIContext:
@@ -119,5 +104,5 @@ class CLIContext:
             cfg=cfg, console=Console(), providers=providers, registry=registry,
             task_providers=task_providers,
         )
-        ctx.load_session()
+        ctx.load_state()
         return ctx

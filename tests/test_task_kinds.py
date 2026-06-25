@@ -47,10 +47,9 @@ def test_visible_builtin_lineup_is_exactly_code_and_general(tmp_path):
     assert visible == {"code", "general"}
     assert "doc_gen" not in visible
     assert "code_understanding" not in visible
-    assert "memory_curator" not in visible  # the curator builder stays hidden
 
 
-@pytest.mark.parametrize("name", ["task_builder", "memory_curator"])
+@pytest.mark.parametrize("name", ["task_builder"])
 def test_builder_metaagents_are_system(tmp_path, name):
     td = _reg(tmp_path).get(name)
     assert td.kind == "system"

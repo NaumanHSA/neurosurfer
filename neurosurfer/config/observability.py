@@ -1,4 +1,4 @@
-"""Logging level and the per-run state directory (transcripts + run state)."""
+"""Logging level and the per-run state directory (run transcripts)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,3 @@ class ObservabilityConfig:
 
     def transcripts_dir(self) -> Path:
         return self.state_dir / "transcripts"
-
-    def runs_state_dir(self) -> Path:
-        return self.state_dir / "state"

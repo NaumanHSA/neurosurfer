@@ -2,7 +2,7 @@
 
 Covers:
   - format_compact_summary strips <analysis>, unwraps <summary>
-  - DurableState mutators, to_context_block(), save/load round-trip
+  - DurableState mutators, to_context_block()
   - ContextManager.system_with_durable injects the durable block
   - Proactive compaction: tokens > threshold → Compacted event emitted,
     history replaced with summary, recent tail preserved
@@ -183,25 +183,6 @@ def test_durable_state_decisions():
     block = d.to_context_block()
     assert "async generators" in block
     assert "durable state" in block
-
-
-def test_durable_state_save_load_round_trip(tmp_path: Path):
-    d = DurableState()
-    d.set_plan("My plan", "do the thing")
-    d.set_todos([{"content": "task 1", "status": "pending"}])
-    d.add_decision("decision A")
-    d.set_manifest("main.py — entry point")
-
-    p = tmp_path / "state.json"
-    d.save(p)
-    assert p.exists()
-
-    loaded = DurableState.load(p)
-    assert loaded.plan_title == "My plan"
-    assert loaded.plan_text == "do the thing"
-    assert loaded.todos == [{"content": "task 1", "status": "pending"}]
-    assert loaded.decisions == ["decision A"]
-    assert loaded.manifest == "main.py — entry point"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

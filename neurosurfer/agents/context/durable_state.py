@@ -1,8 +1,8 @@
 """Durable state: plan, manifest, todos, decisions — pinned outside compactable history.
 
 These items are re-injected each turn as a suffix on the system prompt so that
-context compaction can never drop them.  They are also persisted to a JSON file
-so an interrupted run can be resumed.
+context compaction can never drop them.  They live only for the duration of one
+run — there is no on-disk persistence.
 
 The tool layer writes into this object (todo/present_plan already call the mutators);
 the context manager reads it via to_context_block() and system_with_durable().
@@ -10,9 +10,7 @@ the context manager reads it via to_context_block() and system_with_durable().
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 _TODO_MARK: dict[str, str] = {
@@ -49,35 +47,6 @@ class DurableState:
 
     def is_empty(self) -> bool:
         return not any([self.plan_text, self.manifest, self.todos, self.decisions])
-
-    # ── persistence ───────────────────────────────────────────────────────────
-
-    def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(
-                {
-                    "plan_title": self.plan_title,
-                    "plan_text": self.plan_text,
-                    "manifest": self.manifest,
-                    "todos": self.todos,
-                    "decisions": self.decisions,
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-    @classmethod
-    def load(cls, path: Path) -> DurableState:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return cls(
-            plan_title=data.get("plan_title"),
-            plan_text=data.get("plan_text"),
-            manifest=data.get("manifest"),
-            todos=data.get("todos", []),
-            decisions=data.get("decisions", []),
-        )
 
     # ── context injection ─────────────────────────────────────────────────────
 

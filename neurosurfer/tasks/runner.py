@@ -52,7 +52,6 @@ def build_full_pool(
         FinishTool,
         HttpTool,
         ListDirTool,
-        MemoryTool,
         ReadFileTool,
         RunCommandTool,
         SearchTool,
@@ -79,7 +78,6 @@ def build_full_pool(
         PresentPlanTool(),
         TodoTool(),
         SpawnAgentTool(),
-        MemoryTool(),
         FinishTool(),
         RegisterTaskTool(_tasks_dir),
     ])
@@ -109,12 +107,10 @@ class TaskRunner:
         *,
         transcript: EventTranscript | None = None,
         run_id: str | None = None,
-        durable: DurableState | None = None,
-        resume: bool = False,
     ) -> AsyncIterator[events.Event]:
         return self._run(
             task, inputs, io,
-            transcript=transcript, run_id=run_id, durable=durable, resume=resume,
+            transcript=transcript, run_id=run_id,
         )
 
     def _resolve_cwd(self, task: TaskDefinition, inputs: dict[str, str]):
@@ -138,18 +134,11 @@ class TaskRunner:
         *,
         transcript: EventTranscript | None = None,
         run_id: str | None = None,
-        durable: DurableState | None = None,
-        resume: bool = False,
     ) -> AsyncIterator[events.Event]:
         # 0. Resolve working directory (ingest a path_or_url input if present).
         cwd, ingested = self._resolve_cwd(task, inputs)
         if ingested is not None:
             log.info("ingested repository → %s", cwd)
-
-        # Where durable state is persisted so an interrupted run is resumable.
-        state_path = (
-            self._cfg.observability.runs_state_dir() / f"{run_id}.json" if run_id else None
-        )
 
         try:
             # 1. Provider (injected or built from config + Task model override)
@@ -178,25 +167,16 @@ class TaskRunner:
             if profile.think_scaffold:
                 extra_sections.append(think_scaffold_section())
 
-            # 3c. Long-term memory (Pillar 1): build the store, retrieve the entries
-            #     relevant to this run (global ∪ this agent), and inject them once via
-            #     extra_sections — after the cacheable prefix, so the warm prompt cache
-            #     is never busted. Any failure degrades silently; memory never breaks a run.
-            memory_store = self._build_memory_store(task, inputs, extra_sections)
-            if memory_store is not None and "memory" in (task.tools or []):
-                from ..prompts.base_agent import memory_usage_section
-                extra_sections.append(memory_usage_section())
-
             # 4. Sub-agent runner (spawn function wired into the ToolContext)
             sub_runner = SubAgentRunner(
                 full_pool, provider, io=io, cwd=cwd, guardrails=guardrails
             )
             spawn_fn = sub_runner.make_spawn_fn(parent_depth=0)
 
-            # 5. Durable state + context manager. On resume, a pre-loaded
-            #    DurableState (plan/todos/decisions) is injected so the agent
-            #    continues with its prior context intact.
-            run_durable = durable if durable is not None else DurableState()
+            # 5. Durable state + context manager. DurableState pins the plan/todos/
+            #    decisions outside the compactable history so context management can
+            #    never drop them; it lives only for the duration of this run.
+            run_durable = DurableState()
             context_manager = ContextManager(provider, durable=run_durable)
 
             # 6. System prompt — base sections (identity/tone/tools/planning/guardrails/env)
@@ -209,12 +189,7 @@ class TaskRunner:
             # 7. Instantiate the agent
             from ..agents.runtime.permissions import PermissionMode
 
-            # On resume with an already-approved plan, skip the plan gate so the
-            # agent continues executing rather than re-presenting the plan.
-            plan_already_approved = resume and bool(run_durable.plan_text)
-            mode: PermissionMode = (
-                "plan" if task.plan_required and not plan_already_approved else "default"
-            )
+            mode: PermissionMode = "plan" if task.plan_required else "default"
             agent = AgenticLoop(
                 provider=provider,
                 tools=tool_pool,
@@ -228,88 +203,29 @@ class TaskRunner:
                 context_manager=context_manager,
                 depth=0,
                 persist_scope=make_scope_persister(self._cfg, task.name),
-                memory=memory_store,
-                memory_agent=task.name,
-                session_id=run_id,
                 # The CLI renders the event stream itself (rich spinners + trace via
                 # stream_events); the logging side-channel would duplicate it.
                 verbose=False,
             )
 
-            # 8. Initial user message: brief summary of activated inputs (or a
-            #    resume directive when continuing an interrupted run).
-            initial_msg = (
-                _build_resume_message(task)
-                if resume
-                else _build_initial_message(task, inputs)
-            )
+            # 8. Initial user message: brief summary of activated inputs.
+            initial_msg = _build_initial_message(task, inputs)
 
             if transcript:
                 transcript.record(
-                    "run_resume" if resume else "run_start",
-                    task=task.name, inputs=inputs, cwd=str(cwd),
+                    "run_start", task=task.name, inputs=inputs, cwd=str(cwd),
                 )
 
             async for ev in agent.run(initial_msg):
                 if transcript:
                     transcript.record(ev.__class__.__name__, **_event_payload(ev))
-                # Persist durable state each completed turn so an interrupt
-                # (Ctrl-C) at any point leaves a resumable snapshot on disk.
-                if state_path is not None and isinstance(ev, events.TurnCompleted):
-                    run_durable.save(state_path)
                 yield ev
 
-            if state_path is not None:
-                run_durable.save(state_path)
-            # Capture: distill this run's durable decisions into candidate memories.
-            self._distill_memory(memory_store, run_durable, agent=task.name, session_id=run_id)
             if transcript:
                 transcript.record("run_end")
         finally:
             if ingested is not None:
                 ingested.cleanup()
-
-    # ── memory (Pillar 1) ─────────────────────────────────────────────────────
-    def _build_memory_store(self, task, inputs, extra_sections):
-        """Build the MemoryStore and append the retrieved `# Relevant memory` block.
-
-        Returns the store (passed to the Agent for the in-run ``memory`` tool) or
-        ``None`` when memory is disabled or retrieval fails — never raising.
-        """
-        if not self._cfg.memory.enabled:
-            return None
-        try:
-            from ..memory.embeddings import get_embedder
-            from ..memory.retrieval import retrieve
-            from ..memory.store import MemoryStore
-
-            store = MemoryStore(self._cfg.memory.dir)
-            query = " ".join(
-                [task.name, task.description, *[str(v) for v in inputs.values()]]
-            )
-            result = retrieve(
-                store.all_in_scope(task.name),
-                query,
-                budget_tokens=self._cfg.memory.token_budget,
-                embedder=get_embedder(self._cfg.memory.embeddings_backend),
-            )
-            if result.block:
-                extra_sections.append(result.block)
-                store.record_use(result.entry_ids)
-            return store
-        except Exception as e:  # noqa: BLE001 - memory must never break a run
-            log.warning("memory retrieval skipped: %s", e)
-            return None
-
-    def _distill_memory(self, store, durable, *, agent: str, session_id: str | None) -> None:
-        if store is None or not self._cfg.memory.enabled:
-            return
-        try:
-            from ..memory.distill import distill_run
-
-            distill_run(store, durable, agent=agent, session_id=session_id)
-        except Exception as e:  # noqa: BLE001 - capture is best-effort
-            log.warning("memory distill skipped: %s", e)
 
 
 def make_scope_persister(cfg: Config, task_name: str):
@@ -317,8 +233,8 @@ def make_scope_persister(cfg: Config, task_name: str):
 
     When the user answers "always" to an out-of-scope write prompt, the engine
     calls this to add the folder to the Task's ``write_scope`` and re-save it, so
-    the approval survives across sessions. Failures (e.g. a built-in Task or a
-    policy-rejected root) are logged, not raised — the session-wide widening in
+    the approval persists for future runs. Failures (e.g. a built-in Task or a
+    policy-rejected root) are logged, not raised — the run-wide widening in
     ``permissions`` still applies.
     """
     from .registry import TaskRegistry
@@ -364,9 +280,9 @@ def _build_system_prompt(
     """Layer base sections (identity/tone/tools/planning/guardrails/env) around the task body.
 
     The base sections are static and cacheable on Anthropic; task-specific
-    instructions go under "# Your task". ``extra_sections`` (reliability scaffold
-    now, retrieved memory in a later pillar) are appended *after* the cacheable
-    prefix so they never invalidate the warm cache.
+    instructions go under "# Your task". ``extra_sections`` (e.g. the reliability
+    scaffold) are appended *after* the cacheable prefix so they never invalidate
+    the warm cache.
     """
     from ..prompts.system import build_system_prompt as _assemble
 
@@ -391,15 +307,6 @@ def _build_initial_message(task: TaskDefinition, inputs: dict[str, str]) -> str:
         kvs = ", ".join(f"{k}={v!r}" for k, v in inputs.items())
         return f"Run the task '{task.name}' with inputs: {kvs}."
     return f"Run the task '{task.name}'."
-
-
-def _build_resume_message(task: TaskDefinition) -> str:
-    return (
-        f"Resume the previously interrupted run of task '{task.name}'. Your durable "
-        "state — the approved plan, todos, and recorded decisions — has been restored "
-        "and appears in the system context. Review what is already done (completed "
-        "todos), do not redo finished work, and continue from where you left off."
-    )
 
 
 def _event_payload(ev: events.Event) -> dict:

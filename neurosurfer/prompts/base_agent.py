@@ -87,27 +87,3 @@ it go stale while you work through it."""
 def think_scaffold_section() -> str:
     """A reason-before-acting scaffold for non-thinking / local models."""
     return THINK_SCAFFOLD
-
-
-# Memory usage — injected only when "memory" is in the task's tool list so the
-# instruction is never shown to agents that cannot act on it.
-MEMORY_USAGE = """# Memory
-You have a persistent `memory` tool for durable, cross-session recall. Use it proactively:
-
-- **User preferences** (communication style, tool choices, formatting): \
-`op="add", scope="global", kind="preference"`
-- **Domain facts** this agent has learned (conventions, constraints, tech stack): \
-`op="add", scope="agent", kind="fact"`
-- **Project-specific terms** with precise meanings: `op="add", scope="agent", kind="glossary"`
-
-At the end of a session (just before calling `finish`), save a one-sentence summary of \
-what was accomplished — e.g. "Wrote a 10-chapter sci-fi novel; chapters saved in ~/novel/". \
-Use `scope="agent", kind="decision"`.
-
-Save only stable, reusable facts — not ephemeral per-turn details. Never duplicate what \
-already appears in the `# Relevant memory` section injected above."""
-
-
-def memory_usage_section() -> str:
-    """Instruction block to inject when the task's tool list includes 'memory'."""
-    return MEMORY_USAGE

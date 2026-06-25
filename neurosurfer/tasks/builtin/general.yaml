@@ -18,7 +18,6 @@ tools:
   - present_plan
   - todo
   - spawn_agent
-  - memory
   - finish
 
 sub_agents:

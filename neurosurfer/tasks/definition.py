@@ -56,7 +56,7 @@ ALL_TOOLS = [
     "read_file", "list_dir", "search", "run_command", "web_search",
     "http", "data", "browse",
     "write_file", "apply_edit", "ask_user", "present_plan",
-    "todo", "spawn_agent", "memory", "finish", "register_task",
+    "todo", "spawn_agent", "finish", "register_task",
 ]
 
 

@@ -2,9 +2,7 @@
 name: Remove neurosurfer_labs folder from main
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   cleanup:

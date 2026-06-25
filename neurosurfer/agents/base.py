@@ -28,7 +28,6 @@ from neurosurfer.tools.base import IOHandler, SpawnFn, ToolContext, ToolPool
 if TYPE_CHECKING:
     from neurosurfer.agents.context.durable_state import DurableState
     from neurosurfer.agents.context.manager import ContextManager
-    from neurosurfer.memory.store import MemoryStore
 
 
 class BaseAgent:
@@ -50,9 +49,6 @@ class BaseAgent:
         context_manager: ContextManager | None = None,
         depth: int = 0,
         persist_scope: Callable[[str], None] | None = None,
-        memory: MemoryStore | None = None,
-        memory_agent: str | None = None,
-        session_id: str | None = None,
         verbose: bool = True,
     ):
         self.provider = provider
@@ -89,9 +85,6 @@ class BaseAgent:
             guardrails=guardrails,
             depth=depth,
             persist_scope=persist_scope,
-            memory=memory,
-            memory_agent=memory_agent,
-            session_id=session_id,
         )
 
     # ── system prompt (dynamic suffix injected by context manager) ────────────

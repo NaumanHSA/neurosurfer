@@ -40,7 +40,6 @@ _TOOL_BASE: dict[str, str] = {
     "web_fetch":     "Fetching",
     "http":          "Fetching",
     "browse":        "Browsing",
-    "memory":        "Remembering",
     "data":          "Crunching the data",
     "register_task": "Saving the new task",
 }
@@ -60,7 +59,6 @@ _TOOL_ANIM: dict[str, str] = {
     "web_fetch":   "earth",
     "http":        "earth",
     "browse":      "earth",
-    "memory":      "star",
     "data":        "dots",
     "spawn_agent": "bouncingBall",
     "finish":      "dots",

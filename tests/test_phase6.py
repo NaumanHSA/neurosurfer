@@ -390,7 +390,7 @@ def test_build_full_pool_has_all_tools(tmp_path: Path):
         "read_file", "list_dir", "search", "data", "run_command",
         "web_search", "http", "browse",
         "write_file", "apply_edit", "ask_user", "present_plan",
-        "todo", "spawn_agent", "memory", "finish", "register_task",
+        "todo", "spawn_agent", "finish", "register_task",
     }
     assert expected == names
 
