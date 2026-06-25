@@ -75,6 +75,7 @@ async def run_repl(cfg: Config) -> int:
 
     await print_banner(ctx)
     await _maybe_confirm_default_provider(ctx)
+    await ctx.setup_mcp()
 
     kb = KeyBindings()
 
@@ -125,5 +126,6 @@ async def run_repl(cfg: Config) -> int:
             brief = str(exc)[:200].replace("\n", " ")
             ctx.console.print(f"[{theme.ERR}]Error: {brief}[/{theme.ERR}]")
 
+    await ctx.close_mcp()
     ctx.console.print(f"\n[{theme.DIM}]Goodbye.[/{theme.DIM}]")
     return 0

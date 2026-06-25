@@ -84,8 +84,10 @@ class AgenticLoop(BaseAgent):
                 if ctrl.get("finished"):
                     finish_signal = ctrl
 
+            tool_images = [img for oc in outcomes for img in oc.result.images]
             self.history.add_tool_results(
-                [(oc.id, oc.result.content, oc.result.is_error) for oc in outcomes]
+                [(oc.id, oc.result.content, oc.result.is_error) for oc in outcomes],
+                images=tool_images,
             )
 
             if finish_signal is not None:

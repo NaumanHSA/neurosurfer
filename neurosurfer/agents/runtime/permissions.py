@@ -22,6 +22,9 @@ ShellPolicy = Literal["gated", "readonly", "denied"]
 # Network egress for the http/browse tools: gated = ask per request (default),
 # open = always allow, denied = no network access at all.
 NetworkPolicy = Literal["gated", "open", "denied"]
+# External MCP-tool calls: gated = ask per non-read-only call (default; read-only
+# tools pass), open = always allow, denied = no MCP calls at all.
+McpPolicy = Literal["gated", "open", "denied"]
 
 READ_TOOLS = {"read_file", "list_dir", "search", "data"}
 WRITE_TOOLS = {"write_file", "apply_edit"}
@@ -35,6 +38,7 @@ class Guardrails(BaseModel):
     write_scope: list[str] = Field(default_factory=lambda: ["**"])
     shell_policy: ShellPolicy = "gated"
     network_policy: NetworkPolicy = "gated"
+    mcp_policy: McpPolicy = "gated"
     path_allow: list[str] = Field(default_factory=lambda: ["**"])
     path_deny: list[str] = Field(
         default_factory=lambda: [".env", "**/.env", "**/secrets/**", ".git/**", "**/.git/**"]
@@ -110,10 +114,19 @@ class Permissions:
         self.cwd = cwd
 
     async def check(
-        self, tool_name: str, args: BaseModel, ctx: ToolContext, mode: PermissionMode
+        self,
+        tool_name: str,
+        args: BaseModel,
+        ctx: ToolContext,
+        mode: PermissionMode,
+        tool: object | None = None,
     ) -> Decision:
         if mode == "bypass":
             return Decision(True)
+
+        # External MCP tools are gated by their own policy (read-only calls pass).
+        if getattr(tool, "is_mcp", False):
+            return await self._check_mcp(tool, tool_name, args, ctx)
 
         if tool_name in READ_TOOLS:
             return self._check_read(args)
@@ -125,8 +138,29 @@ class Permissions:
             return await self._check_network(args, ctx, mode)
         if tool_name in CONTROL_TOOLS:
             return Decision(True)
-        # Unknown / MCP tools: allow read-only-looking, otherwise allow (loop guards).
+        # Unknown tools: allow (the loop's own guards still apply).
         return Decision(True)
+
+    # ── MCP ──────────────────────────────────────────────────────────────────
+    async def _check_mcp(
+        self, tool: object, tool_name: str, args: BaseModel, ctx: ToolContext
+    ) -> Decision:
+        policy = self.guardrails.mcp_policy
+        if policy == "denied":
+            return Decision(False, "MCP tool calls are disabled for this task.")
+        if policy == "open":
+            return Decision(True)
+        # gated: read-only tools pass; anything that may mutate is asked per call.
+        try:
+            read_only = bool(tool.is_read_only(args))  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - conservative: treat as not read-only
+            read_only = False
+        if read_only:
+            return Decision(True)
+        approved = await ctx.io.request_shell_approval(tool_name, "call an MCP tool")
+        if approved:
+            return Decision(True)
+        return Decision(False, f"User declined the MCP tool call '{tool_name}'.")
 
     # ── reads ────────────────────────────────────────────────────────────────
     def _check_read(self, args: BaseModel) -> Decision:

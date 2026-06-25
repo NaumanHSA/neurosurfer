@@ -52,6 +52,32 @@ async def check_reachable(ctx: CLIContext) -> tuple[bool, str]:
             return False, f"OpenAI-compatible server unreachable ({label}): {e}"
 
 
+async def check_mcp(ctx: CLIContext) -> list[tuple[bool, str]]:
+    """Connect to each enabled MCP server and report tool counts (best-effort)."""
+    servers = ctx.mcp_store.enabled()
+    if not servers:
+        return []
+    try:
+        from neurosurfer.mcp import McpManager
+    except ImportError:
+        return [(False, "MCP servers configured but the 'mcp' extra is not installed.")]
+
+    mgr = McpManager(servers)
+    try:
+        statuses = await mgr.connect_all()
+    finally:
+        await mgr.aclose()
+    return [
+        (
+            s.connected,
+            f"MCP '{s.name}': {s.tool_count} tools"
+            if s.connected
+            else f"MCP '{s.name}' unreachable: {s.error}",
+        )
+        for s in statuses
+    ]
+
+
 def cmd_doctor(ctx: CLIContext) -> int:
     import asyncio
 
@@ -71,6 +97,11 @@ def cmd_doctor(ctx: CLIContext) -> int:
     ok, msg = asyncio.run(check_reachable(ctx))
     if ok:
         console.print(f"[{theme.OK}]✓[/{theme.OK}] {msg}")
-        return 0
-    console.print(f"[{theme.ERR}]✗[/{theme.ERR}] {msg}")
-    return 1
+    else:
+        console.print(f"[{theme.ERR}]✗[/{theme.ERR}] {msg}")
+
+    for mcp_ok, mcp_msg in asyncio.run(check_mcp(ctx)):
+        glyph = f"[{theme.OK}]✓[/{theme.OK}]" if mcp_ok else f"[{theme.WARN}]![/{theme.WARN}]"
+        console.print(f"{glyph} {mcp_msg}")
+
+    return 0 if ok else 1

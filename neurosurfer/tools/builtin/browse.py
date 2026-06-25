@@ -10,8 +10,11 @@ Network egress is **gated by the Task's ``network_policy``** (enforced in
 
 from __future__ import annotations
 
+import base64
+
 from pydantic import BaseModel, Field
 
+from ...llm.types import ImageBlock
 from ..base import Tool, ToolContext, ToolResult
 from .web_search import extract_body
 
@@ -34,6 +37,10 @@ class BrowseArgs(BaseModel):
         default=0, ge=0, le=15_000, description="Extra wait after load for JS to settle."
     )
     timeout_ms: int = Field(default=DEFAULT_TIMEOUT_MS, ge=1000, le=120_000)
+    screenshot: bool = Field(
+        default=False,
+        description="Also capture a full-page screenshot (for vision-capable models).",
+    )
 
 
 class BrowseTool(Tool):
@@ -70,6 +77,7 @@ class BrowseTool(Tool):
                 "pip install 'neurosurfer[browser]' && playwright install chromium"
             )
 
+        shot: bytes | None = None
         try:
             async with async_playwright() as pw:
                 browser = await pw.chromium.launch(headless=True)
@@ -79,14 +87,21 @@ class BrowseTool(Tool):
                     if args.wait_ms:
                         await page.wait_for_timeout(args.wait_ms)
                     html = await page.content()
+                    if args.screenshot:
+                        shot = await page.screenshot(full_page=True, type="png")
                 finally:
                     await browser.close()
         except Exception as e:  # noqa: BLE001 - surface browser failures to the model
             return ToolResult.error(f"Browse failed: {type(e).__name__}: {e}")
 
         body = extract_body(html) or ""
-        if not body:
+        if not body and shot is None:
             return ToolResult.ok(f"Loaded {url} but found no readable text.")
         if len(body) > MAX_OUTPUT_CHARS:
             body = body[:MAX_OUTPUT_CHARS] + "\n… [content truncated]"
-        return ToolResult.ok(f"Readable content from {url}:\n\n{body}")
+        text = f"Readable content from {url}:\n\n{body}" if body else f"Loaded {url}."
+        if shot is not None:
+            data = base64.b64encode(shot).decode("ascii")
+            text += "\n\n[Full-page screenshot attached.]"
+            return ToolResult.with_images(text, [ImageBlock.from_base64(data, "image/png")])
+        return ToolResult.ok(text)

@@ -99,7 +99,7 @@ async def execute_tool_uses(
             return p.tu.id, ToolResult.error(p.parse_error or "Unknown tool.")
         if p.args is None:
             return p.tu.id, ToolResult.error(p.parse_error or "Invalid arguments.")
-        decision = await permissions.check(p.tu.name, p.args, ctx, mode)
+        decision = await permissions.check(p.tu.name, p.args, ctx, mode, tool=p.tool)
         if not decision.allow:
             return p.tu.id, ToolResult.error(decision.reason or "Not permitted.")
         result = await p.tool.run(p.tu.input, ctx)  # re-validates + guards exceptions

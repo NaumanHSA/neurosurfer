@@ -25,6 +25,7 @@ from ..types import (
     ContentBlock,
     Done,
     GenerationConfig,
+    ImageBlock,
     Message,
     StreamEvent,
     TextBlock,
@@ -50,7 +51,17 @@ _FINISH_REASON_MAP = {
 }
 
 
-def to_openai_messages(messages: list[Message], system: str | None) -> list[dict[str, Any]]:
+def _image_url_part(block: ImageBlock) -> dict[str, Any]:
+    if block.source == "url":
+        url = block.url or ""
+    else:
+        url = f"data:{block.media_type};base64,{block.data or ''}"
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def to_openai_messages(
+    messages: list[Message], system: str | None, *, supports_vision: bool = True
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if system:
         out.append({"role": "system", "content": system})
@@ -82,6 +93,7 @@ def to_openai_messages(messages: list[Message], system: str | None) -> list[dict
         else:  # user
             tool_results = [b for b in msg.content if isinstance(b, ToolResultBlock)]
             text_parts = [b.text for b in msg.content if isinstance(b, TextBlock)]
+            images = [b for b in msg.content if isinstance(b, ImageBlock)]
             for tr in tool_results:
                 content = tr.content
                 if tr.is_error:
@@ -90,8 +102,19 @@ def to_openai_messages(messages: list[Message], system: str | None) -> list[dict
                     {"role": "tool", "tool_call_id": tr.tool_use_id, "content": content}
                 )
             joined = "".join(text_parts)
-            if joined or not tool_results:
-                out.append({"role": "user", "content": joined})
+            if images and supports_vision:
+                # Multimodal user turn: text part (if any) + image_url parts.
+                parts: list[dict[str, Any]] = []
+                if joined:
+                    parts.append({"type": "text", "text": joined})
+                parts.extend(_image_url_part(im) for im in images)
+                out.append({"role": "user", "content": parts})
+            else:
+                if images and not supports_vision:
+                    note = "[image omitted: model has no vision support]"
+                    joined = f"{joined}\n{note}".strip() if joined else note
+                if joined or not tool_results:
+                    out.append({"role": "user", "content": joined})
     return out
 
 
@@ -223,7 +246,9 @@ class OpenAICompatProvider(Provider):
     ) -> AsyncIterator[StreamEvent]:  # type: ignore[override]
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "messages": to_openai_messages(messages, system),
+            "messages": to_openai_messages(
+                messages, system, supports_vision=self.capabilities.supports_vision
+            ),
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "stream": True,

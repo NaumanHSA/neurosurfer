@@ -19,6 +19,7 @@ from ..types import (
     CanonicalResponse,
     Done,
     GenerationConfig,
+    ImageBlock,
     Message,
     StreamEvent,
     TextBlock,
@@ -36,9 +37,26 @@ from ..types import (
 log = get_logger("llm.anthropic")
 
 
-def _block_to_param(block: Any) -> dict[str, Any] | None:
+def _image_param(block: ImageBlock) -> dict[str, Any]:
+    if block.source == "url":
+        return {"type": "image", "source": {"type": "url", "url": block.url or ""}}
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": block.media_type,
+            "data": block.data or "",
+        },
+    }
+
+
+def _block_to_param(block: Any, *, supports_vision: bool = True) -> dict[str, Any] | None:
     if isinstance(block, TextBlock):
         return {"type": "text", "text": block.text}
+    if isinstance(block, ImageBlock):
+        if not supports_vision:
+            return {"type": "text", "text": "[image omitted: model has no vision support]"}
+        return _image_param(block)
     if isinstance(block, ThinkingBlock):
         # Thinking can only be sent back if it carries its signature.
         if not block.signature:
@@ -65,10 +83,16 @@ def _block_to_param(block: Any) -> dict[str, Any] | None:
     return None
 
 
-def to_anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:
+def to_anthropic_messages(
+    messages: list[Message], *, supports_vision: bool = True
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for msg in messages:
-        params = [p for p in (_block_to_param(b) for b in msg.content) if p is not None]
+        params = [
+            p
+            for p in (_block_to_param(b, supports_vision=supports_vision) for b in msg.content)
+            if p is not None
+        ]
         if not params:
             # Anthropic rejects empty content; keep a placeholder.
             params = [{"type": "text", "text": ""}]
@@ -114,7 +138,9 @@ class AnthropicProvider(Provider):
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": config.max_tokens,
-            "messages": to_anthropic_messages(messages),
+            "messages": to_anthropic_messages(
+                messages, supports_vision=self.capabilities.supports_vision
+            ),
         }
         sys_param = _system_param(system)
         if sys_param is not None:
@@ -240,7 +266,9 @@ class AnthropicProvider(Provider):
     ) -> int:
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "messages": to_anthropic_messages(messages),
+            "messages": to_anthropic_messages(
+                messages, supports_vision=self.capabilities.supports_vision
+            ),
         }
         sys_param = _system_param(system)
         if sys_param is not None:

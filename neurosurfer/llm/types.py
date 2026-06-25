@@ -49,8 +49,32 @@ class ToolResultBlock(BaseModel):
     is_error: bool = False
 
 
+class ImageBlock(BaseModel):
+    """An image provided to a vision-capable model.
+
+    Two sources: an inline base64 payload (``source="base64"`` + ``media_type`` +
+    ``data``) or a remote URL (``source="url"`` + ``url``). Providers project this
+    onto their own wire format; non-vision models drop it (with a text note) so a
+    run never hard-fails just because an image slipped into history.
+    """
+
+    type: Literal["image"] = "image"
+    source: Literal["base64", "url"] = "base64"
+    media_type: str = "image/png"  # used when source == "base64"
+    data: str | None = None  # base64-encoded bytes when source == "base64"
+    url: str | None = None  # when source == "url"
+
+    @classmethod
+    def from_base64(cls, data: str, media_type: str = "image/png") -> ImageBlock:
+        return cls(source="base64", data=data, media_type=media_type)
+
+    @classmethod
+    def from_url(cls, url: str) -> ImageBlock:
+        return cls(source="url", url=url)
+
+
 ContentBlock = Annotated[
-    TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock,
+    TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock,
     Field(discriminator="type"),
 ]
 
@@ -75,6 +99,15 @@ class Message(BaseModel):
     @classmethod
     def user_text(cls, text: str) -> Message:
         return cls(role="user", content=[TextBlock(text=text)])
+
+    @classmethod
+    def user_with_images(cls, text: str, images: list[ImageBlock]) -> Message:
+        """A user turn carrying text plus one or more images."""
+        content: list[ContentBlock] = []
+        if text:
+            content.append(TextBlock(text=text))
+        content.extend(images)
+        return cls(role="user", content=content)
 
     @classmethod
     def assistant_text(cls, text: str) -> Message:

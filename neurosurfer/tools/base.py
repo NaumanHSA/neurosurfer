@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ValidationError
 
-from ..llm.types import ToolSchema
+from ..llm.types import ImageBlock, ToolSchema
 from .schema import model_to_schema
 
 if TYPE_CHECKING:  # avoid import cycles; these are wired in later phases
@@ -39,10 +39,18 @@ class ToolResult:
     is_error: bool = False
     # Out-of-band signals the agent loop acts on (plan approval, finish, etc.).
     control: dict[str, Any] = field(default_factory=dict)
+    # Images the tool produced (screenshots, rendered files). The agent loop appends
+    # these to the tool-results turn so a vision model can see them; non-vision models
+    # drop them at the provider boundary.
+    images: list[ImageBlock] = field(default_factory=list)
 
     @classmethod
     def ok(cls, content: str, **control: Any) -> ToolResult:
         return cls(content=content, is_error=False, control=control)
+
+    @classmethod
+    def with_images(cls, content: str, images: list[ImageBlock]) -> ToolResult:
+        return cls(content=content, is_error=False, images=list(images))
 
     @classmethod
     def error(cls, content: str) -> ToolResult:
@@ -101,6 +109,10 @@ class Tool(ABC):
     name: str = ""
     description: str = ""
     input_model: type[BaseModel] = BaseModel
+
+    # True for tools backed by an external MCP server. The permission layer reads
+    # this (via ``getattr``) to apply the MCP gate without importing the mcp module.
+    is_mcp: bool = False
 
     # Behaviour flags (defaults: not read-only, not concurrency-safe).
     def is_read_only(self, args: BaseModel) -> bool:

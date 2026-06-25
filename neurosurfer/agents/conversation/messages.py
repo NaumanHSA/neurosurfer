@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from neurosurfer.llm.types import (
     CanonicalResponse,
+    ImageBlock,
     Message,
     TextBlock,
     ToolResultBlock,
@@ -38,13 +39,28 @@ class MessageHistory:
     def add_assistant_response(self, response: CanonicalResponse) -> None:
         self._messages.append(response.as_message())
 
-    def add_tool_results(self, results: list[tuple[str, str, bool]]) -> None:
-        """Append a user message of tool_result blocks: (tool_use_id, content, is_error)."""
+    def add_tool_results(
+        self,
+        results: list[tuple[str, str, bool]],
+        images: list[ImageBlock] | None = None,
+    ) -> None:
+        """Append a user message of tool_result blocks: (tool_use_id, content, is_error).
+
+        Any ``images`` produced by the tools are appended **after** the tool_result
+        blocks in the same user turn (Anthropic requires tool_result blocks first, and
+        a single turn keeps the user/assistant alternation intact for both providers).
+        """
         blocks: list = [
             ToolResultBlock(tool_use_id=tid, content=content, is_error=is_error)
             for (tid, content, is_error) in results
         ]
+        if images:
+            blocks.extend(images)
         self._messages.append(Message(role="user", content=blocks))
+
+    def add_user_images(self, text: str, images: list[ImageBlock]) -> None:
+        """Append a user turn with text + images (direct, non-tool image input)."""
+        self._messages.append(Message.user_with_images(text, images))
 
     def replace_prefix_with_summary(self, keep_tail: int, summary: str) -> None:
         """Replace everything except the last ``keep_tail`` messages with a single

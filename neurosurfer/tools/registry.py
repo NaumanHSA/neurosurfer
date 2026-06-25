@@ -45,6 +45,30 @@ def register_tool_factory(factory: Callable[[], Tool]) -> None:
         _REGISTERED_FACTORIES.append(factory)
 
 
+# Live, session-scoped tool instances contributed at runtime — currently MCP tools
+# discovered by an :class:`~neurosurfer.mcp.manager.McpManager` after it connects.
+# Unlike factories/generated tools these are *already-constructed* instances bound to
+# a live connection, so the manager sets the whole list and clears it on shutdown.
+# They appear in :func:`all_tools` (so agents/sub-agents can call them) but NOT in
+# :func:`workflow_node_tools` (the Architect must not compose graphs from ephemeral
+# connections — see the Integrations plan, Phase 2).
+_LIVE_TOOLS: list[Tool] = []
+
+
+def set_live_tools(tools: list[Tool]) -> None:
+    """Replace the live (MCP) tool set. Called by the MCP manager after connecting."""
+    _LIVE_TOOLS[:] = list(tools)
+
+
+def clear_live_tools() -> None:
+    """Drop all live tools (called when the MCP manager shuts down)."""
+    _LIVE_TOOLS.clear()
+
+
+def live_tools() -> list[Tool]:
+    return list(_LIVE_TOOLS)
+
+
 def _builtin_tools() -> list[Tool]:
     """One fresh instance of every generic framework tool, plus any tools
     registered by product/feature layers via :func:`register_tool_factory`."""
@@ -84,6 +108,11 @@ def all_tools() -> list[Tool]:
         if gen.name not in known:
             tools.append(gen)
             known.add(gen.name)
+    # Live MCP tools last: a built-in or generated tool always wins a name clash.
+    for live in live_tools():
+        if live.name not in known:
+            tools.append(live)
+            known.add(live.name)
     return tools
 
 

@@ -7,10 +7,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from neurosurfer.config import Config
+from neurosurfer.config.mcp import McpStore
 from neurosurfer.config.profiles import ProviderStore
 
 if TYPE_CHECKING:
     from rich.console import Console
+
+    from neurosurfer.mcp import McpManager
 
 
 class CLIContext:
@@ -19,10 +22,13 @@ class CLIContext:
         cfg: Config,
         console: Console,
         providers: ProviderStore,
+        mcp_store: McpStore,
     ) -> None:
         self.cfg = cfg
         self.console = console
         self.providers = providers
+        self.mcp_store = mcp_store
+        self.mcp: McpManager | None = None
         self.should_exit: bool = False
         self._extra: dict = {}
 
@@ -53,6 +59,47 @@ class CLIContext:
         if saved_theme in _theme.THEMES:
             _theme.set_theme(saved_theme)
 
+    # ── MCP lifecycle ──────────────────────────────────────────────────────────
+    async def setup_mcp(self) -> None:
+        """Connect to enabled MCP servers and publish their tools (best-effort).
+
+        Must run inside the REPL's async task — the transports own anyio cancel
+        scopes, so connect and :meth:`close_mcp` have to share a task. A server
+        that is down is reported and skipped; it never blocks startup.
+        """
+        from . import theme
+
+        servers = self.mcp_store.enabled()
+        if not servers:
+            return
+        try:
+            from neurosurfer.mcp import McpManager
+        except ImportError:
+            self.console.print(
+                f"[{theme.WARN}]MCP servers configured but the 'mcp' extra is not "
+                f"installed — skipping. Install with: pip install neurosurfer[mcp][/{theme.WARN}]"
+            )
+            return
+
+        self.mcp = McpManager(servers)
+        statuses = await self.mcp.connect_all()
+        ok = [s for s in statuses if s.connected]
+        bad = [s for s in statuses if not s.connected]
+        if ok:
+            total = sum(s.tool_count for s in ok)
+            names = ", ".join(s.name for s in ok)
+            self.console.print(
+                f"[{theme.OK}]✓[/{theme.OK}] MCP: {len(ok)} server(s) connected "
+                f"({total} tools) — {names}"
+            )
+        for s in bad:
+            self.console.print(f"[{theme.WARN}]MCP server '{s.name}' unavailable: {s.error}[/{theme.WARN}]")
+
+    async def close_mcp(self) -> None:
+        if self.mcp is not None:
+            await self.mcp.aclose()
+            self.mcp = None
+
     # ── factory ───────────────────────────────────────────────────────────────
     @classmethod
     def create(cls, cfg: Config) -> CLIContext:
@@ -60,6 +107,12 @@ class CLIContext:
 
         cfg.ensure_dirs()
         providers = ProviderStore.default(cfg.home_dir)
-        ctx = cls(cfg=cfg, console=Console(), providers=providers)
+        mcp_store = McpStore.default(cfg.home_dir)
+        ctx = cls(
+            cfg=cfg,
+            console=Console(),
+            providers=providers,
+            mcp_store=mcp_store,
+        )
         ctx.load_state()
         return ctx

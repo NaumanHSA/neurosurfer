@@ -52,6 +52,26 @@ class ProviderCapabilities:
     tool_call_style: Literal["anthropic", "openai"]
     context_window: int
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+    # Whether the model accepts image input. The provider drops image blocks (with a
+    # text note) when False, so a run never hard-fails on a non-vision model.
+    supports_vision: bool = False
+
+
+# OpenAI-compatible model families known to accept image input (prefix-matched).
+_OPENAI_VISION_PREFIXES: tuple[str, ...] = (
+    "gpt-4o",
+    "gpt-4.1",
+    "gpt-4-turbo",
+    "gpt-4-vision",
+    "o1",
+    "o3",
+    "o4",
+    "chatgpt-",
+)
+
+
+def _openai_supports_vision(model: str) -> bool:
+    return model.startswith(_OPENAI_VISION_PREFIXES)
 
 
 def _anthropic_window(model: str) -> int:
@@ -72,6 +92,8 @@ def anthropic_capabilities(model: str) -> ProviderCapabilities:
         tool_call_style="anthropic",
         context_window=_anthropic_window(model),
         max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+        # All current Claude families (opus/sonnet/haiku 4.x) accept images.
+        supports_vision=True,
     )
 
 
@@ -90,6 +112,9 @@ def openai_capabilities(
         # Capped per profile setting (default 8192). Reasoning models spend this
         # budget on chain-of-thought; smaller values keep turns short on local HW.
         max_output_tokens=min(max_output_tokens, context_window),
+        # Frontier OpenAI vision families are detected by name; unknown local models
+        # default to no vision (conservative — they'd otherwise error on image input).
+        supports_vision=_openai_supports_vision(model),
     )
 
 

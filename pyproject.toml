@@ -91,6 +91,9 @@ serve = [
     "fastapi>=0.110,<1.0",       # OpenAI-compatible workflow serving gateway
     "uvicorn[standard]>=0.29",
 ]
+mcp = [
+    "mcp>=1.2",                  # Model Context Protocol client/server SDK
+]
 
 [project.urls]
 Homepage = "https://github.com/NaumanHSA/neurosurfer"

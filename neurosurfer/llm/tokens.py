@@ -16,6 +16,7 @@ import json
 from functools import lru_cache
 
 from .types import (
+    ImageBlock,
     Message,
     TextBlock,
     ThinkingBlock,
@@ -26,6 +27,10 @@ from .types import (
 
 MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000
 AUTOCOMPACT_BUFFER_TOKENS = 13_000
+# Flat per-image estimate. Real cost depends on resolution/provider tiling; this is a
+# deliberately coarse upper-ish bound so compaction never undercounts an image-heavy
+# history. (Anthropic ~1.15k–1.6k for a typical screenshot; OpenAI similar.)
+IMAGE_TOKENS = 1_400
 
 
 @lru_cache(maxsize=1)
@@ -74,7 +79,10 @@ def estimate_messages_tokens(
         # ~4 tokens of role/structure overhead per message.
         total += 4
         for block in msg.content:
-            total += estimate_text_tokens(_block_to_text(block))
+            if isinstance(block, ImageBlock):
+                total += IMAGE_TOKENS
+            else:
+                total += estimate_text_tokens(_block_to_text(block))
     return total
 
 
