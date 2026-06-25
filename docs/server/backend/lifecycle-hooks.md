@@ -18,7 +18,7 @@ You can attach multiple functions to each hook; they run in **registration order
 ## Minimal Example
 
 ```python
-from neurosurfer.server import NeurosurferApp
+from neurosurfer.app.server import NeurosurferApp
 
 app = NeurosurferApp()
 
@@ -48,7 +48,7 @@ Below mirrors a production setup with model load, embedder + RAG orchestration, 
 from typing import List
 import logging, shutil, os
 
-from neurosurfer.server import NeurosurferApp
+from neurosurfer.app.server import NeurosurferApp
 from neurosurfer.config import config
 
 app = NeurosurferApp(

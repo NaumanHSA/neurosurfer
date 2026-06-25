@@ -234,7 +234,7 @@ print(agent.run("What is the capital of France?"))
 from neurosurfer.models.embedders.sentence_transformer import SentenceTransformerEmbedder
 from neurosurfer.rag.chunker import Chunker
 from neurosurfer.rag.filereader import FileReader
-from neurosurfer.server.services.rag_orchestrator import RAGOrchestrator
+from neurosurfer.app.server.services.rag_orchestrator import RAGOrchestrator
 
 embedder = SentenceTransformerEmbedder(model_name="intfloat/e5-large-v2")
 rag = RAGOrchestrator(

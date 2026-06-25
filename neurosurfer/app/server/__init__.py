@@ -6,7 +6,7 @@ Ollama, OpenAI) or native :mod:`neurosurfer.agents` instances.
 
 Minimal quickstart::
 
-    from neurosurfer.server import NeurosurferServer, UpstreamBackend
+    from neurosurfer.app.server import NeurosurferServer, UpstreamBackend
 
     server = NeurosurferServer(port=8000)
     server.register_backend(
@@ -17,7 +17,7 @@ Minimal quickstart::
 Register a native agent::
 
     from neurosurfer.agents import AgenticLoop
-    from neurosurfer.server import NeurosurferServer
+    from neurosurfer.app.server import NeurosurferServer
 
     loop = AgenticLoop(provider=..., tools=[...])
     server = NeurosurferServer()

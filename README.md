@@ -113,7 +113,7 @@ print(result.title, result.points)
 
 **Register an agent as an OpenAI-compatible model:**
 ```python
-from neurosurfer.server import NeurosurferServer
+from neurosurfer.app.server import NeurosurferServer
 from neurosurfer.agents import AgenticLoop
 
 server = NeurosurferServer()

@@ -77,7 +77,7 @@ For deeper topics, jump directly to the dedicated pages linked below.
 ### Minimal handler
 
 ```python
-from neurosurfer.server.app import NeurosurferApp
+from neurosurfer.app.server.app import NeurosurferApp
 
 app = NeurosurferApp()
 
@@ -108,7 +108,7 @@ async def handle_chat(request, ctx):
 ### With RAG orchestration
 
 ```python
-from neurosurfer.server.services.rag_orchestrator import RAGOrchestrator
+from neurosurfer.app.server.services.rag_orchestrator import RAGOrchestrator
 
 rag = RAGOrchestrator(embedder=your_embedder, persist_dir="./vector_store", top_k=8)
 

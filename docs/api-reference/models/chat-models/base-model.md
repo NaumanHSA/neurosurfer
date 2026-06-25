@@ -105,7 +105,7 @@ Optional helpers supplied by `BaseChatModel`:
 
 ```python
 from neurosurfer.models.chat_models.base import BaseChatModel
-from neurosurfer.server.schemas import ChatCompletionResponse
+from neurosurfer.app.server.schemas import ChatCompletionResponse
 
 class CustomModel(BaseChatModel):
     def __init__(self, **kwargs):

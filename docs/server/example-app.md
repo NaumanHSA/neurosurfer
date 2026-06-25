@@ -17,7 +17,7 @@ Create the app from configuration so ports, origins, logging, and worker counts 
 
 ```python
 import os, logging
-from neurosurfer.server import NeurosurferApp
+from neurosurfer.app.server import NeurosurferApp
 from neurosurfer.config import config
 
 logging.basicConfig(level=config.app.logs_level.upper())
@@ -47,7 +47,7 @@ Keep shared components explicit—model, embedder, logger, RAG, and a temp direc
 ```python
 from neurosurfer.models.embedders.base import BaseEmbedder
 from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
-from neurosurfer.server.services.rag_orchestrator import RAGOrchestrator
+from neurosurfer.app.server.services.rag_orchestrator import RAGOrchestrator
 
 BASE_DIR = "./tmp/code_sessions"; os.makedirs(BASE_DIR, exist_ok=True)
 LLM: BaseChatModel = None
@@ -135,8 +135,8 @@ The heart of the app. It reads the request, compacts history, optionally applies
 
 ```python
 from typing import List, Generator
-from neurosurfer.server.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
-from neurosurfer.server.runtime import RequestContext
+from neurosurfer.app.server.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
+from neurosurfer.app.server.runtime import RequestContext
 
 @nm.chat()
 def handler(request: ChatCompletionRequest, ctx: RequestContext) -> ChatCompletionResponse | Generator[ChatCompletionChunk, None, None]:
@@ -217,10 +217,10 @@ from neurosurfer.models.chat_models import BaseChatModel as BaseChatModel
 from neurosurfer.rag.chunker import Chunker
 from neurosurfer.rag.filereader import FileReader
 
-from neurosurfer.server import NeurosurferApp
-from neurosurfer.server.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
-from neurosurfer.server.runtime import RequestContext
-from neurosurfer.server.services.rag_orchestrator import RAGOrchestrator
+from neurosurfer.app.server import NeurosurferApp
+from neurosurfer.app.server.schemas import ChatCompletionRequest, ChatCompletionResponse, ChatCompletionChunk
+from neurosurfer.app.server.runtime import RequestContext
+from neurosurfer.app.server.services.rag_orchestrator import RAGOrchestrator
 
 from neurosurfer.config import config
 logging.basicConfig(level=config.app.logs_level.upper())

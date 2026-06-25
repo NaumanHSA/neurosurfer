@@ -25,22 +25,22 @@ import pytest
 # ── import guard: skip the whole module if fastapi is not installed ──────────
 pytest.importorskip("fastapi")
 
-from neurosurfer.server.backends.agent import AgentBackend, AgentSpec, _default_result_to_text
-from neurosurfer.server.backends.base import Backend
-from neurosurfer.server.errors import OpenAIHTTPError
-from neurosurfer.server.gateway import NeurosurferServer
-from neurosurfer.server.hooks.base import Hook, HookContext
-from neurosurfer.server.hooks.builtin import StripReasoningHook, SystemPromptInjectorHook
-from neurosurfer.server.registry import ModelRouter, RouteTarget
-from neurosurfer.server.schemas.openai import (
+from neurosurfer.app.server.backends.agent import AgentBackend, AgentSpec, _default_result_to_text
+from neurosurfer.app.server.backends.base import Backend
+from neurosurfer.app.server.errors import OpenAIHTTPError
+from neurosurfer.app.server.gateway import NeurosurferServer
+from neurosurfer.app.server.hooks.base import Hook, HookContext
+from neurosurfer.app.server.hooks.builtin import StripReasoningHook, SystemPromptInjectorHook
+from neurosurfer.app.server.registry import ModelRouter, RouteTarget
+from neurosurfer.app.server.schemas.openai import (
     ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatMessage,
     ModelCard,
 )
-from neurosurfer.server.streaming.openai_chunks import chunk_end, chunk_role, chunk_text
-from neurosurfer.server.streaming.sse import sse_data, sse_done, sse_ping
+from neurosurfer.app.server.streaming.openai_chunks import chunk_end, chunk_role, chunk_text
+from neurosurfer.app.server.streaming.sse import sse_data, sse_done, sse_ping
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ from typing import Any
 
 def handle_serve(args: argparse.Namespace) -> int:
     try:
-        from neurosurfer.server import NeurosurferServer, UpstreamBackend
+        from neurosurfer.app.server import NeurosurferServer, UpstreamBackend
     except ImportError as exc:
         print(
             f"[error] {exc}\n"

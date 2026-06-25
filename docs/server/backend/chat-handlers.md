@@ -116,9 +116,9 @@ Concatenate `choices[].delta.content` to reconstruct the final text.
 
 ```python
 from typing import List
-from neurosurfer.server import NeurosurferApp
-from neurosurfer.server.schemas import ChatCompletionRequest
-from neurosurfer.server.runtime import RequestContext
+from neurosurfer.app.server import NeurosurferApp
+from neurosurfer.app.server.schemas import ChatCompletionRequest
+from neurosurfer.app.server.runtime import RequestContext
 from neurosurfer.config import config
 
 app = NeurosurferApp()
