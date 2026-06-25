@@ -14,6 +14,7 @@ from . import node_tool  # noqa: F401 — registers write_workflow_node into the
 from .package import WorkflowPackage, load_package, save_package
 from .registry import WorkflowNotFoundError, WorkflowRegistry
 from .schema import WorkflowManifest
+from .runner import WorkflowRunner, run_workflow
 
 
 def __getattr__(name: str):
@@ -26,6 +27,8 @@ def __getattr__(name: str):
 
 __all__ = [
     "__version__",
+    "WorkflowRunner",
+    "run_workflow",
     "WorkflowManifest",
     "WorkflowPackage",
     "WorkflowRegistry",
