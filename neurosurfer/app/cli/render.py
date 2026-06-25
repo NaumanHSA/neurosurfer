@@ -41,7 +41,6 @@ _TOOL_BASE: dict[str, str] = {
     "http":          "Fetching",
     "browse":        "Browsing",
     "data":          "Crunching the data",
-    "register_task": "Saving the new task",
 }
 
 _THINKING_LABEL   = "Thinking"

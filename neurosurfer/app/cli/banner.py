@@ -1,44 +1,15 @@
-"""Startup banner + provider status line for the Workflow Architect."""
+"""CLI banner — provider status appended below the import-time startup banner."""
 
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING
 
-from neurosurfer import __version__
 from . import theme
 from .context import CLIContext
 
 if TYPE_CHECKING:
     pass
-
-_LOGO = r"""
-  ███╗   ██╗███████╗██╗   ██╗██████╗  ██████╗
-  ████╗  ██║██╔════╝██║   ██║██╔══██╗██╔═══██╗
-  ██╔██╗ ██║█████╗  ██║   ██║██████╔╝██║   ██║
-  ██║╚██╗██║██╔══╝  ██║   ██║██╔══██╗██║   ██║
-  ██║ ╚████║███████╗╚██████╔╝██║  ██║╚██████╔╝
-  ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝
-   ██████╗ ██╗   ██╗██████╗ ███████╗███████╗██████╗
-  ██╔════╝ ██║   ██║██╔══██╗██╔════╝██╔════╝██╔══██╗
-  ╚█████╗  ██║   ██║██████╔╝█████╗  █████╗  ██████╔╝
-   ╚════██╗██║   ██║██╔══██╗██╔══╝  ██╔══╝  ██╔══██╗
-  ██████╔╝ ╚██████╔╝██║  ██║██║     ███████╗██║  ██║
-  ╚═════╝   ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝
-"""
-
-_TAGLINE = "AI Agent Framework  ·  lean, local, production-ready"
-
-_HOW_IT_WORKS = """\
-  How it works:
-    1  You describe what you want to automate in plain English.
-    2  The Architect researches your problem on the web.
-    3  It asks you a few focused questions (3 choices each).
-    4  It designs a multi-step workflow and builds every node.
-    5  The workflow is registered and ready to run — on any model.
-
-  Python API:  from neurosurfer.graph.workflow.package import load_package
-               from neurosurfer.graph.workflow.runner  import WorkflowRunner\
-"""
 
 _TIPS: list[str] = [
     "/workflow build  — describe a workflow and let the Architect build it",
@@ -50,9 +21,7 @@ _TIPS: list[str] = [
 ]
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Provider connectivity probe
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Provider connectivity probe ───────────────────────────────────────────────
 
 async def probe_provider(ctx: CLIContext) -> tuple[bool, str]:
     """Ping the active provider. Returns (reachable, status_message)."""
@@ -96,15 +65,13 @@ async def probe_provider(ctx: CLIContext) -> tuple[bool, str]:
             return False, str(e)[:80]
     else:  # anthropic
         if not api_key:
-            return False, "API key not set — set ANTHROPIC_API_KEY or use /provider add"
+            return False, "API key not set — use /provider add"
         if api_key.startswith("sk-ant-"):
             return True, f"key configured · {model}"
         return False, "key present but format unexpected"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _resolve_provider_status(ctx: CLIContext) -> tuple[str, str, bool]:
     """Return (label, model, configured)."""
@@ -119,87 +86,57 @@ def _resolve_provider_status(ctx: CLIContext) -> tuple[str, str, bool]:
     return "not configured", "", False
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Public
-# ──────────────────────────────────────────────────────────────────────────────
+# ── Public ────────────────────────────────────────────────────────────────────
 
 async def print_banner(ctx: CLIContext) -> None:
-    from rich.panel import Panel
+    """Append provider status + tips below the import-time startup banner."""
     from rich.table import Table
-    from rich.text import Text
 
     console = ctx.console
-    console.print()
 
-    for line in _LOGO.strip("\n").splitlines():
-        console.print(f"[{theme.ACCENT}]{line}[/{theme.ACCENT}]")
-    console.print(f"     [{theme.DIM}]{_TAGLINE}[/{theme.DIM}]")
-    console.print()
-
-    # ── connectivity probe ─────────────────────────────────────────────────
     reachable, probe_msg = await probe_provider(ctx)
-
-    # ── provider status panel ─────────────────────────────────────────────
     label, model, configured = _resolve_provider_status(ctx)
-    prov_color = theme.OK_DIM if (configured and reachable) else theme.ERR
-    conn_icon = "●" if (configured and reachable) else "○"
-    conn_label = "connected" if reachable else "unreachable"
-    conn_color = theme.OK_DIM if reachable else theme.ERR
 
-    prov_text = Text()
-    prov_text.append(f"{conn_icon} {label}", style=prov_color)
-    if model:
-        prov_text.append(" · ", style=theme.DIM)
-        prov_text.append(model, style=theme.ACCENT_DIM)
-    prov_text.append("\n")
-    prov_text.append(f"  [{conn_label}]", style=conn_color)
-    if probe_msg and probe_msg not in ("not configured",):
-        prov_text.append(f"  {probe_msg}", style=theme.DIM)
-
+    # Match the import-time banner grid exactly: cyan-dim right label, 16 chars wide.
     grid = Table.grid(padding=(0, 2))
-    grid.add_column(justify="right", style=theme.DIM)
+    grid.add_column(style="cyan dim", justify="right", min_width=16)
     grid.add_column()
-    grid.add_row("provider", prov_text)
-    console.print(Panel(grid, border_style=theme.ACCENT_DIM, expand=False))
 
-    # ── how it works panel ────────────────────────────────────────────────
-    console.print()
-    for line in _HOW_IT_WORKS.splitlines():
-        console.print(f"[{theme.DIM}]{line}[/{theme.DIM}]")
+    dot = "●" if (configured and reachable) else "○"
+    dot_style = "bright_cyan" if (configured and reachable) else "red"
+    prov_val = f"[{dot_style}]{dot} {label}[/{dot_style}]"
+    if model:
+        prov_val += f"  [dim]{model}[/dim]"
+    if probe_msg and probe_msg not in ("not configured",):
+        msg_style = "dim" if reachable else "red dim"
+        prov_val += f"  [{msg_style}]({probe_msg})[/{msg_style}]"
+
+    grid.add_row("provider", prov_val)
+    console.print(grid)
     console.print()
 
-    # ── tips (pick 2) ─────────────────────────────────────────────────────
-    import random
     tips = random.sample(_TIPS, k=min(2, len(_TIPS)))
     for tip in tips:
         console.print(f"  [{theme.DIM}]tip: {tip}[/{theme.DIM}]")
-
-    console.print()
-    console.print(
-        f"[{theme.DIM}]neurosurfer v{__version__}  ·  "
-        f"type [{theme.DIM}][{theme.ACCENT}]/help[/{theme.ACCENT}][/{theme.DIM}]"
-        f"[{theme.DIM}] or describe what you want to build[/{theme.DIM}]"
-    )
     console.print()
 
 
 def print_status(ctx: CLIContext) -> None:
     """Sync status re-print used after /provider commands."""
-    from rich.panel import Panel
     from rich.table import Table
 
     label, model, configured = _resolve_provider_status(ctx)
-    prov_color = theme.OK_DIM if configured else theme.ERR
-    prov_dot = "●" if configured else "○"
-    prov_text = f"[{prov_color}]{prov_dot} {label}[/{prov_color}]"
-    if model:
-        prov_text += f" [{theme.DIM}]·[/{theme.DIM}] [{theme.ACCENT_DIM}]{model}[/{theme.ACCENT_DIM}]"
+    dot = "●" if configured else "○"
+    dot_style = theme.OK_DIM if configured else theme.ERR
 
     grid = Table.grid(padding=(0, 2))
-    grid.add_column(justify="right", style=theme.DIM)
+    grid.add_column(style="cyan dim", justify="right", min_width=16)
     grid.add_column()
-    grid.add_row("provider", prov_text)
-    ctx.console.print(Panel(grid, border_style=theme.ACCENT_DIM, expand=False))
+    prov_val = f"[{dot_style}]{dot} {label}[/{dot_style}]"
+    if model:
+        prov_val += f"  [dim]{model}[/dim]"
+    grid.add_row("provider", prov_val)
+    ctx.console.print(grid)
 
 
 def status_summary(ctx: CLIContext) -> str:

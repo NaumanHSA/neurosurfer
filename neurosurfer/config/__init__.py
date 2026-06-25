@@ -4,7 +4,7 @@ Settings come from environment variables (optionally seeded from a local ``.env`
 file). The engine is provider-neutral; ``LLM_PROVIDER`` selects which adapter the
 registry builds, and the rest of the values configure that adapter plus paths.
 
-``Config`` is a composition of one dataclass per concern (``llm``, ``tasks``,
+``Config`` is a composition of one dataclass per concern (``llm``,
 ``observability``) — see the sibling modules.
 """
 
@@ -18,13 +18,11 @@ from .base import env_int, load_dotenv
 from .llm import DEFAULT_ANTHROPIC_MODEL, DEFAULT_CONTEXT_WINDOW, LLMConfig
 from .observability import ObservabilityConfig
 from .projects import ProjectsConfig
-from .tasks import TasksConfig
 
 __all__ = [
     "Config",
     "load_config",
     "LLMConfig",
-    "TasksConfig",
     "ObservabilityConfig",
     "ProjectsConfig",
     "DEFAULT_ANTHROPIC_MODEL",
@@ -37,12 +35,16 @@ class Config:
     """Resolved runtime configuration, namespaced by concern."""
 
     llm: LLMConfig = field(default_factory=LLMConfig)
-    tasks: TasksConfig = field(default_factory=TasksConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     projects: ProjectsConfig = field(default_factory=ProjectsConfig)
 
+    @property
+    def home_dir(self) -> Path:
+        """Root neurosurfer config directory (~/.neurosurfer)."""
+        return Path.home() / ".neurosurfer"
+
     def ensure_dirs(self) -> None:
-        self.tasks.dir.mkdir(parents=True, exist_ok=True)
+        self.home_dir.mkdir(parents=True, exist_ok=True)
         self.observability.transcripts_dir().mkdir(parents=True, exist_ok=True)
         self.projects.dir.mkdir(parents=True, exist_ok=True)
 
@@ -61,7 +63,6 @@ class Config:
             "openai_base_url": self.llm.openai_base_url,
             "openai_api_key": mask(self.llm.openai_api_key),
             "context_window": self.llm.context_window,
-            "tasks_dir": str(self.tasks.dir),
             "state_dir": str(self.observability.state_dir),
             "log_level": self.observability.log_level,
         }
@@ -78,7 +79,6 @@ def load_config(env_file: Path | None = None) -> Config:
     default_model = DEFAULT_ANTHROPIC_MODEL if provider == "anthropic" else "local-model"
     model = os.environ.get("MODEL", default_model).strip()
 
-    tasks_dir = os.environ.get("NEUROSURFER_TASKS_DIR")
     state_dir = os.environ.get("NEUROSURFER_STATE_DIR")
 
     cfg = Config(
@@ -94,8 +94,6 @@ def load_config(env_file: Path | None = None) -> Config:
             log_level=os.environ.get("NEUROSURFER_LOG_LEVEL", "INFO").strip().upper(),
         ),
     )
-    if tasks_dir:
-        cfg.tasks.dir = Path(tasks_dir).expanduser()
     if state_dir:
         cfg.observability.state_dir = Path(state_dir).expanduser()
     return cfg

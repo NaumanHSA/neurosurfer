@@ -9,16 +9,10 @@ import pytest
 from neurosurfer.app.cli.commands import build_registry
 from neurosurfer.app.cli.commands.provider import op_delete as prov_delete
 from neurosurfer.app.cli.commands.provider import op_use, provider_table_rows
-from neurosurfer.app.cli.commands.task import op_set_provider
 from neurosurfer.app.cli.completer import SlashCompleter
 from neurosurfer.config import Config, LLMConfig
 from neurosurfer.config.profiles import ProviderProfile, ProviderStore, mask_secret
-from neurosurfer.config.task_providers import TaskProviderStore
-from neurosurfer.llm.registry import (
-    build_provider_from_profile,
-    resolve_provider,
-    resolve_provider_for_task,
-)
+from neurosurfer.llm.registry import build_provider_from_profile, resolve_provider
 
 
 def store(tmp_path) -> ProviderStore:
@@ -191,78 +185,3 @@ def test_set_active_marks_default_confirmed(tmp_path):
     assert s.is_default_confirmed() is True
 
 
-# ── TaskProviderStore ──────────────────────────────────────────────────────────
-def test_task_provider_store_set_get_unset(tmp_path):
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    assert tp.get("code") is None
-    tp.set("code", "anthropic-prod")
-    assert tp.get("code") == "anthropic-prod"
-    assert tp.all() == {"code": "anthropic-prod"}
-    tp.unset("code")
-    assert tp.get("code") is None
-
-
-def test_task_provider_store_persists_across_instances(tmp_path):
-    path = tmp_path / "task_providers.json"
-    TaskProviderStore(path=path).set("code", "local")
-    assert TaskProviderStore(path=path).get("code") == "local"
-
-
-def test_task_provider_store_unset_missing_is_noop(tmp_path):
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    tp.unset("never-set")  # must not raise
-
-
-# ── per-task provider resolution ──────────────────────────────────────────────
-def test_resolve_for_task_uses_pinned_override(tmp_path):
-    s = store(tmp_path)
-    s.add(ProviderProfile(name="local", kind="openai", base_url="http://h/v1", model="m1"))
-    s.add(ProviderProfile(name="other", kind="openai", base_url="http://h2/v1", model="m2"),
-          make_active=False)
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    tp.set("my-task", "other")
-    cfg = Config()
-
-    provider = resolve_provider_for_task(cfg, s, tp, "my-task")
-    assert provider.model == "m2"  # the pin, not the active ("local") profile
-
-
-def test_resolve_for_task_falls_back_without_override(tmp_path):
-    s = store(tmp_path)
-    s.add(ProviderProfile(name="local", kind="openai", base_url="http://h/v1", model="m1"))
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    cfg = Config()
-
-    provider = resolve_provider_for_task(cfg, s, tp, "my-task")
-    assert provider.model == "m1"
-
-
-def test_resolve_for_task_none_name_falls_back(tmp_path):
-    s = store(tmp_path)
-    s.add(ProviderProfile(name="local", kind="openai", base_url="http://h/v1", model="m1"))
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    cfg = Config()
-
-    provider = resolve_provider_for_task(cfg, s, tp, None)
-    assert provider.model == "m1"
-
-
-def test_resolve_for_task_stale_pin_raises(tmp_path):
-    s = store(tmp_path)
-    s.add(ProviderProfile(name="local", kind="openai", base_url="http://h/v1", model="m1"))
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    tp.set("my-task", "deleted-profile")
-    cfg = Config()
-
-    with pytest.raises(RuntimeError, match="deleted-profile"):
-        resolve_provider_for_task(cfg, s, tp, "my-task")
-
-
-# ── /task provider op ─────────────────────────────────────────────────────────
-def test_op_set_provider_pin_and_clear(tmp_path):
-    tp = TaskProviderStore(path=tmp_path / "task_providers.json")
-    assert "pinned to provider 'local'" in op_set_provider(tp, "code", "local")
-    assert tp.get("code") == "local"
-    assert "default provider" in op_set_provider(tp, "code", "default")
-    assert tp.get("code") is None
-    assert "default provider" in op_set_provider(tp, "code", None)

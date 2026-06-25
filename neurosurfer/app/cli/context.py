@@ -1,12 +1,4 @@
-"""CLIContext — shared state passed to slash-command handlers and the app.
-
-Holds the resolved config, the Rich console, the provider store, the task
-registry, and the active task selected for this CLI invocation.
-
-``active_task`` is a property: setting it auto-saves the value to a small
-JSON file so the next launch restores where you left off.  On first launch
-it defaults to the 'general' built-in task if one is registered.
-"""
+"""CLIContext — shared state passed to slash-command handlers and the app."""
 
 from __future__ import annotations
 
@@ -16,8 +8,6 @@ from typing import TYPE_CHECKING
 
 from neurosurfer.config import Config
 from neurosurfer.config.profiles import ProviderStore
-from neurosurfer.config.task_providers import TaskProviderStore
-from neurosurfer.tasks.registry import TaskRegistry
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -29,45 +19,26 @@ class CLIContext:
         cfg: Config,
         console: Console,
         providers: ProviderStore,
-        registry: TaskRegistry,
-        active_task: str | None = None,
-        task_providers: TaskProviderStore | None = None,
     ) -> None:
         self.cfg = cfg
         self.console = console
         self.providers = providers
-        self.registry = registry
-        self.task_providers = task_providers or TaskProviderStore.default(cfg.tasks.dir.parent)
-        self._active_task = active_task
         self.should_exit: bool = False
         self._extra: dict = {}
 
-    # ── active_task property: auto-persists on every change ───────────────────
-    @property
-    def active_task(self) -> str | None:
-        return self._active_task
-
-    @active_task.setter
-    def active_task(self, value: str | None) -> None:
-        self._active_task = value
-        self._save_state()
-
-    # ── CLI state persistence (active task + theme) ────────────────────────────
+    # ── CLI state persistence (theme) ─────────────────────────────────────────
     def _state_file(self) -> Path:
-        return self.cfg.tasks.dir.parent / "cli_state.json"
+        return self.cfg.home_dir / "cli_state.json"
 
     def _save_state(self) -> None:
         from . import theme as _theme
 
         path = self._state_file()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
-            "active_task": self._active_task,
-            "theme": _theme.current().name,
-        }))
+        path.write_text(json.dumps({"theme": _theme.current().name}))
 
     def load_state(self) -> None:
-        """Restore last active task and theme, or defaults on first run."""
+        """Restore last theme, or default on first run."""
         from . import theme as _theme
 
         data: dict = {}
@@ -78,18 +49,9 @@ class CLIContext:
             except Exception:  # noqa: BLE001
                 pass
 
-        # Restore theme first so the banner prints in the right color.
         saved_theme = data.get("theme", _theme.DEFAULT_THEME)
         if saved_theme in _theme.THEMES:
             _theme.set_theme(saved_theme)
-
-        saved_task = data.get("active_task")
-        available = self.registry.list()
-        if saved_task and saved_task in available:
-            self._active_task = saved_task
-        elif "general" in available:
-            self._active_task = "general"
-        # else leave as None (no built-in general registered)
 
     # ── factory ───────────────────────────────────────────────────────────────
     @classmethod
@@ -97,12 +59,7 @@ class CLIContext:
         from rich.console import Console
 
         cfg.ensure_dirs()
-        providers = ProviderStore.default(cfg.tasks.dir.parent)
-        task_providers = TaskProviderStore.default(cfg.tasks.dir.parent)
-        registry = TaskRegistry(cfg.tasks.dir)
-        ctx = cls(
-            cfg=cfg, console=Console(), providers=providers, registry=registry,
-            task_providers=task_providers,
-        )
+        providers = ProviderStore.default(cfg.home_dir)
+        ctx = cls(cfg=cfg, console=Console(), providers=providers)
         ctx.load_state()
         return ctx

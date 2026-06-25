@@ -14,8 +14,6 @@ import httpx
 import pytest
 
 from neurosurfer.agents.runtime.permissions import Guardrails, Permissions
-from neurosurfer.tasks.definition import ALL_TOOLS
-from neurosurfer.tasks.runner import build_full_pool
 from neurosurfer.tools import all_tools, default_pool
 from neurosurfer.tools.base import ToolContext
 from neurosurfer.tools.builtin.browse import BrowseTool, _playwright_available
@@ -190,6 +188,3 @@ def test_new_tools_registered_everywhere(tmp_path):
     names = set(default_pool().names())
     assert {"http", "data", "browse"} <= names
     assert {"http", "data", "browse"} <= {t.name for t in all_tools()}
-    assert {"http", "data", "browse"} <= set(ALL_TOOLS)
-    pool = build_full_pool(tmp_path)
-    assert {"http", "data", "browse", "web_search"} <= set(pool.names())
