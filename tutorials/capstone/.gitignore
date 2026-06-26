@@ -1,0 +1,4 @@
+# Runtime artifacts produced by run_insight_engine.py (kept out of git)
+insight.db
+artifacts/
+__pycache__/
