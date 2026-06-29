@@ -354,10 +354,11 @@ collector; disabled by default with zero overhead.
 
 - [ ] `TODO(X1)` README "What's in the box": add MCP (client + workflow server), vision,
       OTel bullets + the new extras.
-- [~] `TODO(X2)` Tutorials: **done** `tutorials/04_mcp_servers.ipynb` (connect a server, discover
+- [x] `TODO(X2)` Tutorials: **done** `tutorials/04_mcp_servers.ipynb` (connect a server, discover
       tools, run an agent, the permission gate, persistence/CLI, + a §9 preview of serving
       workflows that becomes runnable when Phase 2 lands) and linked from `03`'s What's Next.
-      **Remaining:** a vision example notebook for Phase 3.
+      Vision (Phase 3) is covered by the capstone `tutorials/05_capstone_insight_engine.ipynb`
+      (function + react + MCP + **vision** in one graph), linked from `04`'s What's Next.
 - [ ] `TODO(X3)` `.env.example`: add MCP/OTel env vars.
 - [ ] `TODO(X4)` CHANGELOG entries per phase.
 - [ ] `TODO(X5)` Ensure all new deps are optional extras; core install stays lean and the
