@@ -10,7 +10,7 @@ import sys
 
 
 def test_architect_public_api_importable():
-    from neurosurfer.graph.builder import ArchitectBuilder, ArchitectConversation
+    from neurosurfer.architect import ArchitectBuilder, ArchitectConversation
 
     assert ArchitectBuilder.__name__ == "ArchitectBuilder"
     assert ArchitectConversation.__name__ == "ArchitectConversation"
@@ -24,7 +24,7 @@ def test_importing_architect_pulls_in_no_cli():
 
     import importlib
 
-    import neurosurfer.graph.builder as arch
+    import neurosurfer.architect as arch
 
     importlib.reload(arch)
 
@@ -33,6 +33,6 @@ def test_importing_architect_pulls_in_no_cli():
 
 
 def test_conversation_lives_under_workflows_not_cli():
-    from neurosurfer.graph.builder.conversation import ArchitectConversation
+    from neurosurfer.architect.conversation import ArchitectConversation
 
-    assert ArchitectConversation.__module__ == "neurosurfer.graph.builder.conversation"
+    assert ArchitectConversation.__module__ == "neurosurfer.architect.conversation"

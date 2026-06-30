@@ -12,7 +12,14 @@
 > pyproject, env vars `NEUROSURFER_HOME`, temp prefix `ns_pyexec_`, CLI banner, README,
 > Apache-2.0 license). **Option 1** cleaned the neurosurfer public repo (removed legacy
 > stack), copied the new package + tests + pyproject, kept docs/tutorials/labs/LICENSE.
-> **555 tests green, zero regressions.** Next: **Q** (feature quality — deferred).
+> **555 tests green, zero regressions.**
+>
+> **Next: Phase Q — REPLANNED 2026-06-30** (general agent + deep workflow building).
+> The reorg is done; Phase Q is the first *feature* phase. It turns the CLI front face
+> from the bare Architect into a general automation **Assistant** that escalates through
+> 4 tiers (converse → light automation → plan-gated heavy one-off → Architect handoff),
+> and rebuilds the Architect's shallow single-`plan` node into a deep
+> `decompose → design_nodes → critique` pipeline. See **Phase Q** below.
 
 ## Vision
 
@@ -667,28 +674,228 @@ agents/
 
 ---
 
-## Phase Q — Feature quality (after reorg)
+## Phase Q — Feature quality: the general agent + deep workflow building (REPLANNED 2026-06-30)
 
-### Q1 — Deeper, smarter workflow planning (Issue 1)
-- [ ] Strengthen the `plan` node: require a richer decomposition (research → analyze →
-      structure → generate per-section → assemble → verify), with rationale per node.
-- [ ] Add a **plan-critique pass**: a second LLM step reviews the draft plan for depth,
-      missing steps, and parallelism, and expands it before assembly.
-- [ ] Seed the prompt with 1–2 strong example plans (few-shot) for common intents
-      (code docs, data pipeline, scraping) so the floor is higher.
-- [ ] Add a minimum-substance check (e.g. ≥N nodes / required stages) in validation for
-      "generated" workflows, with guidance when too shallow.
+> **Reframe.** The original Phase Q treated two issues in isolation (deeper plans /
+> better ReAct). The real product gap is bigger and the two halves must be designed
+> **together**: today the front face is *only* the Workflow Architect — free-form text
+> goes straight to `_build` ([app/cli/app.py:10-12](../../neurosurfer/app/cli/app.py#L10),
+> [:119-122](../../neurosurfer/app/cli/app.py#L119)). There is **no general agent**, even
+> though the engine for one already exists and is mature (`AgenticLoop` / `ReactAgent` /
+> `Agent`, a 15-tool default pool + live MCP tools, `present_plan`, and a real **plan
+> mode** in [permissions.py:255](../../neurosurfer/agents/runtime/permissions.py#L255)).
+>
+> **The target experience.** The user faces a **general automation Assistant**. It
+> handles light automation directly, plans-then-executes heavy one-offs, and — its
+> headline ability — **designs & registers reusable workflows/graphs** for work that is
+> recurring or genuinely pipeline-shaped. Behind that face, the Architect must produce
+> **deep** workflows (the current ones are shallow because a *single* `plan` base node
+> emits a 2–8 node graph — [graph.yaml:62-115](../../neurosurfer/graph/builder/package/graph.yaml#L62),
+> moving to `architect/package/graph.yaml` in Q0.5).
 
-### Q2 — Production-grade ReAct agent (Issue 2) — MOSTLY SUBSUMED BY R4
-Adopting the `core/` agent (R4) eliminates the root causes for free:
-- [x→R4] native tool-use ⇒ no `<__final_answer__>` sentinel leak
-- [x→R4] structured stop/`finish` ⇒ no `max_loop_iterations` stalls
-- [x→R4] typed event stream ⇒ clean CLI output (no raw INFO tool spam)
-Remaining Q2-specific work after R4:
-- [ ] **Conversational guard**: a workflow run that gets chit-chat ("Hi there!") returns
-      a helpful capability message instead of executing the pipeline (a cheap pre-classify
-      step or a guard node).
-- [ ] Benchmark the doc workflow end-to-end on a real repo.
+### The 4-tier routing model (the spine of this phase)
+
+| Tier | Trigger (Assistant's judgment) | Behaviour | Mechanism |
+|---|---|---|---|
+| **1 — Converse** | chit-chat, a quick question | answer directly, no tools | general agent turn |
+| **2 — Light automation** | a few files / a script / a web fetch | just do it | `default` mode, full tool pool |
+| **3 — Heavy one-off** | many files, lots of writes/shell, long horizon | **plan → approve → execute** | **hard gate: plan mode** |
+| **4 — Workflow-worthy** | recurring, multi-stage, "build me a pipeline" | **propose → confirm → Architect builds a registered workflow** | `propose_workflow` handoff |
+
+> Tiers 1–2 are the general agent being useful. Tier 3 is the **hard plan-mode gate**
+> (writes/shell blocked until `present_plan` is approved). Tier 4 is the **handoff** to
+> deep workflow building. The general agent and the workflow builder are the *same
+> conversation*, escalating in depth as the work demands.
+
+### Q0 — Decisions locked (from the 2026-06-30 design pass)
+- [x] **Front face = general Assistant**, not the bare Architect. Free text → Assistant.
+- [x] **Escalation = agent judgment via a `propose_workflow` tool** — the Assistant
+      decides a task is workflow-worthy, explains why, and asks the user to confirm
+      before handing off. (Not a pre-classifier; not explicit-only.)
+- [x] **Heavy one-offs = hard plan-mode gate** — reuse the existing plan mode; a
+      heaviness pre-flight sets the initial mode so writes/shell are blocked until
+      `present_plan` is approved.
+- [x] **Workflow depth = multi-stage decompose pipeline** — replace the single `plan`
+      node with `decompose → design_nodes → critique`, deep by construction.
+- [x] **The workflow builder becomes a separate top-level component `architect/`** —
+      pulled out of `graph/builder/`. Runtime (`graph/` = engine + workflow) vs authoring
+      (`architect/` = the builder) are cleanly separated. (Confirmed 2026-06-30.)
+
+---
+
+### Q0.5 — Promote the builder to a top-level `architect/` component (do this FIRST)  ✅
+
+> Lift `graph/builder/` out to a standalone top-level component **before** Q1 starts
+> adding files to it. Pure structural move — no behaviour change, suite stays green.
+> Reverses Phase G decision #11 *for the builder only*: engine + workflow stay folded
+> under `graph/`; the builder leaves. Target tree:
+>
+> ```
+> graph/      engine/  workflow/            ← runtime: "run a DAG"
+> architect/  build.py conversation.py refine.py tool_author.py
+>             schemas.py exemplars.py(NEW) nodes/ package/   ← authoring: "build a DAG"
+> ```
+
+- [x] **Q0.5a** — `git mv neurosurfer/graph/builder → neurosurfer/architect` (11 files,
+      rename-detected). Rewrote self-references `neurosurfer.graph.builder.*` →
+      `neurosurfer.architect.*` (the `build.py`/`__init__`/`conversation.py` docstrings;
+      the `package/graph.yaml` `output_schema` / `callable` module paths — 4 paths).
+      All relative imports were verified safe to move (`from ..schemas` in `nodes/`
+      still resolves to the package root; all other intra-package imports are single-dot;
+      outward imports were already absolute from Phase C/G).
+- [x] **Q0.5b** — Dropped `builder` from the lazy `__getattr__` set + `__all__` and
+      rewrote docstrings in [graph/__init__.py](../../neurosurfer/graph/__init__.py) and
+      [graph/workflow/__init__.py](../../neurosurfer/graph/workflow/__init__.py). The
+      engine/workflow ↛ builder invariant is now **structural** (separate top-level
+      package); verified `neurosurfer.graph.builder` no longer resolves.
+- [x] **Q0.5c** — Repointed the 2 import lines in
+      [app/cli/commands/workflow.py:157,300](../../neurosurfer/app/cli/commands/workflow.py#L157)
+      → `neurosurfer.architect`, and the 6 test files
+      (`test_workflow_architect`, `test_architect_gap_resolution`, `test_tool_author`,
+      `test_workflow_refine`, `test_workflow_validation`, `test_architect_no_cli_dep`),
+      including monkeypatch-target strings and the `__module__` assertion.
+- [x] **Q0.5d** — The `architect-imports-no-cli` invariant test now guards
+      `neurosurfer.architect` (`from neurosurfer.architect import ArchitectBuilder` pulls
+      in **no** `neurosurfer.app`/`cli`). **449 tests green** (baseline, zero
+      regressions); ruff introduced **zero** new findings (the 5 `I001` in the touched
+      files all pre-exist on HEAD — pre-existing vendored debt).
+
+### Q1 — Deep workflow building (Issue 1): multi-stage decompose pipeline  ✅
+
+> Replace the one shallow `plan` base node with a real decomposition pipeline inside the
+> Architect graph (`architect/package/graph.yaml`, post-Q0.5). New node order:
+> `discover → clarify → decompose → design_nodes → critique → write_nodes → assemble`
+> (was `discover → clarify → plan → write_nodes → assemble`).
+
+- [x] **Q1.1 — New schemas** (`architect/schemas.py`): `Stage` (id, name, purpose,
+      rationale, min_nodes, capabilities) and `StagePlan` (intent, ordered `list[Stage]`,
+      depth_rationale). `critique` reuses `WorkflowPlan` as its output type — no separate
+      `CritiqueResult` needed (simpler and downstream just receives the improved plan).
+- [x] **Q1.2 — `decompose` node** (base, structured → `StagePlan`). Breaks the intent
+      into 3–6 conceptual stages before touching nodes. Forces deep thinking by having the
+      LLM commit to stage count before knowing node details. Inline few-shot example
+      (GitHub PR digest) shows a 5-stage decomposition so the floor is calibrated.
+- [x] **Q1.3 — `design_nodes` node** (base, structured → `WorkflowPlan`) — replaces
+      `plan`. Seeded with the `StagePlan`; "one or two nodes per stage" rule enforces
+      that the design is at least as deep as the stage plan. Carries forward all
+      tool-mapping guidance and `{available_tools}` interpolation.
+- [x] **Q1.4 — `critique` node** (base, structured → `WorkflowPlan`). Reviews the draft
+      for 5 failure modes: over-consolidated nodes, missing steps, wrong kind (base doing
+      I/O), wrong tools, shallow DAG. Returns unchanged plan if correct or an improved
+      WorkflowPlan. `write_nodes` and `assemble` both depend on `critique` output.
+- [x] **Q1.5 — Few-shot exemplar** inline in `decompose` prompt. 5-stage GitHub-PR-digest
+      example shows exactly what a well-decomposed stage plan looks like; no separate
+      `exemplars.py` file needed (avoided indirection).
+- [x] **Q1.6 — Depth-floor validation** (`graph/workflow/validate.py`): `validate_package`
+      now emits a warning if the generated workflow has fewer than 3 LLM nodes. Actionable
+      message pointing to missing intermediate steps.
+- [x] **Q1.7 — Wire-up**: `assemble.py` now accepts `critique` kwarg (prefers it, falls
+      back to `plan` for backwards compat). `_ARCHITECT_NODE_LABELS` in `workflow.py`
+      updated for all 7 architect pipeline nodes. Test updated: `len == 7`, node-id set
+      updated. **449 tests pass.**
+
+### Q2 — The general front-facing Assistant (the new default face)  ✅
+
+> The Assistant is an **app/product** concern. It is the *top-level* REPL agent (not a
+> subagent/persona). Built on the mature engine, picking `AgenticLoop` for all configured
+> providers (both anthropic and openai tool-call styles support native tool use).
+
+- [x] **Q2.1 — Assistant persona prompt** (`app/cli/assistant.py:_SYSTEM_PROMPT`). Identity,
+      capability inventory (files, shell, code, web, present_plan, live MCP tools), headline
+      ability (design & register reusable workflows), and the 4-tier routing rubric (Tiers 1–4:
+      converse / do-it / plan-first / mention-the-workflow-option). Kept to ~1.6 k chars.
+- [x] **Q2.2 — Front-agent factory** (`app/cli/assistant.py:build_assistant()`). Resolves
+      provider → `AgenticLoop(provider, default_pool(), system_prompt, Guardrails(...), io,
+      cwd)`. `default_pool()` already folds live MCP tools + `present_plan` automatically.
+      `propose_workflow` (Q3) will appear in the pool once that tool is registered.
+- [x] **Q2.3 — REPL rewire** (`app/cli/app.py`): free-form text now calls `_assist(ctx, line)`,
+      not `_build`. `/workflow build` still reaches the Architect directly. Module docstring
+      updated (removed "There is no general-purpose chat agent"). Prompt hint updated to
+      "Ask me to do something".
+- [x] **Q2.4 — Streaming render** in `_assist`: `render.stream_events()` consumes the
+      `AgenticLoop` event generator; Ctrl-C / `CancelledError` handled cleanly.
+      `propose_workflow` pre-wired in `_INTERACTIVE_TOOLS` and `_TOOL_BASE` (render.py)
+      so it renders correctly once Q3 lands. **449 tests pass.**
+
+### Q3 — The bridge: heaviness gate + workflow handoff  ✅
+
+> This is where "general agent + workflow building work together." Two seams: a
+> pre-flight that sets **plan mode** for heavy work (Tier 3), and a control-signal tool
+> that hands off to the Architect (Tier 4).
+
+- [x] **Q3.1 — Heaviness pre-flight → initial mode** (`app/cli/assistant.py`). Before the
+      Assistant's first turn on a new input, a fast assessment returns
+      `(plan_required, reason)`: **heuristic-first** (touches-many-files / write / shell /
+      "refactor|migrate|across the repo" cues) with an **optional** one-shot `Agent`
+      structured classify for ambiguous cases. `plan_required=True` →
+      `initial_mode(True)` ([permissions.py:255](../../neurosurfer/agents/runtime/permissions.py#L255))
+      → the loop starts in **plan mode**, so writes/shell are hard-blocked until
+      `present_plan` is approved. Light tasks start in `default`. (Keep the assessment
+      cheap; it runs once per user input, not per turn.)
+- [x] **Q3.2 — `propose_workflow` control tool** (`app/tools/propose_workflow.py`, new;
+      registered via `register_tool_factory` like `present_plan`
+      [present_plan.py:41](../../neurosurfer/app/tools/present_plan.py#L41)). Args:
+      `intent` (refined, expanded), `reason` (why a durable workflow beats a one-off),
+      `recurring: bool`. `call()` asks the user to confirm via `ctx.io`; on **yes** it
+      returns `ToolResult.ok(..., handoff_workflow=True, intent=…)`; on **no** it returns
+      a "continue as a one-off" message so the loop proceeds. It is a **control tool**
+      (add to `CONTROL_TOOLS` [permissions.py:32](../../neurosurfer/agents/runtime/permissions.py#L32))
+      — never gated, produces no side effects itself.
+- [x] **Q3.3 — Loop + REPL handoff**. The agent loop already surfaces tool `control`
+      signals ([agentic_loop/loop.py:80-86](../../neurosurfer/agents/agentic_loop/loop.py#L80)):
+      treat `handoff_workflow` like `finished` — end the run and carry the intent on
+      `RunFinished` (or a new `events.WorkflowHandoff`). `_assist` detects it and calls
+      the existing `_build(ctx, intent)` ([commands/workflow.py:153](../../neurosurfer/app/cli/commands/workflow.py#L153)),
+      so Tier 4 lands in the (now-deep) Architect pipeline. `ReactAgent` needs the same
+      control-surface hook if it doesn't have it yet.
+- [x] **Q3.4 — Keep the explicit path**. `/workflow build`, `list`, `run`, `show`,
+      `refine`, `delete` stay exactly as-is — power users skip the Assistant. The handoff
+      is additive.
+
+### Q4 — Startup capability surface ("tell the user what it can do")  ✅
+
+- [x] **Q4.1 — Capabilities card** (`app/cli/banner.py:print_banner()`): two lines inserted
+      between the provider row and the tips. Line 1 (dim): general automation capabilities
+      (files · shell & code · web search). Line 2 (accent ✦): "Design & register **reusable
+      workflow pipelines** for recurring or multi-stage jobs." The ✦ + accent color makes the
+      workflow headline visually distinct without being loud.
+- [x] **Q4.2 — Prompt hint + tips** (`app/cli/app.py`, `banner.py`): done in Q2. Prompt
+      hint reads "Ask me to do something"; `_TIPS` now mixes general-agent examples
+      ("just type what you want — I can read/write files…", "summarise this folder…") with
+      workflow and provider tips. **449 tests pass.**
+
+### Q5 — Conversational guard (old Q2 remainder) — mostly resolved by the reframe
+
+> Adopting the native engine (R4) already removed the root causes:
+- [x→R4] native tool-use ⇒ no `<__final_answer__>` sentinel leak.
+- [x→R4] structured stop/`finish` ⇒ no `max_loop_iterations` stalls.
+- [x→R4] typed event stream ⇒ clean CLI output.
+> The old bug ("Hi there!" ran the whole pipeline) **disappears** once the front face is
+> a general agent — chit-chat is just a Tier-1 turn. Remaining:
+- [x] **Q5.1** — Guard confirmed present and correct at `architect/conversation.py:63`
+      post-Q0.5 move: `"If the user asks something unrelated to workflow building, politely
+      redirect."` The no-tool-call fallback in `run()` handles the redirect path: LLM writes
+      redirect text (surfaced via `say()`), `ask("…", [])` collects the user's real intent
+      as free text, conversation continues. No code change needed — Q2 already removed the
+      original bug (chit-chat at the REPL no longer reaches `ArchitectConversation` at all;
+      the guard now only applies to the explicit `/workflow build` path). **449 tests pass.**
+
+### Q6 — Tests + benchmark
+- [ ] **Q6.1** — Architect depth: a build for an intensive intent (e.g. "document a repo")
+      produces ≥ depth-floor nodes incl. a verify stage; `decompose`/`critique` schemas
+      round-trip; depth-floor validation flags a shallow plan.
+- [ ] **Q6.2** — Routing: Tier-1 chit-chat returns text with no tool calls; Tier-3 heavy
+      input starts in plan mode and a write is blocked pre-approval; `propose_workflow`
+      yes → handoff control fires, no → loop continues.
+- [ ] **Q6.3** — Assistant construction picks `AgenticLoop` vs `ReactAgent` by capability;
+      MCP + `present_plan` + `propose_workflow` all present in the pool.
+- [ ] **Q6.4** — End-to-end benchmark: run the deep doc workflow on a real repo; compare
+      node count / output quality against the pre-Q1 shallow baseline.
+
+> **Suggested order:** Q0.5 (separate `architect/` — structural, no behaviour change) →
+> Q1 (deep builder, isolated & testable) → Q2 (Assistant) → Q3 (bridge) → Q4 (startup) →
+> Q5/Q6. Each sub-phase is one PR-sized commit, `pytest -q` green after each, same as
+> Phases R–G.
 
 ---
 
@@ -735,6 +942,27 @@ Remaining Q2-specific work after R4:
     **`ReactAgent`** (new text-parsing ReAct for non-function-calling models),
     **`Agent`** (new simple one-shot: single call + optional tool round + structured).
     `Agent` is repurposed from the loop to the one-shot agent.
+
+**Phase Q round (general agent + deep workflow building) — 2026-06-30:**
+13. ✅ The CLI front face becomes a **general automation Assistant**, not the bare
+    Architect. Free-form text routes to the Assistant; the Architect is reached via a
+    Tier-4 handoff or the explicit `/workflow build`.
+14. ✅ **Escalation to workflow-building = agent judgment** via a `propose_workflow`
+    control tool (Assistant proposes → user confirms → handoff). Not a pre-classifier;
+    not explicit-only.
+15. ✅ **Heavy one-offs = hard plan-mode gate** — a cheap heaviness pre-flight sets the
+    initial mode; writes/shell are blocked until `present_plan` is approved. Reuses the
+    existing plan mode, no new gating mechanism.
+16. ✅ **Workflow depth = multi-stage decompose pipeline** — replace the single `plan`
+    node with `decompose → design_nodes → critique` (+ few-shot exemplars + a depth-floor
+    validation check). Deep by construction.
+17. ✅ **The workflow builder is a separate top-level component, `architect/`** — pulled
+    out of `graph/builder/` (Q0.5). Clean split: `graph/` = runtime (engine + workflow,
+    "run a DAG"); `architect/` = authoring ("build a DAG"). Layering stays one-way
+    `app → architect → graph.workflow → graph.engine`; `graph/` never imports `architect/`;
+    `architect/` stays drivable from pure Python (no `app`/`cli`). The Phase-Q app-layer
+    pieces (Assistant, `propose_workflow`) live in `app/`, not in `architect/`.
+    **Supersedes #11 for the builder only** — engine + workflow remain folded under `graph/`.
 
 ## Still open (later, non-blocking)
 - Rename `core/` → `agents/` now, or at R5 with the package rename? (cosmetic)

@@ -1,0 +1,361 @@
+name: architect
+description: >
+  8-node workflow-design graph: discover → clarify → decompose → design_nodes → critique → tool_design → write_nodes → assemble.
+
+inputs:
+  - name: user_intent
+    type: string
+    required: true
+    description: Plain-English description of what the user wants the new workflow to do.
+  - name: answers
+    type: object
+    required: false
+    description: >
+      Pre-supplied clarifying answers (question_id → chosen text).
+      When provided, the clarify node skips interactive input() prompts.
+      Used by conversational front-ends that collect answers before starting the graph.
+  - name: available_tools
+    type: string
+    required: false
+    description: >
+      Catalog of registered tools (name + description) that designed workflow nodes
+      may use. Injected by ArchitectBuilder; interpolated into the design_nodes /
+      write_nodes prompts so the Architect only wires real, registered tools.
+
+nodes:
+  # ── Node 1: Discover ─────────────────────────────────────────────────────
+  - id: discover
+    kind: react
+    purpose: >
+      You are a workflow-design research agent. The user's request is:
+      "{user_intent}"
+
+      Research this specific request using web search. Find concrete information
+      about relevant tools, APIs, patterns, and best practices for automating
+      exactly what the user described. Stay focused on their stated intent.
+    goal: >
+      For the user's request ("{user_intent}"), produce a DiscoveryOutput with:
+      (1) a one-sentence summary restating what the user wants to achieve,
+      (2) key web findings directly relevant to their request, and
+      (3) 3-4 clarifying questions (each with exactly 3 choices) covering scope,
+      output format, and key design trade-offs specific to their use-case.
+      IMPORTANT: if the request implies an EXTERNAL RESOURCE — a database (which
+      engine? SQLite file vs. a networked Postgres/MySQL?), an authenticated API,
+      a connection string, a file path, or credentials — make ONE of the questions
+      pin that down (e.g. "Which database should this run against?" with choices like
+      "A local SQLite .db file", "A networked SQL server (connection string)",
+      "Other / not sure"). This determines whether the workflow is even buildable.
+    expected_result: >
+      A JSON object with EXACTLY these fields:
+        "summary": one-sentence string confirming what the user wants to build,
+        "web_findings": array of strings, each describing one relevant tool or pattern,
+        "questions": array of 3-4 objects, each with "id" (snake_case), "question" (string),
+          and "choices" (array of exactly 3 strings).
+      Use field name "questions" — NOT "clarifying_questions".
+    tools:
+      - web_search
+    mode: structured
+    output_schema: neurosurfer.architect.schemas:DiscoveryOutput
+
+  # ── Node 2: Clarify ───────────────────────────────────────────────────────
+  - id: clarify
+    kind: function
+    callable: neurosurfer.architect.nodes.clarify:run
+    depends_on:
+      - discover
+    mode: text
+
+  # ── Node 3: Decompose ─────────────────────────────────────────────────────
+  - id: decompose
+    kind: base
+    purpose: >
+      You are a senior workflow architect performing the FIRST step of a two-step
+      design process: high-level stage decomposition.
+
+      The user wants to: "{user_intent}"
+
+      Your job at this step is to break the work into logical STAGES — conceptual
+      phases, NOT individual graph nodes. Think: "What are the distinct phases of
+      work this workflow must go through from start to finish?"
+
+      STAGE DESIGN RULES:
+      - A stage is a coherent chunk of work with a clear purpose (e.g. "Gather data",
+        "Process and analyse", "Generate report", "Publish output").
+      - Every non-trivial workflow has at least 3 stages. If you find yourself with
+        only 1–2 stages, you are under-decomposing — look for implicit phases like
+        input validation, data transformation, error handling, and output formatting.
+      - Each stage will later become 1–2 graph nodes. If a stage would need 3+ nodes
+        to implement, split it into sub-stages.
+      - Do NOT merge distinct concerns (e.g. fetching data and analysing it are
+        different stages even if one LLM call could do both — they should be separate
+        because failures and retries are scoped differently).
+      - Name stages concisely: "fetch_data", "analyse_content", "write_report".
+
+      EXAMPLE DECOMPOSITION (for a "summarise GitHub PRs daily" workflow):
+        Stage 1 — fetch_prs: Retrieve open PRs from the GitHub API.
+        Stage 2 — filter_prs: Filter to PRs updated in the last 24 h.
+        Stage 3 — summarise_each: Generate a one-paragraph summary per PR.
+        Stage 4 — compile_digest: Assemble all summaries into a digest document.
+        Stage 5 — send_output: Email or write the digest to the configured destination.
+    goal: >
+      Produce a StagePlan JSON for "{user_intent}".
+      Include 3–6 stages; justify the count in depth_rationale.
+      Each Stage must have id (snake_case), name, purpose, min_nodes (≥1),
+      and capabilities (list of what that stage needs: tools, APIs, LLM calls, etc.).
+    expected_result: >
+      A valid StagePlan JSON with fields:
+        "intent": one-sentence restatement of the user's goal,
+        "stages": array of 3–6 Stage objects (id, name, purpose, rationale,
+          min_nodes, capabilities),
+        "depth_rationale": one sentence why this many stages are needed.
+    depends_on:
+      - discover
+      - clarify
+    mode: structured
+    output_schema: neurosurfer.architect.schemas:StagePlan
+    policy:
+      max_new_tokens: 2048
+
+  # ── Node 4: Design Nodes ──────────────────────────────────────────────────
+  - id: design_nodes
+    kind: base
+    purpose: >
+      You are a senior workflow architect performing the SECOND step of a two-step
+      design process: translating stages into concrete graph nodes.
+
+      The user wants to: "{user_intent}"
+
+      You will receive a StagePlan from the previous step. For EACH stage, design
+      the specific graph node(s) that implement it. This is where you think about
+      kinds (base vs react), tool assignments, and data flow.
+
+      NODE KINDS — use ONLY these two:
+      - 'base'  = ONE LLM call. Use for any "write / generate / summarise / analyse /
+        rewrite / classify" step that transforms text. A base node IS the LLM — it
+        needs NO tool to produce text.
+      - 'react' = an LLM that can call tools in a loop. Use when the node must touch
+        the filesystem, search, fetch URLs, or run commands.
+      NEVER use 'function', 'python', or 'tool' kinds.
+
+      STAGE → NODE MAPPING RULES:
+      - Each stage becomes 1–2 nodes. Do NOT collapse multiple stages into one node.
+      - If a stage has capabilities that mix LLM-only work (summarise, analyse) with
+        I/O work (read files, fetch URLs), split it into a react node (I/O first) and
+        a base node (LLM work on the I/O result).
+      - Keep each node focused: one clear purpose, one clear output.
+
+      TOOLS — react nodes may ONLY use tools from the Available tools catalog below.
+      Match each node's need to the RIGHT tool. Do NOT reach for run_command by
+      default — it is a last resort for arbitrary shell work, not the way to do
+      structured tasks that have a specialised tool:
+        - read a file                    → read_file
+        - list / glob / walk a tree      → list_dir  (recursive globs like **/*.py)
+        - search file contents           → search
+        - query a local data file        → data  (CSV/TSV, JSON/JSONL, AND read-only
+                                            SQL SELECT on .db/.sqlite — use `data` for
+                                            SQLite queries, NEVER run_command)
+        - run an arbitrary shell command → run_command  (last resort, only when no
+                                            specialised tool fits the node's need)
+        - write / overwrite a file       → write_file
+        - edit part of a file            → apply_edit
+        - fetch a web page / call an API → http / browse / web_search
+      Do NOT invent tool names that are not in the catalog. If a node genuinely needs
+      a capability that NO catalog tool provides, leave its `tools` empty and state the
+      missing capability in the node's rationale — a later design step resolves it.
+      Available tools (the ONLY tools you may assign):
+      {available_tools}
+
+      OTHER PRINCIPLES:
+      - Wire depends_on edges to form a valid DAG (later nodes depend on earlier ones).
+      - Give every node a clear purpose, goal, and expected_result.
+      - Name the workflow concisely in snake_case.
+    goal: >
+      Produce a WorkflowPlan JSON for "{user_intent}": a name, description,
+      a NodePlan list (one or two nodes per stage from the StagePlan), and an
+      outputs list naming the final-output node IDs.
+    expected_result: >
+      A valid WorkflowPlan with name, description, nodes (each with id, kind,
+      purpose, goal, expected_result, depends_on, tools, mode), and outputs.
+      Must have at least as many nodes as there are stages in the StagePlan.
+    depends_on:
+      - decompose
+    mode: structured
+    output_schema: neurosurfer.architect.schemas:WorkflowPlan
+    policy:
+      max_new_tokens: 4096
+
+  # ── Node 5: Critique ──────────────────────────────────────────────────────
+  - id: critique
+    kind: base
+    purpose: >
+      You are a critical workflow reviewer. You will receive a draft WorkflowPlan
+      and must return an IMPROVED version.
+
+      The user's original intent: "{user_intent}"
+
+      Review the draft plan for these failure modes and fix them:
+
+      1. OVER-CONSOLIDATED NODES — any single node that does more than one distinct
+         thing (e.g. "fetch AND analyse AND summarise") should be split.
+      2. MISSING STEPS — are there implicit steps not in the plan?
+         Common omissions: input validation, data cleaning, format conversion,
+         error-state handling, output formatting, final delivery.
+      3. WRONG KIND — a base node that needs to read files / call APIs should be
+         'react'. A react node with no real tool need should be 'base'.
+      4. WRONG TOOLS — invented tool names, or a generic tool used where a specialised
+         one fits. In particular: any node that queries a local data file (CSV/TSV,
+         JSON/JSONL, or a SQLite .db/.sqlite) MUST use the `data` tool, NOT run_command.
+         run_command is a last resort for arbitrary shell work only. Assign only tools
+         that appear in the Available tools catalog below.
+      5. SHALLOW DAG — if the plan has only 1-2 nodes, it is definitely too shallow;
+         add the missing intermediate steps.
+
+      Available tools (the ONLY tools that may be assigned):
+      {available_tools}
+
+      If the draft is already correct and deep enough, return it unchanged.
+      If any of the above issues are present, return a corrected WorkflowPlan.
+    goal: >
+      Return an improved WorkflowPlan for "{user_intent}".
+      The output must be a valid WorkflowPlan JSON (same schema as the input).
+      Fix any identified issues; do not invent new requirements beyond the user's intent.
+    expected_result: >
+      A valid WorkflowPlan JSON — either the original (if correct) or an improved
+      version with the identified issues resolved. Same schema: name, description,
+      nodes, outputs.
+    depends_on:
+      - design_nodes
+    mode: structured
+    output_schema: neurosurfer.architect.schemas:WorkflowPlan
+    policy:
+      max_new_tokens: 4096
+
+  # ── Node 6: Tool Design ───────────────────────────────────────────────────
+  - id: tool_design
+    kind: base
+    purpose: >
+      You are a senior tools engineer reviewing a finished WorkflowPlan. Your job is
+      to decide, NODE BY NODE, exactly how each node's capability will actually be
+      provided at run time — and to be honest when something cannot be done.
+
+      The user wants to: "{user_intent}"
+
+      For EACH node that needs to DO something beyond pure LLM text generation
+      (reading/writing files, querying data, calling APIs, executing code, etc.),
+      reason carefully and pick ONE decision:
+
+      1. use_existing — a catalog tool genuinely covers this node's need. List the
+         exact tool name(s) in assigned_tools. Match the need to the RIGHT tool, e.g.
+         query a CSV/JSON/SQLite file → `data` (read-only SQL SELECT), NOT run_command.
+         A pure "write/summarise/analyse text" node needs NO tool — omit it entirely.
+
+      2. author_new — NO catalog tool can do this, but it CAN be built safely and
+         self-contained (Python stdlib, plus any value the user supplies at run time).
+         Provide a ToolSpec in new_tools with:
+           • name (distinctive snake_case, not an existing tool)
+           • purpose, inputs (the call() arguments), signature_hint
+           • workflow_inputs — values the USER must supply at run time (e.g.
+             'connection_string', 'db_path', 'api_key'); these become workflow inputs
+           • test_setup — self-contained Python that builds a fixture so the tool can
+             be functionally tested (e.g. create a temp SQLite db with sample rows and
+             set a dict named ARGS to the call arguments). STDLIB ONLY, no network.
+           • test_args — concrete sample arguments to call the tool with
+           • expected_behavior — what a successful test result looks like
+         The tool WILL be generated, sandbox-tested by actually running it, and shown
+         to the user for approval — so make test_setup/test_args realistic.
+
+      3. infeasible — the capability cannot be provided safely in this framework as
+         described. Use this when it needs secrets/credentials that cannot be supplied,
+         a third-party driver/package that is not installed, a persistent external
+         service, or anything that can't be tested in a sandbox. Set decision=infeasible
+         and write infeasible_reason explaining WHY and exactly what the user must
+         provide or change (e.g. "needs a running PostgreSQL server and the psycopg2
+         driver; supply a connection_string AND install psycopg2, or use SQLite").
+
+      DECISION RULES:
+      - Prefer use_existing. Only author_new when no catalog tool fits.
+      - Prefer author_new over infeasible WHEN the tool can be self-contained and the
+        only external dependency is a value the user supplies as a workflow input.
+      - Be honest: it is better to mark a node infeasible with a clear reason than to
+        ship a workflow that silently does the wrong thing (e.g. run_command guessing
+        at a database).
+
+      Available catalog tools:
+      {available_tools}
+    goal: >
+      Produce a CapabilityPlan for "{user_intent}". KEEP IT COMPACT — include a
+      NodeCapability entry ONLY for nodes that need action:
+        • author_new  — needs a tool that doesn't exist;
+        • infeasible  — can't be built safely as described;
+        • use_existing — ONLY when the draft plan assigned the WRONG tool and you are
+          correcting it (e.g. run_command → data for a SQLite query).
+      OMIT every node whose planned tools are already correct, and every pure text
+      node — they keep their tools as-is. A workflow where everything is already fine
+      yields an empty nodes list, which is valid. Set feasible=false and populate
+      blockers only if a node is infeasible.
+    expected_result: >
+      A compact CapabilityPlan JSON: nodes (only the ones needing action: node_id,
+      required_capability, decision, assigned_tools, new_tools[], infeasible_reason),
+      feasible, blockers, notes. Emit ONE JSON object, no prose around it.
+    depends_on:
+      - critique
+    mode: structured
+    output_schema: neurosurfer.architect.schemas:CapabilityPlan
+    policy:
+      max_new_tokens: 4096
+
+  # ── Node 7: Write Nodes ───────────────────────────────────────────────────
+  - id: write_nodes
+    kind: react
+    purpose: >
+      You are a workflow node author. For each node in the WorkflowPlan, write
+      a detailed agent YAML configuration and save it using the write_workflow_node
+      tool. Call write_workflow_node once per node.
+
+      KINDS — every node must be 'base' or 'react' (never 'function'/'python'/'tool').
+        - 'base'  = a single LLM call (writing/generating/summarising text). No tools.
+        - 'react' = an LLM with tools (filesystem, search, shell, web).
+
+      TOOLS — assign each node the tools chosen by the CapabilityPlan (tool_design):
+        • use_existing nodes  → their assigned_tools (catalog names below)
+        • author_new nodes    → the new tool's name (it will be authored & registered)
+        • text-only nodes     → no tools
+      Carry forward exactly those tools (e.g. a SQLite/CSV/JSON query node uses `data`,
+      a node with an authored tool uses that tool's name). Do NOT invent other names.
+      Available catalog tools:
+      {available_tools}
+
+      Each YAML must include:
+        id: <node_id>
+        kind: <base|react>
+        purpose: <detailed system prompt — 2–4 sentences>
+        goal: <specific objective>
+        expected_result: <what success looks like>
+        depends_on: [<ids>]
+        tools: [<tool_names>]    # react nodes only; ONLY names from Available tools
+        mode: <text|json|structured>
+        output_schema: <module:Class>   # if mode=structured
+    goal: >
+      Call write_workflow_node exactly once per node in the plan.
+      The workflow_name argument must match the WorkflowPlan.name field.
+    expected_result: >
+      One write_workflow_node call per node; all calls succeed with "Wrote node" confirmation.
+    tools:
+      - write_workflow_node
+    depends_on:
+      - critique
+      - tool_design
+    mode: text
+
+  # ── Node 8: Assemble ─────────────────────────────────────────────────────
+  - id: assemble
+    kind: function
+    callable: neurosurfer.architect.nodes.assemble:run
+    depends_on:
+      - critique
+      - tool_design
+      - write_nodes
+    mode: text
+
+outputs:
+  - assemble

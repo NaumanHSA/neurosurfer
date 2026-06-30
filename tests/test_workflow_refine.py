@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from neurosurfer.graph.builder.refine import WorkflowRefiner
+from neurosurfer.architect.refine import WorkflowRefiner
 from neurosurfer.graph.workflow.package import load_package
 
 # ── doubles ──────────────────────────────────────────────────────────────────────

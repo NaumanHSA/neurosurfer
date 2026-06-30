@@ -122,3 +122,6 @@ site/
 extras/
 commands.txt
 test.py
+
+# neurosurfer runtime data (traces, generated projects, transcripts, state)
+.neurosurfer/

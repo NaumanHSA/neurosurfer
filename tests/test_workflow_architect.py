@@ -19,8 +19,8 @@ import yaml
 
 from neurosurfer.tools.base import ToolContext
 from neurosurfer.graph.workflow.node_tool import WriteWorkflowNodeTool
-from neurosurfer.graph.builder.nodes import assemble, clarify
-from neurosurfer.graph.builder.schemas import (
+from neurosurfer.architect.nodes import assemble, clarify
+from neurosurfer.architect.schemas import (
     ClarifyingQuestion,
     DiscoveryOutput,
     NodePlan,
@@ -312,11 +312,11 @@ class TestAssembleNode:
 
         # Patch the classes at the point of import in assemble.py (module-level imports).
         monkeypatch.setattr(
-            "neurosurfer.graph.builder.nodes.assemble.ProjectsConfig",
+            "neurosurfer.architect.nodes.assemble.ProjectsConfig",
             lambda: _PC(dir=projects_dir),
         )
         monkeypatch.setattr(
-            "neurosurfer.graph.builder.nodes.assemble.WorkflowRegistry",
+            "neurosurfer.architect.nodes.assemble.WorkflowRegistry",
             lambda: _WR(registry_dir),
         )
 
@@ -372,28 +372,31 @@ class TestAssembleNode:
 
 class TestArchitectPackage:
     def test_package_loads(self) -> None:
-        from neurosurfer.graph.builder import _PACKAGE_DIR
+        from neurosurfer.architect import _PACKAGE_DIR
 
         pkg = load_package(_PACKAGE_DIR)
         assert pkg.name == "architect"
-        assert len(pkg.graph.nodes) == 5
+        assert len(pkg.graph.nodes) == 8
 
     def test_node_ids(self) -> None:
-        from neurosurfer.graph.builder import _PACKAGE_DIR
+        from neurosurfer.architect import _PACKAGE_DIR
 
         pkg = load_package(_PACKAGE_DIR)
         ids = {n.id for n in pkg.graph.nodes}
-        assert ids == {"discover", "clarify", "plan", "write_nodes", "assemble"}
+        assert ids == {
+            "discover", "clarify", "decompose",
+            "design_nodes", "critique", "tool_design", "write_nodes", "assemble",
+        }
 
     def test_discover_has_web_search(self) -> None:
-        from neurosurfer.graph.builder import _PACKAGE_DIR
+        from neurosurfer.architect import _PACKAGE_DIR
 
         pkg = load_package(_PACKAGE_DIR)
         discover = pkg.graph.node_map()["discover"]
         assert "web_search" in discover.tools
 
     def test_function_nodes_have_callables(self) -> None:
-        from neurosurfer.graph.builder import _PACKAGE_DIR
+        from neurosurfer.architect import _PACKAGE_DIR
 
         pkg = load_package(_PACKAGE_DIR)
         node_map = pkg.graph.node_map()
@@ -409,7 +412,7 @@ class TestArchitectBuilder:
     def test_builder_loads_package(self) -> None:
         from neurosurfer.llm.base import Provider
         from neurosurfer.llm.capabilities import ProviderCapabilities
-        from neurosurfer.graph.builder.build import ArchitectBuilder
+        from neurosurfer.architect.build import ArchitectBuilder
 
         class _DummyProvider(Provider):
             model = "dummy"
@@ -439,3 +442,391 @@ class TestArchitectBuilder:
         pkg = builder.package
         assert pkg.name == "architect"
         assert pkg.graph is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. Capability planning (T2) — schemas + feasibility
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestCapabilityPlan:
+    def test_infeasible_node_flips_feasible(self) -> None:
+        from neurosurfer.architect.schemas import CapabilityPlan, NodeCapability
+
+        cp = CapabilityPlan(nodes=[
+            NodeCapability(
+                node_id="exec", required_capability="query a remote PG db",
+                decision="infeasible", infeasible_reason="needs psycopg2 + a server",
+            ),
+        ])
+        assert cp.feasible is False
+        assert any("psycopg2" in b for b in cp.blockers)
+
+    def test_all_feasible_stays_feasible(self) -> None:
+        from neurosurfer.architect.schemas import (
+            CapabilityPlan, NodeCapability, ToolSpec,
+        )
+
+        cp = CapabilityPlan(nodes=[
+            NodeCapability(
+                node_id="exec", required_capability="query sqlite",
+                decision="author_new",
+                new_tools=[ToolSpec(name="sql_query", purpose="run SELECT")],
+            ),
+        ])
+        assert cp.feasible is True
+        assert [s.name for s in cp.new_tool_specs()] == ["sql_query"]
+
+    def test_inputs_coerced_from_dicts(self) -> None:
+        from neurosurfer.architect.schemas import ToolSpec
+
+        spec = ToolSpec(
+            name="sql_query", purpose="run sql",
+            inputs=[{"name": "db_path", "description": "path to db"}],
+            test_args='{"db_path": "x.db"}',  # JSON-string form tolerated
+        )
+        assert spec.inputs == ["db_path: path to db"]
+        assert spec.test_args == {"db_path": "x.db"}
+
+    def test_name_sanitised(self) -> None:
+        from neurosurfer.architect.schemas import ToolSpec
+
+        assert ToolSpec(name="SQL Query!", purpose="x").name == "sql_query"
+
+    def test_capability_nodes_from_json_string(self) -> None:
+        import json
+        from neurosurfer.architect.schemas import CapabilityPlan
+
+        cp = CapabilityPlan.model_validate({"nodes": json.dumps([
+            {"node_id": "q", "required_capability": "query db",
+             "decision": "use_existing", "assigned_tools": "data"},
+        ])})
+        assert cp.nodes[0].assigned_tools == ["data"]
+
+
+class TestSchemaTolerance:
+    """Weaker models stringify nested JSON / drop list fields — schemas must cope."""
+
+    def test_workflow_plan_nodes_as_json_string(self) -> None:
+        import json
+        from neurosurfer.architect.schemas import WorkflowPlan
+
+        nodes = json.dumps([
+            {"id": "a", "kind": "base", "purpose": "p", "mode": "text"},
+            {"id": "b", "kind": "react", "purpose": "q",
+             "depends_on": ["a"], "tools": "data", "mode": "json"},
+        ])
+        # nodes is a STRING and outputs is MISSING — the exact crash from the field.
+        wp = WorkflowPlan.model_validate(
+            {"name": "x", "description": "y", "nodes": nodes}
+        )
+        assert len(wp.nodes) == 2
+        assert wp.nodes[1].depends_on == ["a"]
+        assert wp.nodes[1].tools == ["data"]   # bare string coerced to list
+        assert wp.outputs == ["b"]             # derived terminal node
+
+    def test_outputs_bare_string_wrapped(self) -> None:
+        import json
+        from neurosurfer.architect.schemas import WorkflowPlan
+
+        nodes = json.dumps([{"id": "only", "kind": "base", "purpose": "p"}])
+        wp = WorkflowPlan.model_validate(
+            {"name": "x", "description": "y", "nodes": nodes, "outputs": "only"}
+        )
+        assert wp.outputs == ["only"]
+
+    def test_stage_plan_stages_as_json_string(self) -> None:
+        import json
+        from neurosurfer.architect.schemas import StagePlan
+
+        sp = StagePlan.model_validate({"intent": "x", "stages": json.dumps([
+            {"id": "a", "name": "A", "purpose": "p"},
+            {"id": "b", "name": "B", "purpose": "q"},
+        ])})
+        assert [s.id for s in sp.stages] == ["a", "b"]
+
+    def test_truncated_object_array_is_salvaged(self) -> None:
+        # Model hit a token limit mid-array — recover the complete objects, drop the
+        # half-written tail. (Regression: previously this comma-shredded into garbage.)
+        from neurosurfer.architect.schemas import CapabilityPlan
+
+        truncated = (
+            '[{"node_id": "a", "required_capability": "x", "decision": "use_existing", '
+            '"assigned_tools": ["data"]}, '
+            '{"node_id": "b", "required_capability": "y", "decision": "use_existing"}, '
+            '{"node_id": "c", "required_capa'
+        )
+        cp = CapabilityPlan.model_validate({"nodes": truncated})
+        assert [n.node_id for n in cp.nodes] == ["a", "b"]
+
+    def test_garbage_object_list_degrades_to_empty(self) -> None:
+        # CapabilityPlan is optional enrichment — unrecoverable output → empty, so the
+        # build proceeds on the critique's own tool assignments instead of crashing.
+        from neurosurfer.architect.schemas import CapabilityPlan
+
+        cp = CapabilityPlan.model_validate({"nodes": "{totally broken"})
+        assert cp.nodes == []
+        assert cp.feasible is True
+
+    def test_single_object_without_array_wrapper(self) -> None:
+        from neurosurfer.architect.schemas import CapabilityPlan
+
+        cp = CapabilityPlan.model_validate(
+            {"nodes": {"node_id": "a", "required_capability": "x", "decision": "use_existing"}}
+        )
+        assert [n.node_id for n in cp.nodes] == ["a"]
+
+    def test_required_object_list_still_errors_when_unrecoverable(self) -> None:
+        # WorkflowPlan needs ≥1 node — garbage must NOT silently become a valid empty plan.
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from neurosurfer.architect.schemas import WorkflowPlan
+
+        with _pytest.raises(ValidationError):
+            WorkflowPlan.model_validate(
+                {"name": "x", "description": "y", "nodes": "{broken"}
+            )
+
+
+class TestCapabilityOverrides:
+    def test_overrides_inputs_and_goal_suffix(self) -> None:
+        from neurosurfer.architect.schemas import (
+            CapabilityPlan, NodeCapability, ToolSpec,
+        )
+        from neurosurfer.architect.nodes.assemble import _capability_overrides
+
+        cp = CapabilityPlan(nodes=[
+            NodeCapability(
+                node_id="exec", required_capability="query db", decision="author_new",
+                new_tools=[ToolSpec(
+                    name="sql_query", purpose="run sql",
+                    workflow_inputs=["connection_string: the DSN"],
+                )],
+            ),
+            NodeCapability(
+                node_id="read", required_capability="read a sqlite file",
+                decision="use_existing", assigned_tools=["data"],
+            ),
+        ])
+        overrides, inputs, suffixes = _capability_overrides(cp)
+        assert overrides["exec"] == ["sql_query"]
+        assert overrides["read"] == ["data"]
+        assert inputs == ["connection_string"]
+        assert "{connection_string}" in suffixes["exec"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. Feasibility gate (T5) — assemble returns the infeasible marker
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestFeasibilityGate:
+    def test_assemble_returns_infeasible_marker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from neurosurfer.architect.schemas import CapabilityPlan, NodeCapability
+        from neurosurfer.graph.workflow.validate import INFEASIBLE_MARKER
+
+        cp = CapabilityPlan(nodes=[
+            NodeCapability(
+                node_id="exec", required_capability="query remote db",
+                decision="infeasible",
+                infeasible_reason="needs a running PostgreSQL server and psycopg2",
+            ),
+        ])
+        out = assemble.run(critique=_plan(), tool_design=cp, write_nodes="ignored")
+        assert out.startswith(INFEASIBLE_MARKER)
+        assert "psycopg2" in out
+
+    def test_builder_raises_workflow_infeasible(self) -> None:
+        from neurosurfer.architect import WorkflowInfeasible
+        from neurosurfer.architect.build import ArchitectBuilder
+        from neurosurfer.graph.workflow.validate import INFEASIBLE_MARKER
+        from neurosurfer.architect.schemas import CapabilityPlan, NodeCapability
+
+        # Minimal fake run result: assemble produced the infeasible marker, and the
+        # tool_design node carries the CapabilityPlan.
+        class _Node:
+            def __init__(self, raw):
+                self.raw_output = raw
+                self.error = None
+
+        class _Result:
+            def __init__(self):
+                cp = CapabilityPlan(nodes=[NodeCapability(
+                    node_id="x", required_capability="y", decision="infeasible",
+                    infeasible_reason="no driver",
+                )])
+                self.nodes = {
+                    "assemble": _Node(f"{INFEASIBLE_MARKER}x: no driver"),
+                    "tool_design": _Node(cp),
+                }
+                self.final = {"assemble": f"{INFEASIBLE_MARKER}x: no driver"}
+
+        builder = ArchitectBuilder.__new__(ArchitectBuilder)
+        # Exercise just the marker-handling branch synchronously.
+        result = _Result()
+        out = result.final["assemble"]
+        cap = builder._capability_plan(result)
+        assert cap is not None and cap.feasible is False
+        with pytest.raises(WorkflowInfeasible) as ei:
+            if out.startswith(INFEASIBLE_MARKER):
+                raise WorkflowInfeasible(out[len(INFEASIBLE_MARKER):].strip())
+        assert "no driver" in ei.value.report
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Functional tool testing (T3) — the sandbox actually runs the tool
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_GOOD_TOOL = '''
+from pydantic import BaseModel, Field
+from neurosurfer.tools.base import Tool, ToolContext, ToolResult
+import sqlite3
+
+class SqlQueryArgs(BaseModel):
+    db_path: str = Field(description="path")
+    query: str = Field(description="sql")
+
+class SqlQueryTool(Tool):
+    name = "sql_query"
+    description = "Run a read-only SQL query on a SQLite db."
+    input_model = SqlQueryArgs
+    def is_read_only(self, args) -> bool:
+        return True
+    async def call(self, args: SqlQueryArgs, ctx: ToolContext) -> ToolResult:
+        try:
+            conn = sqlite3.connect(args.db_path)
+            rows = conn.execute(args.query).fetchall()
+            conn.close()
+            return ToolResult.ok(str(rows))
+        except Exception as e:
+            return ToolResult.error(str(e))
+'''
+
+_SETUP = '''
+import sqlite3, os
+db = os.path.join(os.getcwd(), "t.db")
+c = sqlite3.connect(db)
+c.execute("CREATE TABLE Users(id INTEGER, name TEXT)")
+c.execute("INSERT INTO Users VALUES (1, 'alice')")
+c.commit(); c.close()
+ARGS = {"db_path": db, "query": "SELECT * FROM Users"}
+'''
+
+
+class TestFunctionalSandbox:
+    def _author(self):
+        from neurosurfer.architect.tool_author import ToolAuthor
+        return ToolAuthor.__new__(ToolAuthor)  # validate_draft needs no provider
+
+    def _spec(self):
+        from neurosurfer.architect.tool_author import ToolGapSpec
+        return ToolGapSpec(
+            name="sql_query", purpose="run sql",
+            test_setup=_SETUP,
+            test_args={"db_path": "t.db", "query": "SELECT * FROM Users"},
+        )
+
+    def test_working_tool_passes_with_summary(self) -> None:
+        from neurosurfer.architect.tool_author import ToolDraft
+
+        author = self._author()
+        res = author.validate_draft(ToolDraft(name="sql_query", code=_GOOD_TOOL, spec=self._spec()))
+        assert res.ok is True
+        assert res.checks.get("functional_runs") is True
+        assert "alice" in res.functional_summary
+
+    def test_tool_returning_error_is_rejected(self) -> None:
+        from neurosurfer.architect.tool_author import ToolDraft
+
+        bad = _GOOD_TOOL.replace(
+            "rows = conn.execute(args.query).fetchall()",
+            'raise RuntimeError("boom")',
+        )
+        author = self._author()
+        res = author.validate_draft(ToolDraft(name="sql_query", code=bad, spec=self._spec()))
+        assert res.ok is False
+        assert "boom" in res.error
+
+    def test_contract_only_when_no_test_plan(self) -> None:
+        # No test_args/test_setup → functional stage is skipped (contract-only).
+        from neurosurfer.architect.tool_author import ToolDraft, ToolGapSpec
+
+        author = self._author()
+        spec = ToolGapSpec(name="sql_query", purpose="run sql")
+        res = author.validate_draft(ToolDraft(name="sql_query", code=_GOOD_TOOL, spec=spec))
+        assert res.ok is True
+        assert "functional_runs" not in res.checks
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 10. Rich spec threading (T4) + declared inputs emission (T6)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestRichSpecThreading:
+    def test_builder_builds_rich_gap_specs(self) -> None:
+        from neurosurfer.architect.build import ArchitectBuilder
+        from neurosurfer.architect.schemas import (
+            CapabilityPlan, NodeCapability, ToolSpec,
+        )
+
+        cp = CapabilityPlan(nodes=[
+            NodeCapability(
+                node_id="exec", required_capability="query db", decision="author_new",
+                new_tools=[ToolSpec(
+                    name="sql_query", purpose="run a SELECT",
+                    inputs=["db_path: path"], test_args={"db_path": "t.db"},
+                    expected_behavior="returns rows",
+                )],
+            ),
+        ])
+        builder = ArchitectBuilder.__new__(ArchitectBuilder)
+        specs = builder._rich_specs(cp)
+        assert "sql_query" in specs
+        s = specs["sql_query"]
+        assert s.inputs == ["db_path: path"]
+        assert s.test_args == {"db_path": "t.db"}
+        assert s.expected_behavior == "returns rows"
+
+
+class TestDeclaredInputsEmitted:
+    def test_connection_string_becomes_graph_input(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from neurosurfer.config.projects import ProjectsConfig as _PC
+        from neurosurfer.graph.workflow.registry import WorkflowRegistry as _WR
+        from neurosurfer.architect.schemas import (
+            CapabilityPlan, NodeCapability, ToolSpec,
+        )
+
+        projects_dir = tmp_path / "projects"
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(
+            "neurosurfer.architect.nodes.assemble.ProjectsConfig",
+            lambda: _PC(dir=projects_dir),
+        )
+        monkeypatch.setattr(
+            "neurosurfer.architect.nodes.assemble.WorkflowRegistry",
+            lambda: _WR(registry_dir),
+        )
+
+        # Plan whose "search" node will use an authored tool needing a workflow input.
+        plan = _plan()
+        cp = CapabilityPlan(nodes=[
+            NodeCapability(
+                node_id="search", required_capability="call an API", decision="author_new",
+                new_tools=[ToolSpec(
+                    name="api_call", purpose="call an API",
+                    workflow_inputs=["api_key: the key"],
+                )],
+            ),
+        ])
+
+        assemble.run(critique=plan, tool_design=cp, write_nodes="ignored")
+        graph_yaml = yaml.safe_load(
+            (projects_dir / "web_summariser" / "graph.yaml").read_text()
+        )
+        input_names = {i["name"] for i in graph_yaml["inputs"]}
+        assert "api_key" in input_names
+        # The authored tool name is carried onto the node, authoritatively.
+        search = next(n for n in graph_yaml["nodes"] if n["id"] == "search")
+        assert search["tools"] == ["api_call"]

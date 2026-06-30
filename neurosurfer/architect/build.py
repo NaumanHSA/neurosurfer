@@ -2,7 +2,7 @@
 
 Usage::
 
-    from neurosurfer.graph.builder.build import ArchitectBuilder
+    from neurosurfer.architect.build import ArchitectBuilder
 
     builder = ArchitectBuilder(provider)
     result = await builder.run("Build a workflow that summarises GitHub PRs daily")
@@ -19,6 +19,19 @@ from neurosurfer.graph.workflow.runner import WorkflowRunner
 from neurosurfer.llm.base import Provider
 
 _PACKAGE_DIR = Path(__file__).parent / "package"
+
+
+class WorkflowInfeasible(RuntimeError):
+    """Raised when the tool_design step judged the requested workflow not buildable.
+
+    Carries a human-readable ``report`` (the blockers + what the user must provide)
+    so the front-end can render a clean "this isn't doable as described" message
+    rather than a traceback.
+    """
+
+    def __init__(self, report: str) -> None:
+        super().__init__(report)
+        self.report = report
 
 
 class ArchitectBuilder:
@@ -118,19 +131,46 @@ class ArchitectBuilder:
         out = result.final.get("assemble", "")
         out = str(out) if out else ""
 
+        # The CapabilityPlan (tool_design output) drives both the infeasibility verdict
+        # and the rich tool specs used to author any missing tools.
+        cap_plan = self._capability_plan(result)
+
+        from neurosurfer.graph.workflow.validate import DEFER_MARKER, INFEASIBLE_MARKER
+
+        # Infeasible: tool_design judged the workflow not buildable as described.
+        if out.startswith(INFEASIBLE_MARKER):
+            raise WorkflowInfeasible(out[len(INFEASIBLE_MARKER):].strip())
+
         # Staged-but-not-registered: assemble withheld registration because the package
         # didn't pass validation. Re-validate here and either render a clean error
         # (hard errors) or author the missing tool(s) with approval, then register.
-        from neurosurfer.graph.workflow.validate import DEFER_MARKER
-
         if out.startswith(DEFER_MARKER):
             project_dir = out[len(DEFER_MARKER):]
-            return await self._finalize_staged(project_dir, approve_tool, notify)
+            return await self._finalize_staged(project_dir, approve_tool, notify, cap_plan)
 
         return out or "(assemble node produced no output)"
 
+    @staticmethod
+    def _capability_plan(result: Any) -> Any:
+        """Extract the CapabilityPlan produced by the tool_design node, if any."""
+        node = result.nodes.get("tool_design") if hasattr(result, "nodes") else None
+        if node is None:
+            return None
+        raw = getattr(node, "raw_output", None)
+        if raw is None:
+            return None
+        from .schemas import CapabilityPlan
+        if isinstance(raw, CapabilityPlan):
+            return raw
+        if isinstance(raw, dict):
+            try:
+                return CapabilityPlan.model_validate(raw)
+            except Exception:  # noqa: BLE001
+                return None
+        return None
+
     async def _finalize_staged(
-        self, project_dir: str, approve_tool: Any, notify: Any = None
+        self, project_dir: str, approve_tool: Any, notify: Any = None, cap_plan: Any = None
     ) -> str:
         """Finalize a staged package: render hard errors, or author gaps, then register."""
         from neurosurfer.graph.workflow.registry import WorkflowRegistry
@@ -163,6 +203,10 @@ class ArchitectBuilder:
             f"{', '.join(gap_names)}. Authoring them…"
         )
 
+        # Index the architect's rich tool specs by name (from the CapabilityPlan) so
+        # authored tools get accurate inputs + a real functional test plan.
+        rich_specs = self._rich_specs(cap_plan)
+
         author = ToolAuthor(self._provider)
         # De-dup gaps by tool name (a tool may be referenced by several nodes).
         seen: set[str] = set()
@@ -171,7 +215,7 @@ class ArchitectBuilder:
             if not name or name in seen:
                 continue
             seen.add(name)
-            spec = self._gap_to_spec(gap, pkg)
+            spec = rich_specs.get(name) or self._gap_to_spec(gap, pkg)
             meta = await author.author(spec, approve=approve_tool, notify=say)
             if meta is None:
                 if getattr(author, "rejected", False):
@@ -196,6 +240,36 @@ class ArchitectBuilder:
             )
         dest = WorkflowRegistry().save(pkg)
         return str(dest)
+
+    def _rich_specs(self, cap_plan: Any) -> dict[str, Any]:
+        """Map tool-name → :class:`ToolGapSpec` built from the CapabilityPlan's ToolSpecs.
+
+        These carry the architect's intended inputs and a functional test plan, so the
+        tool-author engine can both generate AND functionally test an accurate tool.
+        """
+        from .tool_author import ToolGapSpec
+
+        out: dict[str, Any] = {}
+        if cap_plan is None:
+            return out
+        try:
+            specs = cap_plan.new_tool_specs()
+        except Exception:  # noqa: BLE001
+            return out
+        for s in specs:
+            if not s.name:
+                continue
+            out[s.name] = ToolGapSpec(
+                name=s.name,
+                purpose=s.purpose or f"Provide the '{s.name}' capability.",
+                inputs=list(s.inputs),
+                context=s.signature_hint,
+                test_setup=s.test_setup,
+                test_args=dict(s.test_args or {}),
+                expected_behavior=s.expected_behavior,
+                source_workflow=getattr(cap_plan, "source_workflow", None),
+            )
+        return out
 
     def _gap_to_spec(self, gap: Any, pkg: WorkflowPackage) -> Any:
         from .tool_author import ToolGapSpec

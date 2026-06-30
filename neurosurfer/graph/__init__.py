@@ -1,20 +1,23 @@
-"""Graph orchestration domain — the framework's agentic-workflow subsystem.
+"""Graph orchestration domain — the framework's graph **runtime**.
 
-Three layers, each a submodule:
+Two layers, each a submodule:
 
 - :mod:`~neurosurfer.graph.engine`   — the DAG engine (``Graph``, ``GraphExecutor``,
   ``GraphNode``, loader, errors, node runner). A standalone core primitive, the
   LangGraph analog; re-exported here so ``from neurosurfer.graph import Graph`` works.
 - :mod:`~neurosurfer.graph.workflow` — the persisted **Workflow package** layer
   (load / validate / register / run a graph saved as a multi-file package).
-- :mod:`~neurosurfer.graph.builder`  — the conversational **Architect** that
-  generates workflow packages from plain-English intent.
 
 The engine primitives are re-exported at this package top for convenience. The
-``workflow`` and ``builder`` subpackages are **not** imported eagerly — importing the
-engine must never pull in the LLM / conversation stack. Import them explicitly
+``workflow`` subpackage is **not** imported eagerly — importing the engine must never
+pull in the LLM stack. Import it explicitly
 (``from neurosurfer.graph.workflow import WorkflowRunner``) or via attribute access
-(``neurosurfer.graph.builder``), which is resolved lazily below.
+(``neurosurfer.graph.workflow``), which is resolved lazily below.
+
+The conversational **Architect** (the *authoring* layer that designs workflow packages
+from plain-English intent) is a separate top-level component:
+:mod:`neurosurfer.architect`. ``graph`` is the runtime; ``architect`` builds graphs —
+the runtime never imports the authoring layer.
 """
 import importlib
 from typing import Any
@@ -59,9 +62,9 @@ from .engine import (  # noqa: F401
 
 
 def __getattr__(name: str) -> Any:
-    # Lazy access to the feature subpackages so importing the engine stays cheap
-    # and free of the LLM/conversation stack.
-    if name in {"workflow", "builder", "engine"}:
+    # Lazy access to the workflow subpackage so importing the engine stays cheap
+    # and free of the LLM stack.
+    if name in {"workflow", "engine"}:
         return importlib.import_module(f"{__name__}.{name}")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -103,8 +106,7 @@ __all__ = [
     "load_graph",
     "load_graph_from_dict",
     "topo_sort",
-    # ── feature subpackages (lazy) ──
+    # ── subpackages (lazy) ──
     "engine",
     "workflow",
-    "builder",
 ]

@@ -1,14 +1,15 @@
-"""The Workflow Architect REPL.
+"""The neurosurfer REPL.
 
 Startup flow:
   banner → provider check → prompt loop
 
 Input handling:
   /command args  → slash-command dispatcher
-  <free text>    → treated as workflow build intent → /workflow build <text>
+  <free text>    → routed to the general-purpose Assistant agent
 
-There is no general-purpose chat agent. neurosurfer's only job is to turn
-plain-English intent into registered, runnable WorkflowPackages.
+The Assistant handles everything from quick one-liners to file/shell/web
+automation.  Heavyweight recurring tasks can be escalated to the Architect
+(/workflow build) which designs and registers a reusable workflow pipeline.
 """
 
 from __future__ import annotations
@@ -96,7 +97,7 @@ async def run_repl(cfg: Config) -> int:
         try:
             ctx.console.print()
             ctx.console.print(
-                f"[italic {theme.DIM}]  Describe a workflow to build, "
+                f"[italic {theme.DIM}]  Ask me to do something, "
                 f"or type a slash command like /help or /workflow list."
                 f"[/italic {theme.DIM}]"
             )
@@ -116,10 +117,10 @@ async def run_repl(cfg: Config) -> int:
             await _dispatch_command(ctx, registry, line)
             continue
 
-        # Free-form text — route through conversational architect agent.
+        # Free-form text — route to the general-purpose Assistant.
         try:
-            from .commands.workflow import _build
-            await _build(ctx, line)
+            from .assistant import _assist
+            await _assist(ctx, line)
         except (KeyboardInterrupt, asyncio.CancelledError):
             ctx.console.print(f"\n[{theme.WARN}]Interrupted.[/{theme.WARN}]")
         except Exception as exc:  # noqa: BLE001

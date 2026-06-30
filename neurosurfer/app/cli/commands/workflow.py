@@ -144,7 +144,11 @@ async def _run(ctx: CLIContext, name: str) -> None:
 _ARCHITECT_NODE_LABELS = {
     "discover": "Researching your request online",
     "clarify": "Reviewing your answers",
-    "plan": "Designing the workflow",
+    "decompose": "Breaking the work into stages",
+    "design_nodes": "Designing workflow nodes",
+    "critique": "Reviewing and refining the design",
+    "tool_design": "Working out the tools each node needs",
+    "plan": "Designing the workflow",  # kept for packages built before Q1
     "write_nodes": "Authoring workflow nodes",
     "assemble": "Assembling & registering",
 }
@@ -154,7 +158,11 @@ async def _build(ctx: CLIContext, intent: str) -> None:
     import asyncio
 
     from neurosurfer.llm.registry import resolve_provider
-    from neurosurfer.graph.builder import ArchitectBuilder, ArchitectConversation
+    from neurosurfer.architect import (
+        ArchitectBuilder,
+        ArchitectConversation,
+        WorkflowInfeasible,
+    )
     from ..io import RichIOHandler
 
     try:
@@ -221,6 +229,25 @@ async def _build(ctx: CLIContext, intent: str) -> None:
             approve_tool=approve_tool,
             notify=notify,
         )
+    except WorkflowInfeasible as e:
+        # The tool_design step judged this not buildable as described — say so clearly,
+        # rather than registering a workflow that would silently do the wrong thing.
+        from rich.box import ROUNDED
+        from rich.panel import Panel
+
+        ctx.console.print(
+            Panel(
+                f"{e.report}",
+                title=f"[bold {theme.WARN}]This isn't doable as described[/]",
+                border_style=theme.WARN,
+                box=ROUNDED,
+            )
+        )
+        ctx.console.print(
+            f"[{theme.DIM}]Adjust the request (e.g. supply the missing resource, or "
+            f"scope it to something self-contained) and try again.[/{theme.DIM}]"
+        )
+        return
     except Exception as e:  # noqa: BLE001
         ctx.console.print(f"[{theme.ERR}]Build failed: {e}[/{theme.ERR}]")
         return
@@ -297,7 +324,7 @@ def _print_built_summary(ctx: CLIContext, registered_path: str) -> None:
 async def _refine(ctx: CLIContext, name: str) -> None:
     """Run a workflow and self-heal failing nodes from their run-time errors (E7)."""
     from neurosurfer.llm.registry import resolve_provider
-    from neurosurfer.graph.builder.refine import WorkflowRefiner
+    from neurosurfer.architect.refine import WorkflowRefiner
     from neurosurfer.graph.workflow.registry import WorkflowNotFoundError, WorkflowRegistry
 
     reg = WorkflowRegistry()

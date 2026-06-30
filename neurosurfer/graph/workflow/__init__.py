@@ -3,8 +3,8 @@ versioned, runnable DAG layered on the DAG engine.
 
 This package owns the package format, registry, runner, validation and schema
 (``package``, ``registry``, ``runner``, ``validate``, ``schema``, ``node_tool``).
-The conversational graph-builder is a separate feature: :mod:`neurosurfer.graph.builder`.
-The DAG engine lives under :mod:`neurosurfer.graph`.
+The conversational graph-builder (the Architect) is a separate top-level component:
+:mod:`neurosurfer.architect`. The DAG engine lives under :mod:`neurosurfer.graph`.
 
 See ``RESTRUCTURE_PLAN.md`` at the repo root for the design and phased roadmap.
 """

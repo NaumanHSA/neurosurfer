@@ -14,6 +14,7 @@ this package does not import it — that happens lazily when a manager actually 
 from __future__ import annotations
 
 from .manager import McpManager, ServerStatus
+from .session import McpSession
 from .tool import McpTool
 
-__all__ = ["McpManager", "ServerStatus", "McpTool"]
+__all__ = ["McpManager", "McpSession", "ServerStatus", "McpTool"]

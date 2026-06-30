@@ -7,16 +7,16 @@ not from the user's registry.
 
 Public API (usable from pure Python — no CLI dependency):
 
-    from neurosurfer.graph.builder import ArchitectBuilder, ArchitectConversation
+    from neurosurfer.architect import ArchitectBuilder, ArchitectConversation
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .build import ArchitectBuilder
+from .build import ArchitectBuilder, WorkflowInfeasible
 from .conversation import ArchitectConversation
 
 _PACKAGE_DIR = Path(__file__).parent / "package"
 
-__all__ = ["ArchitectBuilder", "ArchitectConversation"]
+__all__ = ["ArchitectBuilder", "ArchitectConversation", "WorkflowInfeasible"]

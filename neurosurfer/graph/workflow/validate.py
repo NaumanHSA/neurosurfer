@@ -23,13 +23,25 @@ from neurosurfer.graph.engine import import_string
 
 from .package import WorkflowPackage, _PackagePathContext
 
-__all__ = ["ValidationIssue", "ValidationReport", "validate_package", "DEFER_MARKER"]
+__all__ = [
+    "ValidationIssue",
+    "ValidationReport",
+    "validate_package",
+    "DEFER_MARKER",
+    "INFEASIBLE_MARKER",
+]
 
 # Sentinel the `assemble` node returns (instead of a registered path) when a staged
 # package did not pass validation. Returning it — rather than raising — keeps the
 # executor from dumping a traceback; the ArchitectBuilder re-validates the staged dir
 # and either renders a clean error (hard errors) or authors the missing tools (gaps).
 DEFER_MARKER = "__STAGED_NEEDS_FINALIZE__:"
+
+# Sentinel the `assemble` node returns when the tool_design step judged the workflow
+# infeasible (a node needs a capability that cannot be built safely as described). The
+# text after the marker is the human-readable feasibility report. The ArchitectBuilder
+# turns this into a clean "not doable" message instead of registering a broken workflow.
+INFEASIBLE_MARKER = "__WORKFLOW_INFEASIBLE__:"
 
 
 @dataclass
@@ -111,6 +123,18 @@ def validate_package(pkg: WorkflowPackage) -> ValidationReport:
                 kind="dag",
                 message=f"output '{out}' is not a node in the graph",
             ))
+
+    # Depth-floor: a 1–2-node workflow is almost certainly under-designed.
+    llm_nodes = [n for n in graph.nodes if n.kind in {"base", "react"}]
+    if len(llm_nodes) < 3:
+        report.warnings.append(ValidationIssue(
+            kind="structure",
+            message=(
+                f"workflow has only {len(llm_nodes)} LLM node(s) — "
+                "consider adding intermediate steps (validation, transformation, "
+                "output formatting) to make it more robust"
+            ),
+        ))
 
     return report
 

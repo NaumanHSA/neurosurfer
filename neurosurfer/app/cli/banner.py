@@ -12,10 +12,11 @@ if TYPE_CHECKING:
     pass
 
 _TIPS: list[str] = [
-    "/workflow build  — describe a workflow and let the Architect build it",
-    "/workflow list   — see all your registered workflows",
+    "just type what you want — I can read/write files, run commands, search the web",
+    "summarise this folder  — or: find all TODO comments / run the test suite",
+    "/workflow build  — design a reusable pipeline for recurring or multi-stage jobs",
     "/workflow run    — execute a registered workflow",
-    "/workflow show   — inspect a workflow's nodes and graph",
+    "/workflow list   — see all your registered workflows",
     "/provider add    — connect an Anthropic, LM Studio, or Ollama model",
     "/help            — see every available command",
 ]
@@ -113,6 +114,20 @@ async def print_banner(ctx: CLIContext) -> None:
 
     grid.add_row("provider", prov_val)
     console.print(grid)
+    console.print()
+
+    # Capability card — one dim line for general automation, one accented line for
+    # the workflow headline so it stands out clearly as the differentiating feature.
+    console.print(
+        f"  [{theme.DIM}]Files · shell & code · web search"
+        f" — ask me to do almost anything.[/{theme.DIM}]"
+    )
+    console.print(
+        f"  [{theme.ACCENT}]✦[/{theme.ACCENT}]"
+        f"  [{theme.ACCENT_DIM}]Design & register"
+        f" [bold]reusable workflow pipelines[/bold]"
+        f" for recurring or multi-stage jobs.[/{theme.ACCENT_DIM}]"
+    )
     console.print()
 
     tips = random.sample(_TIPS, k=min(2, len(_TIPS)))

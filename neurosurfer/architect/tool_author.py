@@ -60,13 +60,21 @@ _SANDBOX_TIMEOUT_S = 15
 
 @dataclass
 class ToolGapSpec:
-    """What a missing capability needs to do, derived from a failing node + gap."""
+    """What a missing capability needs to do, derived from a failing node + gap.
+
+    When sourced from the Architect's CapabilityPlan it also carries a functional
+    *test plan* (``test_setup`` / ``test_args`` / ``expected_behavior``) so the
+    sandbox can actually run the tool, not just import it.
+    """
 
     name: str
     purpose: str
     inputs: list[str] = field(default_factory=list)
     context: str = ""
     source_workflow: str | None = None
+    test_setup: str = ""
+    test_args: dict = field(default_factory=dict)
+    expected_behavior: str = ""
 
 
 @dataclass
@@ -77,9 +85,12 @@ class SandboxResult:
     checks: dict[str, bool] = field(default_factory=dict)
     error: str = ""
     warnings: list[str] = field(default_factory=list)
+    functional_summary: str = ""  # result of actually calling the tool, if tested
 
     def render(self) -> str:
         lines = [f"  {'✓' if v else '✗'} {k}" for k, v in self.checks.items()]
+        if self.functional_summary:
+            lines.append(f"  ↳ test call: {self.functional_summary}")
         if self.warnings:
             lines.append("  ! " + "; ".join(self.warnings))
         if self.error:
@@ -221,6 +232,20 @@ class ToolAuthor:
             parts.append("Inputs it should accept:\n" + "\n".join(f"- {i}" for i in spec.inputs))
         if spec.context:
             parts.append(f"It will be used in this context: {spec.context}")
+        if spec.expected_behavior:
+            parts.append(f"On success it must: {spec.expected_behavior}")
+        if spec.test_args or spec.test_setup:
+            parts.append(
+                "IMPORTANT: this tool will be FUNCTIONALLY TESTED — it is instantiated "
+                "and `call()` is actually run in a sandbox. It must execute without "
+                "raising and return a non-error ToolResult for these test arguments:\n"
+                f"{spec.test_args}"
+            )
+            if spec.test_setup:
+                parts.append(
+                    "The sandbox first runs this setup to create fixtures in the working "
+                    f"directory, so design call() to work against them:\n{spec.test_setup}"
+                )
         if last_error:
             parts.append(
                 "Your previous attempt failed validation with:\n"
@@ -251,10 +276,17 @@ class ToolAuthor:
         warnings.extend(sandbox.warnings)
 
         ok = all(checks.values()) and not sandbox.error
-        return SandboxResult(ok=ok, checks=checks, error=sandbox.error, warnings=warnings)
+        return SandboxResult(
+            ok=ok,
+            checks=checks,
+            error=sandbox.error,
+            warnings=warnings,
+            functional_summary=sandbox.functional_summary,
+        )
 
     def _sandbox_check(self, draft: ToolDraft) -> SandboxResult:
-        """Import the candidate, instantiate it, and assert its contract — all inside a
+        """Import the candidate, instantiate it, assert its contract, and — when the
+        spec supplies a test plan — actually CALL it once. All inside a
         timeout-bounded child process so untrusted code never runs in-process."""
         with tempfile.TemporaryDirectory(prefix="ma_toolcheck_") as tmp:
             tmpdir = Path(tmp)
@@ -263,13 +295,22 @@ class ToolAuthor:
             runner = tmpdir / "_check.py"
             runner.write_text(_CHECK_RUNNER, encoding="utf-8")
 
+            # Functional test plan (setup + args) for the child to run, if provided.
+            spec_file = tmpdir / "_testspec.json"
+            spec_file.write_text(
+                json.dumps(
+                    {"test_setup": draft.spec.test_setup, "test_args": draft.spec.test_args}
+                ),
+                encoding="utf-8",
+            )
+
             env = dict(os.environ)
             # Replicate the parent's import paths so the child can import neurosurfer.
             env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
 
             try:
                 proc = subprocess.run(
-                    [sys.executable, str(runner), str(candidate), draft.name],
+                    [sys.executable, str(runner), str(candidate), draft.name, str(spec_file)],
                     capture_output=True,
                     text=True,
                     timeout=_SANDBOX_TIMEOUT_S,
@@ -297,6 +338,7 @@ class ToolAuthor:
                 ok=bool(payload.get("ok")),
                 checks=payload.get("checks", {}),
                 error=payload.get("error", ""),
+                functional_summary=payload.get("functional_summary", ""),
             )
 
 
@@ -372,8 +414,60 @@ def main():
         print(json.dumps({"ok": False, "checks": checks, "error": f"schema build failed: {exc}"}))
         return
 
+    # ── Functional smoke test: actually CALL the tool once (when a plan is given) ──
+    func_summary = ""
+    spec_path = sys.argv[3] if len(sys.argv) > 3 else ""
+    tspec = {}
+    if spec_path:
+        try:
+            with open(spec_path) as fh:
+                tspec = json.load(fh)
+        except Exception:  # noqa: BLE001
+            tspec = {}
+    test_args = tspec.get("test_args") or {}
+    setup = tspec.get("test_setup") or ""
+    if test_args or setup:
+        try:
+            import asyncio, os
+            from pathlib import Path
+            ns = {}
+            if setup:
+                exec(compile(setup, "<test_setup>", "exec"), ns)
+                if isinstance(ns.get("ARGS"), dict):
+                    test_args = ns["ARGS"]
+
+            class _IO:
+                async def ask(self, *a, **k): return ""
+                async def request_plan_approval(self, *a, **k): return (True, "")
+                async def request_shell_approval(self, *a, **k): return True
+                async def request_write_approval(self, *a, **k): return "once"
+                def notify(self, *a, **k): pass
+
+            from neurosurfer.tools.base import ToolContext, ToolResult
+            ctx = ToolContext(cwd=Path(os.getcwd()), io=_IO())
+            args_obj = inst.input_model(**test_args)
+            res = asyncio.run(inst.call(args_obj, ctx))
+        except Exception as exc:  # noqa: BLE001
+            checks["functional_runs"] = False
+            print(json.dumps({"ok": False, "checks": checks, "error": f"functional test raised: {exc}"}))
+            return
+        if not isinstance(res, ToolResult):
+            checks["functional_runs"] = False
+            print(json.dumps({"ok": False, "checks": checks, "error": "call() did not return a ToolResult"}))
+            return
+        content = (getattr(res, "content", "") or "")[:200].replace(chr(10), " ")
+        if getattr(res, "is_error", False):
+            checks["functional_runs"] = False
+            print(json.dumps({"ok": False, "checks": checks,
+                              "error": "functional test returned an error result: " + content,
+                              "functional_summary": "[error] " + content}))
+            return
+        checks["functional_runs"] = True
+        func_summary = "[ok] " + content
+
     ok = all(checks.values())
-    print(json.dumps({"ok": ok, "checks": checks, "error": "" if ok else "contract checks failed"}))
+    print(json.dumps({"ok": ok, "checks": checks, "error": "" if ok else "contract checks failed",
+                      "functional_summary": func_summary}))
 
 
 main()

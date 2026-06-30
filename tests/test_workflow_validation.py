@@ -9,7 +9,7 @@ from neurosurfer.graph.workflow.package import WorkflowPackage
 from neurosurfer.graph.workflow.schema import WorkflowManifest
 from neurosurfer.graph.workflow.validate import validate_package
 
-_SCHEMA = "neurosurfer.graph.builder.schemas:WorkflowPlan"
+_SCHEMA = "neurosurfer.architect.schemas:WorkflowPlan"
 
 
 def _pkg(nodes: list[GraphNode], outputs: list[str], tmp_path: Path) -> WorkflowPackage:

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from neurosurfer.graph.builder.build import ArchitectBuilder
+from neurosurfer.architect.build import ArchitectBuilder
 from neurosurfer.graph.workflow.validate import DEFER_MARKER
 
 # A valid tool the fake provider will "author" for the gap.
@@ -125,11 +125,11 @@ async def test_gap_without_approver_raises(_isolated):
 def test_assemble_returns_marker_on_gap(tmp_path, monkeypatch):
     """The assemble node defers (returns the marker) instead of registering on a gap."""
     from neurosurfer.config.projects import ProjectsConfig as _PC
-    from neurosurfer.graph.builder.nodes import assemble
-    from neurosurfer.graph.builder.schemas import NodePlan, WorkflowPlan
+    from neurosurfer.architect.nodes import assemble
+    from neurosurfer.architect.schemas import NodePlan, WorkflowPlan
 
     monkeypatch.setattr(
-        "neurosurfer.graph.builder.nodes.assemble.ProjectsConfig",
+        "neurosurfer.architect.nodes.assemble.ProjectsConfig",
         lambda: _PC(dir=tmp_path / "projects"),
     )
 

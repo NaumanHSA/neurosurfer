@@ -14,6 +14,7 @@ agent loop self-corrects — same contract as every other tool.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
@@ -59,6 +60,13 @@ class McpTool(Tool):
         self.description = description or f"{remote_name} (via {server_name})"
         self._input_schema = input_schema or {"type": "object", "properties": {}}
         self._ann = annotations
+        # Capture the event loop this session was created on. When called from a
+        # different loop (e.g. a graph-executor thread or a notebook cell's
+        # asyncio.run()), we bridge back here automatically — the user never sees it.
+        try:
+            self._home_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._home_loop = None
 
     # ── schema: pass the server's JSON Schema through unchanged ─────────────────
     @property
@@ -97,7 +105,8 @@ class McpTool(Tool):
         return f"{self._server_name}: {self._remote_name}…"
 
     # ── call the remote tool ────────────────────────────────────────────────────
-    async def call(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+    async def _do_call(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        """The actual MCP round-trip — must run on self._home_loop."""
         payload = _to_payload(args)
         try:
             result = await self._session.call_tool(self._remote_name, payload)
@@ -110,6 +119,22 @@ class McpTool(Tool):
         if not text and getattr(result, "structuredContent", None) is not None:
             text = str(result.structuredContent)
         return ToolResult(content=text or "(no content)", is_error=bool(getattr(result, "isError", False)))
+
+    async def call(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        # Fast path: no home loop recorded, or same loop — call directly.
+        if self._home_loop is None:
+            return await self._do_call(args, ctx)
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        if current is not None and current is not self._home_loop:
+            # Called from a different loop (graph executor thread, asyncio.run() in
+            # a worker thread, etc.). Route the coroutine back to the session's home
+            # loop so the transport sees the right event loop.
+            fut = asyncio.run_coroutine_threadsafe(self._do_call(args, ctx), self._home_loop)
+            return await asyncio.wrap_future(fut)
+        return await self._do_call(args, ctx)
 
     @classmethod
     def from_def(

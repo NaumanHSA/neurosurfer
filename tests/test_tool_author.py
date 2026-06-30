@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from neurosurfer.tools.generated import GeneratedToolsConfig
-from neurosurfer.graph.builder.tool_author import (
+from neurosurfer.architect.tool_author import (
     ToolAuthor,
     ToolDraft,
     ToolGapSpec,

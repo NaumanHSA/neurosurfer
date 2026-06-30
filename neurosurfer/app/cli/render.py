@@ -25,22 +25,23 @@ if TYPE_CHECKING:
 
 # ── friendly tool messages ────────────────────────────────────────────────────
 _TOOL_BASE: dict[str, str] = {
-    "list_dir":      "Scouting",
-    "read_file":     "Reading",
-    "search":        "Searching",
-    "run_command":   "Running",
-    "write_file":    "Writing",
-    "apply_edit":    "Editing",
-    "ask_user":      "Waiting for your input",
-    "present_plan":  "Drawing up a plan",
-    "todo":          "Updating the to-do list",
-    "spawn_agent":   "Working",
-    "finish":        "Wrapping up",
-    "web_search":    "Searching the web",
-    "web_fetch":     "Fetching",
-    "http":          "Fetching",
-    "browse":        "Browsing",
-    "data":          "Crunching the data",
+    "list_dir":          "Scouting",
+    "read_file":         "Reading",
+    "search":            "Searching",
+    "run_command":       "Running",
+    "write_file":        "Writing",
+    "apply_edit":        "Editing",
+    "ask_user":          "Waiting for your input",
+    "present_plan":      "Drawing up a plan",
+    "propose_workflow":  "Proposing a workflow",
+    "todo":              "Updating the to-do list",
+    "spawn_agent":       "Working",
+    "finish":            "Wrapping up",
+    "web_search":        "Searching the web",
+    "web_fetch":         "Fetching",
+    "http":              "Fetching",
+    "browse":            "Browsing",
+    "data":              "Crunching the data",
 }
 
 _THINKING_LABEL   = "Thinking"
@@ -98,7 +99,7 @@ def _fmt_generating(chars: int, tail: str = "") -> str:
 
 # Tools that own the terminal with prompt_toolkit — must NOT get a Rich Live
 # spinner (they would fight for the same terminal lines).
-_INTERACTIVE_TOOLS = frozenset({"ask_user", "present_plan"})
+_INTERACTIVE_TOOLS = frozenset({"ask_user", "present_plan", "propose_workflow"})
 
 
 _TODO_CONTENT_KEYS = ("content", "task", "text", "title", "description", "name", "item")
@@ -221,7 +222,6 @@ async def stream_events(
 ) -> events.RunFinished | None:
     """Consume an Agent/runner event stream and render it. Returns the final event."""
     from rich.live import Live
-    from rich.markdown import Markdown
     from rich.markup import escape
     from rich.spinner import Spinner
 
@@ -238,7 +238,7 @@ async def stream_events(
     todo_state: dict[str, str] = {}
     thinking_chars: int = 0
     generating_chars: int = 0
-    generating_tail: str = ""   # rolling 50-char tail for the live preview snippet
+    _first_text: bool = True   # True until first text token for the current response block
 
     # ── spinner helpers ───────────────────────────────────────────────────────
     def _pick_anim() -> str:
@@ -278,15 +278,15 @@ async def stream_events(
             _spinner = None
 
     def flush() -> None:
-        """Render the buffered text as Markdown and clear the buffer."""
+        """End a streamed response turn: ensure a trailing newline and clear state."""
         if not buffer:
             return
         _stop_live()
         active_tools.pop("__generating__", None)
         active_anims.pop("__generating__", None)
-        text = "".join(buffer)
+        # Text was already printed token-by-token; just close the line.
+        console.print()
         buffer.clear()
-        console.print(Markdown(text))
 
     # Wire the stopper into the IO handler so approval prompts (shell, write)
     # can stop the Live spinner before running their own prompt_toolkit UI.
@@ -304,22 +304,19 @@ async def stream_events(
     try:
         async for ev in event_gen:
             if isinstance(ev, events.TextDelta):
-                # Switch from "Thinking" to "Generating" once text starts arriving.
                 active_tools.pop("__thinking__", None)
-                prev = generating_chars
+                active_anims.pop("__thinking__", None)
                 generating_chars += len(ev.text)
                 buffer.append(ev.text)
-                # Rolling tail: last 50 chars, newlines collapsed — cheap O(1) update.
-                generating_tail = (generating_tail + ev.text).replace("\n", " ")[-50:]
-                # Throttle spinner updates every ~50 chars so the animation state is
-                # not constantly reset on high-frequency token streams (16k+ generations).
-                if generating_chars // 50 != prev // 50:
-                    active_tools["__generating__"] = _fmt_generating(
-                        generating_chars, generating_tail.strip()
-                    )
-                    active_anims["__generating__"] = "dots"
-                    _start_or_update_live()
-                # Do NOT flush on newline — buffer the whole response for Markdown rendering.
+                # First token of a new response block: stop the spinner and print a
+                # separator rule so the answer is visually distinct from the tool trace.
+                if _first_text:
+                    from rich.rule import Rule
+                    _stop_live()
+                    _first_text = False
+                    console.print(Rule(style=theme.DIM))
+                # Stream each token directly so the answer appears live, not all at once.
+                console.out(ev.text, end="")
 
             elif isinstance(ev, events.ThinkingDelta):
                 thinking_chars += len(ev.text)
@@ -364,7 +361,7 @@ async def stream_events(
                     # something is happening (especially important after ask_user).
                     thinking_chars = 0
                     generating_chars = 0
-                    generating_tail = ""
+                    _first_text = True   # next response block gets a fresh separator
                     active_tools["__thinking__"] = _THINKING_LABEL
                     active_anims["__thinking__"] = "moon"
                     _start_or_update_live()
@@ -400,6 +397,8 @@ async def stream_events(
                 final = ev
                 if ev.status in ("completed", "success"):
                     console.print(f"[{theme.OK}]✓ Done.[/{theme.OK}]")
+                elif ev.status == "handoff_workflow":
+                    pass  # _assist drives the Architect build; no status line here
                 elif ev.status == "max_turns":
                     console.print(f"\n[{theme.WARN}]⚠ Reached turn limit.[/{theme.WARN}]")
                 else:

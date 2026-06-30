@@ -1,7 +1,7 @@
 """Lightweight conversational pre-flight for the Workflow Architect.
 
 Runs a multi-turn LLM conversation to collect workflow requirements before
-invoking ArchitectBuilder (both live in neurosurfer.graph.builder).  The LLM asks clarifying questions one at a time —
+invoking ArchitectBuilder (both live in neurosurfer.architect).  The LLM asks clarifying questions one at a time —
 each as a multiple-choice question with exactly 3 options (the CLI adds a
 free-text "something else" escape).  When it has enough information it emits a
 ``build_workflow`` tool call.  No ``input()`` or imperative Q&A inside workflow

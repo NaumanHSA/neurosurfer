@@ -29,7 +29,7 @@ McpPolicy = Literal["gated", "open", "denied"]
 READ_TOOLS = {"read_file", "list_dir", "search", "data"}
 WRITE_TOOLS = {"write_file", "apply_edit"}
 NETWORK_TOOLS = {"http", "browse"}
-CONTROL_TOOLS = {"ask_user", "present_plan", "todo", "finish", "spawn_agent"}
+CONTROL_TOOLS = {"ask_user", "present_plan", "propose_workflow", "todo", "finish", "spawn_agent"}
 
 
 class Guardrails(BaseModel):
