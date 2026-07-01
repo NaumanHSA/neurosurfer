@@ -25,10 +25,12 @@ _ANTHROPIC_WINDOWS: dict[str, int] = {
 # Known OpenAI frontier model context windows (prefix-matched).
 # Used by OpenAICompatProvider when context_window is not explicitly provided.
 _OPENAI_FRONTIER_WINDOWS: dict[str, int] = {
+    "gpt-5":       128_000,
     "o4":          200_000,
     "o3":          200_000,
     "o1":          200_000,
     "gpt-4o":      128_000,
+    "gpt-4.1":     128_000,
     "gpt-4-turbo": 128_000,
     "gpt-4":         8_192,
     "gpt-3.5":      16_385,
@@ -94,6 +96,26 @@ def anthropic_capabilities(model: str) -> ProviderCapabilities:
         max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
         # All current Claude families (opus/sonnet/haiku 4.x) accept images.
         supports_vision=True,
+    )
+
+
+def openai_native_capabilities(
+    model: str, max_output_tokens: int = 16384
+) -> ProviderCapabilities:
+    """Capabilities for the official OpenAI API (api.openai.com).
+
+    Context window is derived automatically from the known model table;
+    unknown models fall back to 128k.
+    """
+    context_window = resolve_openai_context_window(model) or 128_000
+    return ProviderCapabilities(
+        supports_thinking=False,
+        supports_prompt_cache=False,
+        supports_token_count=False,
+        tool_call_style="openai",
+        context_window=context_window,
+        max_output_tokens=min(max_output_tokens, context_window),
+        supports_vision=_openai_supports_vision(model),
     )
 
 

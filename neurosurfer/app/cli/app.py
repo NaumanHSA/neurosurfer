@@ -117,6 +117,26 @@ async def run_repl(cfg: Config) -> int:
             await _dispatch_command(ctx, registry, line)
             continue
 
+        # Typo guard: bare word that exactly matches a command name/alias.
+        first_word = line.split()[0].lower() if line.split() else ""
+        if first_word and registry.get(first_word) is not None:
+            cmd = registry.get(first_word)
+            from .io import select_menu
+            choice = await select_menu(
+                ctx.console,
+                f"'{first_word}' looks like the /{cmd.name} command — what did you mean?",
+                [
+                    ("run",    f"Run /{cmd.name}",   cmd.summary),
+                    ("agent",  "Send to agent",       "Ask the assistant instead"),
+                    ("cancel", "Cancel",              "Do nothing"),
+                ],
+            )
+            if choice == "run":
+                await _dispatch_command(ctx, registry, f"/{line}")
+                continue
+            if choice != "agent":
+                continue  # cancel or Esc — do nothing
+
         # Free-form text — route to the general-purpose Assistant.
         try:
             from .assistant import _assist
@@ -124,8 +144,10 @@ async def run_repl(cfg: Config) -> int:
         except (KeyboardInterrupt, asyncio.CancelledError):
             ctx.console.print(f"\n[{theme.WARN}]Interrupted.[/{theme.WARN}]")
         except Exception as exc:  # noqa: BLE001
-            brief = str(exc)[:200].replace("\n", " ")
-            ctx.console.print(f"[{theme.ERR}]Error: {brief}[/{theme.ERR}]")
+            brief = str(exc)[:200].replace("\n", " ").strip()
+            label = type(exc).__name__
+            msg = f"{label}: {brief}" if brief else label
+            ctx.console.print(f"[{theme.ERR}]Error: {msg}[/{theme.ERR}]")
 
     await ctx.close_mcp()
     ctx.console.print(f"\n[{theme.DIM}]Goodbye.[/{theme.DIM}]")

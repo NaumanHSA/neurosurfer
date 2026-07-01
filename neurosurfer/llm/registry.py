@@ -45,6 +45,17 @@ def build_provider_from_profile(
 
         return AnthropicProvider(api_key=profile.api_key, model=model)
 
+    if profile.kind == "openai_native":
+        if not profile.api_key:
+            raise RuntimeError(f"Provider profile '{profile.name}' has no API key.")
+        from .providers.openai import OpenAIProvider
+
+        return OpenAIProvider(
+            api_key=profile.api_key,
+            model=model,
+            max_output_tokens=profile.max_output_tokens,
+        )
+
     from .providers.openai import OpenAICompatProvider
 
     return OpenAICompatProvider(

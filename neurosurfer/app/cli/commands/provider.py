@@ -62,20 +62,22 @@ def _print_list(ctx: CLIContext) -> None:
 # ── interactive menu (arrow keys via inline prompts) ─────────────────────────
 async def _add_profile(ctx: CLIContext) -> None:
     ctx.console.print(f"\n[bold {theme.ACCENT}]Add provider[/bold {theme.ACCENT}]")
-    name = await _prompt("Profile name")
-    if not name:
-        return
 
     kind_raw = await _radio(ctx, "Provider kind", [
-        ("openai", "OpenAI-compatible  (LM Studio / Ollama / vLLM / …)"),
-        ("anthropic", "Anthropic"),
+        ("openai_native", "OpenAI",                "api.openai.com — just a model ID and API key"),
+        ("openai",        "OpenAI-compatible",      "LM Studio / Ollama / vLLM — requires base URL"),
+        ("anthropic",     "Anthropic",              "api.anthropic.com"),
     ])
     if kind_raw is None:
         return
     kind = cast(ProviderKind, kind_raw)
 
+    name = await _prompt("Profile name")
+    if not name:
+        return
+
     base_url: str | None = None
-    context_window = 200_000
+    context_window = 32_768
     max_output_tokens = 8192
     if kind == "openai":
         base_url = await _prompt("Base URL", "http://localhost:1234/v1") or None
@@ -89,6 +91,12 @@ async def _add_profile(ctx: CLIContext) -> None:
             max_output_tokens = int(mot_raw) if mot_raw else 8192
         except ValueError:
             max_output_tokens = 8192
+    elif kind == "openai_native":
+        mot_raw = await _prompt("Max output tokens per turn", "16384")
+        try:
+            max_output_tokens = int(mot_raw) if mot_raw else 16384
+        except ValueError:
+            max_output_tokens = 16384
 
     model = await _prompt("Model id")
     api_key_raw = await _prompt("API key (blank if none)", is_password=True)
@@ -156,6 +164,12 @@ async def _edit_profile(ctx: CLIContext, name: str) -> None:
     max_output_tokens = p.max_output_tokens
     if p.kind == "openai":
         base_url = (await _prompt("Base URL", p.base_url or "")) or None
+        mot_raw = await _prompt("Max output tokens per turn", str(p.max_output_tokens))
+        try:
+            max_output_tokens = int(mot_raw) if mot_raw else p.max_output_tokens
+        except ValueError:
+            max_output_tokens = p.max_output_tokens
+    elif p.kind == "openai_native":
         mot_raw = await _prompt("Max output tokens per turn", str(p.max_output_tokens))
         try:
             max_output_tokens = int(mot_raw) if mot_raw else p.max_output_tokens

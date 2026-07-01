@@ -24,52 +24,61 @@ _TIPS: list[str] = [
 
 # ── Provider connectivity probe ───────────────────────────────────────────────
 
+# Error-message markers that mean "the model actually ran but we capped its
+# output" — a token/length limit hit. That still proves the round-trip works
+# (auth + reachability + valid model), so we treat it as connected. Reasoning
+# models (GPT-5, o-series) spend the budget on hidden reasoning and routinely
+# trip this on a tiny probe.
+_TOKEN_LIMIT_MARKERS = (
+    "max_tokens",
+    "max_completion_tokens",
+    "output limit",
+    "output_limit",
+    "finish the message",
+    "length limit",
+)
+
+
 async def probe_provider(ctx: CLIContext) -> tuple[bool, str]:
-    """Ping the active provider. Returns (reachable, status_message)."""
+    """Send a real minimal completion to verify the provider actually works.
+
+    Returns (reachable, status_message).
+    """
+    import asyncio
+
+    from neurosurfer.llm.registry import resolve_provider
+    from neurosurfer.llm.types import GenerationConfig, Message, TextBlock
+
+    try:
+        provider = resolve_provider(ctx.cfg, ctx.providers)
+    except RuntimeError:
+        return False, "not configured"
+
     active = ctx.providers.get_active()
+    model = (active.model if active else ctx.cfg.llm.model) or "unknown"
 
-    if active is not None:
-        kind = active.kind
-        base_url = active.base_url or ""
-        api_key = active.api_key or ""
-        model = active.model
-    else:
-        cfg = ctx.cfg.llm
-        if cfg.is_anthropic and cfg.anthropic_api_key:
-            kind = "anthropic"
-            base_url = ""
-            api_key = cfg.anthropic_api_key
-            model = cfg.model
-        elif cfg.is_openai:
-            kind = "openai"
-            base_url = cfg.openai_base_url
-            api_key = cfg.openai_api_key
-            model = cfg.model
-        else:
-            return False, "not configured"
+    messages = [Message(role="user", content=[TextBlock(text="hi")])]
+    # 16 tokens: enough for a trivial reply on non-reasoning models; reasoning
+    # models will still hit their cap, which we treat as a successful probe.
+    config = GenerationConfig(max_tokens=16, temperature=0.0)
 
-    if kind == "openai":
-        url = (base_url or "http://localhost:1234/v1").rstrip("/")
-        try:
-            import httpx
-            headers = {"Authorization": f"Bearer {api_key or 'not-needed'}"}
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{url}/models", headers=headers)
-            if resp.status_code < 500:
-                return True, f"connected · {model or url}"
-            return False, f"HTTP {resp.status_code} · {url}"
-        except httpx.ConnectError:
-            return False, f"unable to connect · {url}"
-        except httpx.TimeoutException:
-            return False, f"timed out · {url}"
-        except Exception as e:  # noqa: BLE001
-            return False, str(e)[:80]
-    else:  # anthropic
-        if not api_key:
-            return False, "API key not set — use /provider add"
-        if api_key.startswith("sk-ant-"):
-            return True, f"key configured · {model}"
-        return False, "key present but format unexpected"
+    async def _drain() -> None:
+        async for _ in provider.stream(messages, None, [], config):
+            pass
+
+    try:
+        await asyncio.wait_for(_drain(), timeout=15.0)
+        return True, f"connected · {model}"
+    except asyncio.TimeoutError:
+        return False, f"timed out · {model}"
+    except Exception as e:  # noqa: BLE001
+        msg = str(e).lower()
+        if any(marker in msg for marker in _TOKEN_LIMIT_MARKERS):
+            # The model ran and hit our token cap — connection is fine.
+            return True, f"connected · {model}"
+        brief = str(e)[:80].replace("\n", " ").strip()
+        label = type(e).__name__
+        return False, f"{label}: {brief}" if brief else label
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -127,8 +127,20 @@ def build_assistant(ctx: CLIContext, *, plan_mode: bool = False):
 
 # ── REPL handler ──────────────────────────────────────────────────────────────
 
+_ASSISTANT_KEY = "assistant"
+
+
+def clear_assistant(ctx: CLIContext) -> None:
+    """Drop the persistent assistant agent, starting a fresh session next turn."""
+    ctx._extra.pop(_ASSISTANT_KEY, None)
+
+
 async def _assist(ctx: CLIContext, line: str) -> None:
-    """Run one assistant turn for *line* and stream the output to the console."""
+    """Run one assistant turn for *line* and stream the output to the console.
+
+    The AgenticLoop is created once and stored in ctx._extra so conversation
+    history accumulates across REPL turns.  Use clear_assistant() to reset it.
+    """
     from .render import stream_events
 
     heavy = _is_heavy(line)
@@ -138,20 +150,34 @@ async def _assist(ctx: CLIContext, line: str) -> None:
             f"starting in plan mode (present_plan required before writes/shell).[/{theme.DIM}]"
         )
 
-    try:
-        agent, io = build_assistant(ctx, plan_mode=heavy)
-    except RuntimeError as e:
-        ctx.console.print(f"[{theme.ERR}]No usable provider: {e}[/{theme.ERR}]")
-        ctx.console.print(
-            f"[{theme.DIM}]Configure one with /provider add, then try again.[/{theme.DIM}]"
-        )
-        return
+    if _ASSISTANT_KEY not in ctx._extra:
+        try:
+            agent, io = build_assistant(ctx, plan_mode=heavy)
+        except RuntimeError as e:
+            ctx.console.print(f"[{theme.ERR}]No usable provider: {e}[/{theme.ERR}]")
+            ctx.console.print(
+                f"[{theme.DIM}]Configure one with /provider add, then try again.[/{theme.DIM}]"
+            )
+            return
+        ctx._extra[_ASSISTANT_KEY] = (agent, io)
+    else:
+        agent, io = ctx._extra[_ASSISTANT_KEY]
+        if heavy:
+            agent.mode = "plan"
+
+    # max_turns is a per-request safety valve, not a lifetime cap.
+    agent.turns = 0
 
     try:
         final = await stream_events(ctx.console, agent.run(line), io=io)
     except (KeyboardInterrupt, asyncio.CancelledError):
         ctx.console.print(f"\n[{theme.WARN}]Interrupted.[/{theme.WARN}]")
+        agent.mode = "default"
         return
+    finally:
+        # Always reset plan mode so the next turn starts clean.
+        if agent.mode == "plan":
+            agent.mode = "default"
 
     # Tier-4 handoff: propose_workflow confirmed → hand off to the Architect.
     if final is not None and final.status == "handoff_workflow":

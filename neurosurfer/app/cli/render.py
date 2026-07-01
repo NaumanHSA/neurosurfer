@@ -81,6 +81,39 @@ _AGENT_LABEL: dict[str, str] = {
 }
 
 
+# ── left-aligned Markdown ─────────────────────────────────────────────────────
+# Rich centres Markdown headings (and boxes h1 in a heavy panel) by default.
+# We render the whole response left-aligned, so headings should match. Build the
+# subclass once, lazily, to keep the rich import off the startup path.
+_LEFT_MD_CLS = None
+
+
+def _left_markdown(text: str):
+    """A rich Markdown renderable whose headings are left-aligned, not centred."""
+    global _LEFT_MD_CLS
+    if _LEFT_MD_CLS is None:
+        from rich import box
+        from rich.markdown import Heading, Markdown
+        from rich.panel import Panel
+        from rich.text import Text
+
+        class _LeftHeading(Heading):
+            def __rich_console__(self, console, options):  # type: ignore[no-untyped-def]
+                self.text.justify = "left"
+                if self.tag == "h1":
+                    yield Panel(self.text, box=box.HEAVY, style="markdown.h1.border")
+                else:
+                    if self.tag == "h2":
+                        yield Text("")
+                    yield self.text
+
+        class _LeftMarkdown(Markdown):
+            elements = {**Markdown.elements, "heading_open": _LeftHeading}
+
+        _LEFT_MD_CLS = _LeftMarkdown
+    return _LEFT_MD_CLS(text)
+
+
 def _fmt_tok(n: int) -> str:
     """'142 tokens' or '1.2k tokens'."""
     return f"{n / 1000:.1f}k tokens" if n >= 1000 else f"{n} tokens"
@@ -278,14 +311,15 @@ async def stream_events(
             _spinner = None
 
     def flush() -> None:
-        """End a streamed response turn: ensure a trailing newline and clear state."""
+        """Render the buffered response turn as Markdown and clear state."""
         if not buffer:
             return
         _stop_live()
         active_tools.pop("__generating__", None)
         active_anims.pop("__generating__", None)
-        # Text was already printed token-by-token; just close the line.
-        console.print()
+        from rich.rule import Rule
+        console.print(Rule(style=theme.DIM))
+        console.print(_left_markdown("".join(buffer)))
         buffer.clear()
 
     # Wire the stopper into the IO handler so approval prompts (shell, write)
@@ -308,15 +342,14 @@ async def stream_events(
                 active_anims.pop("__thinking__", None)
                 generating_chars += len(ev.text)
                 buffer.append(ev.text)
-                # First token of a new response block: stop the spinner and print a
-                # separator rule so the answer is visually distinct from the tool trace.
+                # Buffer all tokens and show a generating spinner; the full text is
+                # rendered as Markdown in flush() once the turn is complete.
                 if _first_text:
-                    from rich.rule import Rule
                     _stop_live()
                     _first_text = False
-                    console.print(Rule(style=theme.DIM))
-                # Stream each token directly so the answer appears live, not all at once.
-                console.out(ev.text, end="")
+                active_tools["__generating__"] = _fmt_generating(generating_chars)
+                active_anims["__generating__"] = "dots"
+                _start_or_update_live()
 
             elif isinstance(ev, events.ThinkingDelta):
                 thinking_chars += len(ev.text)

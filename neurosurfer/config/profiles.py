@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ProviderKind = Literal["anthropic", "openai"]
+ProviderKind = Literal["anthropic", "openai", "openai_native"]
 
 
 def mask_secret(value: str | None) -> str:
@@ -44,10 +44,17 @@ class ProviderProfile(BaseModel):
     def endpoint(self) -> str:
         if self.kind == "anthropic":
             return "Anthropic API"
+        if self.kind == "openai_native":
+            return "OpenAI API"
         return self.base_url or "(no base URL)"
 
     def summary(self, *, active: bool = False) -> str:
-        kind = "Anthropic" if self.kind == "anthropic" else "OpenAI-compatible"
+        _KIND_LABEL = {
+            "anthropic":    "Anthropic",
+            "openai_native": "OpenAI",
+            "openai":       "OpenAI-compatible",
+        }
+        kind = _KIND_LABEL.get(self.kind, self.kind)
         tail = "  (active)" if active else ""
         mot = f" · max_out={self.max_output_tokens}" if self.kind == "openai" else ""
         return (

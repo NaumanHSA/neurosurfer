@@ -17,7 +17,7 @@ from typing import Any
 
 from ...observability.logging import get_logger
 from ..base import Provider
-from ..capabilities import openai_capabilities, resolve_openai_context_window
+from ..capabilities import openai_capabilities, openai_native_capabilities, resolve_openai_context_window
 from ..retry import with_retry
 from ..tokens import estimate_messages_tokens
 from ..types import (
@@ -193,6 +193,9 @@ class _ToolCallAccumulator:
 
 
 class OpenAICompatProvider(Provider):
+    # Subclasses may override to use 'max_completion_tokens' (newer OpenAI API).
+    _tokens_param = "max_tokens"
+
     def __init__(
         self,
         base_url: str,
@@ -226,12 +229,13 @@ class OpenAICompatProvider(Provider):
                 stacklevel=2,
             )
 
-        # 60 s between streamed chunks is generous for local hardware yet still
-        # catches genuine hangs (model OOM, deadlock, server crash).
+        # Local models can take several minutes to generate large tool-call arguments
+        # (e.g. writing a whole file).  300 s still catches genuine hangs (OOM,
+        # deadlock, server crash) without timing out mid-generation.
         self._client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key or "not-needed",
-            timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=5.0),
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=5.0),
         )
         self.model = model
         self.capabilities = openai_capabilities(model, resolved, max_output_tokens)
@@ -249,7 +253,7 @@ class OpenAICompatProvider(Provider):
             "messages": to_openai_messages(
                 messages, system, supports_vision=self.capabilities.supports_vision
             ),
-            "max_tokens": config.max_tokens,
+            self._tokens_param: config.max_tokens,
             "temperature": config.temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -352,3 +356,26 @@ class OpenAICompatProvider(Provider):
     ) -> int:
         # No count endpoint on local servers — local estimate.
         return estimate_messages_tokens(messages, system, tools or [])
+
+
+class OpenAIProvider(OpenAICompatProvider):
+    """Official OpenAI API (api.openai.com).
+
+    Requires only a model ID and an API key — no base URL, no context window
+    configuration.  Uses ``max_completion_tokens`` (the current OpenAI requirement)
+    instead of the deprecated ``max_tokens``.
+    """
+
+    _tokens_param = "max_completion_tokens"
+
+    def __init__(self, api_key: str, model: str, max_output_tokens: int = 16384):
+        import httpx
+        from openai import AsyncOpenAI
+
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=5.0),
+        )
+        self.model = model
+        self.capabilities = openai_native_capabilities(model, max_output_tokens)
+        self.strict_tools = False
