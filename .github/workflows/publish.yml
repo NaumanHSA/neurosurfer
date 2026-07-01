@@ -1,8 +1,10 @@
 name: Publish to PyPI
 
-# Run manually from the Actions tab when ready to publish.
+# Publishes when a GitHub Release is published, or manually from the Actions tab.
 on:
   workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   build-and-publish:

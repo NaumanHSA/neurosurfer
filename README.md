@@ -6,7 +6,6 @@
   <a href="https://naumanhsa.github.io/neurosurfer/examples/" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/examples_button.png" height="40" alt="Examples"></a>
   <a href="https://naumanhsa.github.io/neurosurfer/" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/documentation_button.png" height="40" alt="Documentation"></a>
   <a href="https://pypi.org/project/neurosurfer/" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pypi_button.png" height="40" alt="PyPI"></a>
-  <a href="https://discord.gg/naumanhsa" target="_blank"><img src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/discord_button.png" height="40" alt="Discord"></a>
 </div>
 
 **Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval**, with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go — CPU-only or GPU-accelerated.
@@ -27,34 +26,16 @@
 
 <h2>🎓 Tutorials</h2>
 
-<table style="width:100%; border-collapse: collapse; text-align: left;">
-  <thead>
-    <tr style="border-bottom: 2px solid #ccc;">
-      <th style="width:5%;">#</th>
-      <th style="width:20%;">Tutorial</th>
-      <th style="width:15%;">Link</th>
-      <th style="width:60%;">Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>1</td>
-      <td><strong>Neurosurfer Quickstart</strong></td>
-      <td>
-        <a href="https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/00_neurosurfer_quickstart.ipynb" target="_blank">
-          <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab" style="vertical-align: middle;"/>
-        </a>
-      </td>
-      <td>
-        Load local and cloud models, stream responses, and build your first RAG and tool-based agents.
-      </td>
-    </tr>
-  </tbody>
-</table>
+Hands-on notebooks — open any of them directly in Google Colab:
 
-<p style="margin-top: 10px;">
-  <em>More tutorials coming soon — covering <strong>RAG</strong>, <strong>Custom Tools</strong>, <strong>Workflow Builder</strong>, <strong>Gateway integration</strong> and more.</em>
-</p>
+| # | Tutorial | Open | What you'll build |
+|---|----------|------|-------------------|
+| 0 | **Installation** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/00_installation.ipynb) | Install Neurosurfer and its optional extras; verify your setup. |
+| 1 | **Providers & Agents** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/01_providers_and_agents.ipynb) | Connect cloud and local providers, then run `AgenticLoop`, `ReactAgent`, and one-shot `Agent`. |
+| 2 | **Custom Tools** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/02_custom_tools.ipynb) | Write your own tools and give agents new capabilities. |
+| 3 | **Graph Agents** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/03_graph_agents.ipynb) | Compose multi-step workflows with the graph engine and Workflow packages. |
+| 4 | **MCP Servers** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/04_mcp_servers.ipynb) | Connect external Model Context Protocol servers and expose their tools to agents. |
+| 5 | **Capstone: Insight Engine** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb) | Put it all together — a database-backed insight engine over MCP. |
 
 ---
 
@@ -81,15 +62,27 @@ neurosurfer serve --upstream-url http://localhost:1234
 
 **Multi-step agent (Anthropic):**
 ```python
-import asyncio
+import asyncio, os
+from pathlib import Path
 from neurosurfer.llm.providers.anthropic import AnthropicProvider
-from neurosurfer.agents import AgenticLoop
-from neurosurfer.tools.registry import default_pool
+from neurosurfer.agents import AgenticLoop, Guardrails
+from neurosurfer.tools import default_pool
 
-provider = AnthropicProvider(model="claude-opus-4-8")
+provider = AnthropicProvider(api_key=os.environ["ANTHROPIC_API_KEY"], model="claude-opus-4-8")
+
+class AutoIO:  # auto-approving IOHandler for scripts (see the Agents guide)
+    async def ask(self, question, options=None): return (options or ["yes"])[0]
+    async def request_plan_approval(self, plan): return True, ""
+    async def request_shell_approval(self, command, reason): return True
+    async def request_write_approval(self, path, summary): return "once"
+    def notify(self, message): pass
 
 async def main():
-    agent = AgenticLoop(provider=provider, tools=default_pool())
+    agent = AgenticLoop(
+        provider=provider, tools=default_pool(),
+        system_prompt="Use tools to answer, then finish.",
+        guardrails=Guardrails(), io=AutoIO(), cwd=Path.cwd(),
+    )
     async for event in agent.run("Search the web for the latest news on AI agents."):
         if hasattr(event, "text"):
             print(event.text, end="", flush=True)
@@ -99,16 +92,24 @@ asyncio.run(main())
 
 **One-shot with structured output:**
 ```python
+import asyncio
+from pathlib import Path
 from pydantic import BaseModel
-from neurosurfer.agents import Agent
+from neurosurfer.agents import Agent, Guardrails
+from neurosurfer.tools import default_pool
 
 class Summary(BaseModel):
     title: str
     points: list[str]
 
-agent = Agent(provider=provider, output_schema=Summary)
-result = await agent.run("Summarise the Neurosurfer framework in 3 bullet points.")
-print(result.title, result.points)
+agent = Agent(
+    provider=provider, tools=default_pool(),
+    system_prompt="Answer concisely.",
+    guardrails=Guardrails(), io=AutoIO(), cwd=Path.cwd(),
+    output_schema=Summary,
+)
+result = asyncio.run(agent.complete("Summarise the Neurosurfer framework in 3 bullet points."))
+print(result.title, result.points)  # `result` is a validated Summary instance
 ```
 
 **Register an agent as an OpenAI-compatible model:**
@@ -117,7 +118,7 @@ from neurosurfer.app.server import NeurosurferServer
 from neurosurfer.agents import AgenticLoop
 
 server = NeurosurferServer()
-server.register_agent("my-agent", AgenticLoop(provider=provider))
+server.register_agent(AgenticLoop(provider=provider), model_id="my-agent")
 server.run()  # → http://localhost:8000/v1/chat/completions
 ```
 
@@ -127,20 +128,21 @@ server.run()  # → http://localhost:8000/v1/chat/completions
 
 ```
 neurosurfer/
-  agents/        ← AgenticLoop · ReactAgent · Agent — native tool-use engine
+  agents/        ← AgenticLoop · ReactAgent · Agent + events, permissions, subagents
   llm/           ← providers (Anthropic, OpenAI, OpenAI-compatible) + retry + tokens
-  tools/         ← Tool framework + 15 built-in tools (web_search, python_exec, …)
+  tools/         ← Tool framework + 15+ built-in tools (web_search, python_exec, …)
   rag/           ← ingestor · chunker · retriever · token-aware context builder
   vectorstores/  ← ChromaDB + in-memory store
   embeddings/    ← embedder protocol + backends
-  memory/        ← long-term distillation + semantic retrieval
   cache/         ← LLM response cache + embedding cache
   graph/
     engine/      ← DAG executor (standalone core primitive)
     workflow/    ← persisted Workflow packages (register, load, run)
-    builder/     ← conversational Architect (describe → design → build)
-  server/        ← OpenAI-compatible FastAPI gateway with SSE streaming + hooks
-  app/cli/       ← interactive REPL + scriptable subcommands
+  architect/     ← conversational Architect (describe → design → build workflows)
+  mcp/           ← Model Context Protocol client (connect external tool servers)
+  app/
+    server/      ← OpenAI-compatible FastAPI gateway with SSE streaming + hooks
+    cli/         ← interactive REPL + subcommands (serve · provider · doctor)
 ```
 
 ---
@@ -190,9 +192,9 @@ Licensed under the **Apache-2.0 License**. See [`LICENSE`](LICENSE).
 
 ```bibtex
 @software{neurosurfer,
-  author  = {Nauman HSA and Neurosurfer contributors},
+  author  = {Neurosurfer Team},
   title   = {Neurosurfer: A Production-Ready AI Agent Framework},
-  year    = {2025},
+  year    = {2026},
   url     = {https://github.com/NaumanHSA/neurosurfer},
   license = {Apache-2.0}
 }

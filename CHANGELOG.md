@@ -9,29 +9,65 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+---
+
+## [1.0.0] — 2026-07-01
+
+First stable release. Neurosurfer is now a full framework for building
+intelligent apps that blend LLM reasoning, tools, and retrieval — with a
+ready-to-run OpenAI-compatible gateway, a graph/workflow runtime, an MCP client,
+and an interactive CLI. The public API surface (`neurosurfer.agents`,
+`neurosurfer.llm`, `neurosurfer.tools`, `neurosurfer.rag`, `neurosurfer.graph`,
+`neurosurfer.architect`, `neurosurfer.mcp`, `neurosurfer.app.server`) is
+considered stable under semantic versioning from this release onward.
+
 ### Added
 
-- **Per-Task provider pinning** — `/task provider <name> <profile|default>`
-  (and a "Set provider" entry in the `/task` menu) lets a specific Task run on
-  a specific provider profile, independent of whichever one is globally
-  active — e.g. a fast local model for one Task, Claude for another. Stored in
-  a new `~/.neurosurfer/task_providers.json`, decoupled from the Task
-  registry so it works on protected `readonly`/`system` Tasks (`code`,
-  `general`) too. `/task show` lists the pin if one is set.
-- **Default-provider confirmation at REPL startup** — with a single configured
-  provider it's used directly; with 2+ and none explicitly confirmed yet, the
-  REPL asks once which is the default (`ProviderStore.confirmed_default`).
-  Answering it, or running `/provider use`, settles it for good.
+- **Agent family** — `AgenticLoop` (native multi-step tool-use), `ReactAgent`
+  (text-parsing ReAct for providers without a native tool-calling API), and
+  `Agent` (a single bounded call with optional tools / structured output), all
+  re-exported from `neurosurfer.agents`. Streaming is event-based
+  (`TextDelta`, `ThinkingDelta`, `ToolStarted`/`ToolFinished`, `TurnCompleted`,
+  `RunFinished`, …). Sub-agents (`SubAgentRunner`), permissions/guardrails
+  (`Permissions`, `PermissionMode`, `Guardrails`), and context management
+  (`ContextManager`, `DurableState`, auto-compaction) ship as shared primitives.
+- **Provider layer** — `Provider` protocol with native Anthropic and OpenAI
+  providers plus any OpenAI-compatible server (Ollama, LM Studio, vLLM,
+  llama.cpp); `build_provider`, capability introspection, unified retry, token
+  math, and canonical message/content/event types under `neurosurfer.llm`.
+- **Vision support** — image content blocks flow through the canonical types and
+  capable providers.
+- **Graph & Workflow runtime** — `neurosurfer.graph.engine` (`Graph`,
+  `GraphExecutor`, `GraphNode`, loader, errors) as a standalone DAG primitive,
+  and `neurosurfer.graph.workflow` for persisted multi-file Workflow packages
+  (load / validate / register / run).
+- **Architect** — `ArchitectBuilder` / `ArchitectConversation`: describe a
+  workflow in plain English and the Architect designs and builds a Workflow
+  package (including a deep tool-design pipeline for capability-aware tools).
+- **MCP client** — `neurosurfer.mcp` connects to Model Context Protocol servers
+  and exposes their tools to agents; managed via `/mcp` in the REPL.
+- **OpenAI-compatible gateway** — `NeurosurferServer` exposes `/v1/models`,
+  `/v1/chat/completions` (SSE streaming), and `/health`; register upstream
+  backends (`UpstreamBackend`) or native agents (`AgentBackend`); request/response
+  `Hook`s and a `ModelRouter`. Started with `neurosurfer serve` or embedded in
+  Python. Requires the `[serve]` extra.
+- **Interactive CLI** — a `prompt_toolkit` REPL with persistent chat, slash
+  commands, session reset, provider profiles (`~/.neurosurfer/providers.json`,
+  mode 0600), per-task provider pinning, and a live status line; plus
+  `neurosurfer serve`, `neurosurfer provider`, and `neurosurfer doctor`.
+- **Built-in tools** — 15+ tools including web search (DuckDuckGo/SerpAPI),
+  sandboxed Python execution, file ops, HTTP, a headless browser, and memory,
+  discoverable via `neurosurfer.tools` (`default_pool`).
 
 ### Changed
 
 - **Built-in task lineup** — the user-facing built-ins are now exactly **`code`**
-  and **`general`**. `code` is an interactive software-engineering agent
-  (explore, edit with targeted `apply_edit` snippets, run gated builds/tests,
-  use git/GitHub) operating in the working directory; `general` covers research,
-  writing, data, and light automation and redirects to `code` for substantial
-  coding work. Both are `readonly` (protected). `task_builder` remains hidden
-  (`system`).
+  (interactive software-engineering agent operating in the working directory)
+  and **`general`** (research, writing, data, light automation; redirects to
+  `code` for substantial coding work). Both are `readonly` (protected);
+  `task_builder` remains hidden (`system`).
+- **Owner identity** standardized to **Neurosurfer Team** across `pyproject.toml`,
+  `CITATION.cff`, and the README citation.
 
 ### Fixed
 
@@ -46,16 +82,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Removed
 
 - **`doc_gen` and `code_understanding` built-in tasks** — superseded by `code`.
-  The repository-ingestion engine (`tasks/ingest.py`) is retained for any task
-  declaring a `path_or_url` input.
-- **Cost estimation / budget rail** — `core/rails.py` (a hardcoded per-model USD
-  price table, `estimate_cost_usd`, `budget_exceeded`), `Guardrails.budget_usd`,
-  and `PolicyCeiling.allow_budget`/`max_budget_usd` are gone. neurosurfer never
+- **Cost estimation / budget rail** — the hardcoded per-model USD price table,
+  `estimate_cost_usd`/`budget_exceeded`, `Guardrails.budget_usd`, and
+  `PolicyCeiling.allow_budget`/`max_budget_usd` are gone. Neurosurfer never
   estimates or caps API spend; use your provider's own billing/usage dashboard.
-- **Automation / `serve`** — the entire `neurosurfer/automation/` package,
-  `automation_builder`, `register_automation`, `neurosurfer automation` and
-  `neurosurfer serve` CLI subcommands, and the `/automation`/`/serve` REPL slash
-  commands are removed.
+- **Legacy automation package** — the old `neurosurfer/automation/` package,
+  `automation_builder`, `register_automation`, and the `neurosurfer automation`
+  subcommand are removed. Workflow serving is now handled by the Graph/Workflow
+  runtime and the OpenAI-compatible gateway (`neurosurfer serve`).
 
 ---
 
@@ -129,5 +163,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   setup guide with recommended tool-calling models.
 - CI: ruff + mypy + pytest on every pull request.
 
+[1.0.0]: https://github.com/NaumanHSA/neurosurfer/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/NaumanHSA/neurosurfer/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/NaumanHSA/neurosurfer/releases/tag/v0.1.0

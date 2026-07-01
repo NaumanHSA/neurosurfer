@@ -4,19 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neurosurfer"
-version = "0.2.0"
+version = "1.0.0"
 description = "Build intelligent apps that blend LLM reasoning, tools, and retrieval — with a ready-to-run OpenAI-compatible gateway. CPU-only or GPU-accelerated."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Nauman HSA", email = "naumanhsa965@gmail.com" }]
+authors = [{ name = "Neurosurfer Team", email = "naumanhsa965@gmail.com" }]
+maintainers = [{ name = "Neurosurfer Team", email = "naumanhsa965@gmail.com" }]
 keywords = [
     "agent", "llm", "agentic", "rag", "anthropic", "openai", "claude",
     "ai-agent", "local-llm", "vllm", "ollama", "lm-studio", "tool-use",
     "openai-compatible", "fastapi", "cli", "neurosurfer",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
