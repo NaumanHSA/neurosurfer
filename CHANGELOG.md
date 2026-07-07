@@ -21,6 +21,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   unreachable exporter never breaks a run. Install with
   `pip install "neurosurfer[observability]"`. See the
   [Observability guide](guides/observability.md).
+- **Trace nesting + sessions.** A run started inside another run (a spawned
+  sub-agent) now nests under it as a child span in the same trace, via an ambient
+  trace context propagated across `await` and `asyncio.gather`. Agents accept a
+  `session_id` so all their runs group into one Langfuse session — the CLI sets one
+  per conversation (reset on `/clear`).
+
+### Fixed
+
+- **`.env` loader** now strips trailing inline comments on unquoted values
+  (`KEY=val   # note` → `val`), while preserving `#` inside quoted values. Prevents
+  a comment leaking into a value (e.g. a malformed `LANGFUSE_HOST`).
 
 ---
 

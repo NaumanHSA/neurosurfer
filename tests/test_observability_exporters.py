@@ -148,3 +148,61 @@ async def test_bad_exporter_never_breaks_the_run(tmp_path):
 def test_unknown_exporter_is_skipped_not_fatal():
     assert configure_exporters(["does-not-exist"]) == []
     assert get_active_exporters() == []
+
+
+# ── Phase 5: nesting + session grouping ─────────────────────────────────────
+@pytest.mark.asyncio
+async def test_run_nests_under_active_parent(tmp_path):
+    """A run started inside another run inherits its trace and nests under its span."""
+    from neurosurfer.observability.context import (
+        TraceContext,
+        pop_trace_context,
+        push_trace_context,
+    )
+
+    mem = MemoryExporter()
+    register_exporter(mem)
+
+    parent = TraceContext(session_id="sess-1", metadata={"agent_type": "Parent"})
+    token = push_trace_context(parent)              # simulate being inside a parent run
+    try:
+        agent = _oneshot(ScriptedProvider([("hi", [])]), tmp_path)
+        await agent.complete("x")
+    finally:
+        pop_trace_context(token)
+
+    rs = mem.of("run_start")[0]
+    assert rs["trace_id"] == parent.trace_id          # same trace
+    assert rs["parent_span_id"] == parent.span_id     # nested under the parent span
+    assert rs["span_id"] != parent.span_id            # its own span
+    assert rs["session_id"] == "sess-1"               # session inherited
+
+
+@pytest.mark.asyncio
+async def test_session_id_flows_to_trace(tmp_path):
+    mem = MemoryExporter()
+    register_exporter(mem)
+    agent = Agent(
+        provider=ScriptedProvider([("hi", [])]),
+        tools=default_pool(),
+        system_prompt="Answer.",
+        guardrails=Guardrails(write_scope=["**"]),
+        io=ScriptedIO(),
+        cwd=tmp_path,
+        session_id="conversation-42",
+    )
+    await agent.complete("x")
+    assert mem.of("run_start")[0]["session_id"] == "conversation-42"
+
+
+def test_context_var_isolated_after_run():
+    """The ambient trace context is cleared once a run's observer closes."""
+    from neurosurfer.observability.context import TraceContext, current_trace_context
+    from neurosurfer.observability.exporters.stream import TraceStreamObserver
+
+    assert current_trace_context() is None
+    obs = TraceStreamObserver(TraceContext(), [MemoryExporter()], model="m", name="r")
+    obs.start()
+    assert current_trace_context() is not None        # published while running
+    obs.close()
+    assert current_trace_context() is None             # cleared after close

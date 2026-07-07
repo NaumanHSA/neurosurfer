@@ -28,7 +28,17 @@ how you consume `agent.run(...)` changes; the mapping is:
 | a run | a **trace** (the root) |
 | one LLM turn | a **generation** — model + input/output tokens ⇒ cost |
 | a tool call (start→finish) | a **span** |
+| a spawned **sub-agent** | a nested **span** under the parent run (same trace) |
 | mode change / context compaction | a trace **event** |
+
+**Nesting.** A run started *inside* another run (a spawned sub-agent) automatically
+nests under it — one trace shows `parent → sub-agent → tool`, not disconnected
+top-level traces. This works because the active run publishes its trace context,
+which sub-agents inherit (across `await` and parallel `asyncio.gather` spawns alike).
+
+**Sessions.** Pass `session_id=` when constructing an agent and every run of that
+agent groups under one Langfuse **session** — the CLI does this per conversation, so
+a multi-message chat is one session (reset on `/clear`) instead of N stray traces.
 
 ## Turn it on (zero code)
 
@@ -42,6 +52,12 @@ export LANGFUSE_PUBLIC_KEY="pk-lf-..."
 export LANGFUSE_SECRET_KEY="sk-lf-..."
 export LANGFUSE_HOST="https://cloud.langfuse.com"   # or your self-hosted URL
 ```
+
+!!! tip "Pick the right region"
+    Langfuse Cloud runs **EU** (`https://cloud.langfuse.com`) and **US**
+    (`https://us.cloud.langfuse.com`) as separate instances. Keys from one region
+    return `401 Unauthorized` against the other — set `LANGFUSE_HOST` to match where
+    your project lives.
 
 ### OpenTelemetry
 
@@ -90,6 +106,7 @@ register_exporter(mem)
   resolves to no exporters; nothing to import, nothing to fail.
 
 !!! note "Graph & workflow nesting"
-    Standalone agent runs are fully traced today. Nesting a multi-node
-    [workflow](graph-workflows.md) into a single trace (node → agent → tool) is on
-    the roadmap.
+    Agent runs — including spawned **sub-agents** — nest into a single trace today.
+    Nesting a multi-node [workflow](graph-workflows.md) (graph node → agent → tool)
+    under one trace is the remaining step on the roadmap; the same trace-context
+    mechanism will carry it.

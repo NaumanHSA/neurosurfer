@@ -57,13 +57,17 @@ class OtelExporter(TraceExporter):
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
         self._provider = provider
         self._tracer = provider.get_tracer("neurosurfer")
-        # per-run state: trace_id → {"root": Span, "ctx": Context, "tools": {call_id: Span}}
+        # per-run state: span_id → {"root": Span, "ctx": Context, "tools": {call_id: Span}}
         self._runs: dict[str, dict[str, Any]] = {}
 
     # ── lifecycle ───────────────────────────────────────────────────────────
     def on_run_start(self, ctx: TraceContext, *, name: str, input: Any = None) -> None:
+        # Nest under the enclosing run's span (sub-agent / node), if any.
+        parent_run = self._runs.get(ctx.parent_span_id) if ctx.parent_span_id else None
+        parent_ctx = parent_run["ctx"] if parent_run else None
         root = self._tracer.start_span(
             name,
+            context=parent_ctx,
             attributes={
                 "gen_ai.operation.name": "agent",
                 "gen_ai.system": str(ctx.metadata.get("provider", "")),
@@ -72,13 +76,13 @@ class OtelExporter(TraceExporter):
                 **({"gen_ai.prompt": _short(input)} if input else {}),
             },
         )
-        parent_ctx = self._trace_api.set_span_in_context(root)
-        self._runs[ctx.trace_id] = {"root": root, "ctx": parent_ctx, "tools": {}}
+        child_ctx = self._trace_api.set_span_in_context(root)
+        self._runs[ctx.span_id] = {"root": root, "ctx": child_ctx, "tools": {}}
 
     def on_turn(
         self, ctx, *, usage: Usage, model, stop_reason, output=None
     ) -> None:
-        run = self._runs.get(ctx.trace_id)
+        run = self._runs.get(ctx.span_id)
         if run is None:
             return
         span = self._tracer.start_span(
@@ -96,7 +100,7 @@ class OtelExporter(TraceExporter):
         span.end()
 
     def on_tool_start(self, ctx, *, call_id, name, args) -> None:
-        run = self._runs.get(ctx.trace_id)
+        run = self._runs.get(ctx.span_id)
         if run is None:
             return
         span = self._tracer.start_span(
@@ -112,7 +116,7 @@ class OtelExporter(TraceExporter):
         run["tools"][call_id] = span
 
     def on_tool_finish(self, ctx, *, call_id, name, result: ToolResult, is_error) -> None:
-        run = self._runs.get(ctx.trace_id)
+        run = self._runs.get(ctx.span_id)
         if run is None:
             return
         span = run["tools"].pop(call_id, None)
@@ -126,13 +130,13 @@ class OtelExporter(TraceExporter):
         span.end()
 
     def on_event(self, ctx, *, kind, **data) -> None:
-        run = self._runs.get(ctx.trace_id)
+        run = self._runs.get(ctx.span_id)
         if run is None:
             return
         run["root"].add_event(kind, attributes={k: _short(v) for k, v in data.items()})
 
     def on_error(self, ctx, *, message) -> None:
-        run = self._runs.get(ctx.trace_id)
+        run = self._runs.get(ctx.span_id)
         if run is None:
             return
         from opentelemetry.trace import Status, StatusCode
@@ -141,7 +145,7 @@ class OtelExporter(TraceExporter):
         run["root"].record_exception(RuntimeError(message))
 
     def on_run_finish(self, ctx, *, status, output=None) -> None:
-        run = self._runs.pop(ctx.trace_id, None)
+        run = self._runs.pop(ctx.span_id, None)
         if run is None:
             return
         # End any tool spans left dangling by an early exit.

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from neurosurfer.config import DEFAULT_ANTHROPIC_MODEL, load_config
+from neurosurfer.config.base import load_dotenv
 
 
 def test_defaults_anthropic(monkeypatch):
@@ -35,3 +36,22 @@ def test_redacted_masks_keys(monkeypatch):
     cfg = load_config(env_file=Path("/nonexistent/.env"))
     red = cfg.redacted()
     assert "secret" not in str(red["anthropic_api_key"])
+
+
+def test_dotenv_strips_inline_comments_but_keeps_quoted_hashes(tmp_path, monkeypatch):
+    for k in ("A", "B", "C", "D"):
+        monkeypatch.delenv(k, raising=False)
+    env = tmp_path / ".env"
+    env.write_text(
+        "A=https://host.example.com     # trailing comment\n"
+        'B="value # not a comment"\n'
+        "C=has#nospace-kept\n"
+        "D=plain\n"
+    )
+    load_dotenv(env)
+    import os
+
+    assert os.environ["A"] == "https://host.example.com"   # inline comment stripped
+    assert os.environ["B"] == "value # not a comment"       # quoted '#' preserved
+    assert os.environ["C"] == "has#nospace-kept"            # '#' with no space kept
+    assert os.environ["D"] == "plain"

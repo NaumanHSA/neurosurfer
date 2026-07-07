@@ -90,10 +90,10 @@ def build_assistant(ctx: CLIContext, *, plan_mode: bool = False):
     # Import propose_workflow so its register_tool_factory side-effect fires and
     # the tool appears in default_pool().
     import neurosurfer.app.tools.propose_workflow  # noqa: F401
-
     from neurosurfer.agents.agentic_loop import AgenticLoop
     from neurosurfer.agents.runtime.permissions import Guardrails
     from neurosurfer.llm.registry import resolve_provider
+    from neurosurfer.observability.transcript import new_run_id
     from neurosurfer.tools.registry import default_pool
 
     from .io import RichIOHandler
@@ -122,6 +122,9 @@ def build_assistant(ctx: CLIContext, *, plan_mode: bool = False):
         cwd=Path.cwd(),
         mode="plan" if plan_mode else "default",
         verbose=False,
+        # One session per conversation → the CLI's messages group as a single
+        # Langfuse session (reset on /clear via clear_assistant()).
+        session_id=new_run_id(),
     ), io
 
 

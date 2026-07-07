@@ -35,25 +35,43 @@ class LangfuseExporter(TraceExporter):
 
         self._service_name = service_name
         self._client = Langfuse()  # reads LANGFUSE_* from the environment
-        # trace_id → trace handle; call_id → span handle (tools in flight).
-        self._traces: dict[str, Any] = {}
+        # span_id → (kind, handle): the run's own handle. kind is "trace" (root)
+        # or "span" (a sub-agent nested under its parent). call_id → tool span.
+        self._runs: dict[str, tuple[str, Any]] = {}
         self._spans: dict[str, Any] = {}
+
+    def _handle(self, ctx: TraceContext):
+        entry = self._runs.get(ctx.span_id)
+        return entry[1] if entry else None
 
     # ── lifecycle ───────────────────────────────────────────────────────────
     def on_run_start(self, ctx: TraceContext, *, name: str, input: Any = None) -> None:
-        self._traces[ctx.trace_id] = self._client.trace(
-            id=ctx.trace_id,
-            name=name,
-            session_id=ctx.session_id,
-            input=input,
-            metadata={"service": self._service_name, **ctx.metadata},
-        )
+        parent = self._runs.get(ctx.parent_span_id) if ctx.parent_span_id else None
+        if parent is not None:
+            # Nested run (sub-agent / node): a span under the parent's handle,
+            # sharing the same trace.
+            handle = parent[1].span(
+                id=ctx.span_id,
+                name=name,
+                input=input,
+                metadata={"service": self._service_name, **ctx.metadata},
+            )
+            self._runs[ctx.span_id] = ("span", handle)
+        else:
+            handle = self._client.trace(
+                id=ctx.trace_id,
+                name=name,
+                session_id=ctx.session_id,
+                input=input,
+                metadata={"service": self._service_name, **ctx.metadata},
+            )
+            self._runs[ctx.span_id] = ("trace", handle)
 
     def on_turn(self, ctx, *, usage: Usage, model, stop_reason, output=None) -> None:
-        trace = self._traces.get(ctx.trace_id)
-        if trace is None:
+        handle = self._handle(ctx)
+        if handle is None:
             return
-        trace.generation(
+        handle.generation(
             name="llm-turn",
             model=model,
             usage={
@@ -66,10 +84,10 @@ class LangfuseExporter(TraceExporter):
         )
 
     def on_tool_start(self, ctx, *, call_id, name, args) -> None:
-        trace = self._traces.get(ctx.trace_id)
-        if trace is None:
+        handle = self._handle(ctx)
+        if handle is None:
             return
-        self._spans[call_id] = trace.span(name=f"tool:{name}", input=args)
+        self._spans[call_id] = handle.span(name=f"tool:{name}", input=args)
 
     def on_tool_finish(self, ctx, *, call_id, name, result: ToolResult, is_error) -> None:
         span = self._spans.pop(call_id, None)
@@ -82,28 +100,25 @@ class LangfuseExporter(TraceExporter):
         )
 
     def on_event(self, ctx, *, kind, **data) -> None:
-        trace = self._traces.get(ctx.trace_id)
-        if trace is None:
+        handle = self._handle(ctx)
+        if handle is None:
             return
-        trace.event(name=kind, metadata=data)
+        handle.event(name=kind, metadata=data)
 
     def on_error(self, ctx, *, message) -> None:
-        trace = self._traces.get(ctx.trace_id)
-        if trace is None:
-            return
-        trace.update(output={"error": message})
+        handle = self._handle(ctx)
+        if handle is not None:
+            handle.update(output={"error": message})
 
     def on_run_finish(self, ctx, *, status, output=None) -> None:
-        trace = self._traces.pop(ctx.trace_id, None)
-        if trace is None:
+        entry = self._runs.pop(ctx.span_id, None)
+        if entry is None:
             return
-        # Close any tool spans left dangling by an early exit.
-        for call_id in [cid for cid, sp in self._spans.items() if sp is not None]:
-            try:
-                self._spans.pop(call_id).end()
-            except Exception:  # noqa: BLE001
-                pass
-        trace.update(output=output, metadata={"status": status})
+        kind, handle = entry
+        if kind == "span":
+            handle.end(output=output, metadata={"status": status})
+        else:
+            handle.update(output=output, metadata={"status": status})
 
     def flush(self) -> None:
         try:

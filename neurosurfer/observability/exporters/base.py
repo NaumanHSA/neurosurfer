@@ -106,12 +106,21 @@ class MemoryExporter(TraceExporter):
         self.calls.append((hook, payload))
 
     def on_run_start(self, ctx, *, name, input=None):
-        self._rec("run_start", trace_id=ctx.trace_id, name=name, input=input)
+        self._rec(
+            "run_start",
+            trace_id=ctx.trace_id,
+            span_id=ctx.span_id,
+            parent_span_id=ctx.parent_span_id,
+            session_id=ctx.session_id,
+            name=name,
+            input=input,
+        )
 
     def on_turn(self, ctx, *, usage, model, stop_reason, output=None):
         self._rec(
             "turn",
             trace_id=ctx.trace_id,
+            span_id=ctx.span_id,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             model=model,

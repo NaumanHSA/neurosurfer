@@ -20,7 +20,16 @@ def load_dotenv(path: Path) -> None:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        value = value.strip()
+        # Quoted value: take it verbatim (a '#' inside quotes is data, not a comment).
+        if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+            value = value[1:-1]
+        else:
+            # Unquoted: strip a trailing inline comment (" # ...") like standard dotenv,
+            # so `KEY=val   # note` yields `val`, not `val   # note`.
+            hash_idx = value.find(" #")
+            if hash_idx != -1:
+                value = value[:hash_idx].rstrip()
         if key and key not in os.environ:
             os.environ[key] = value
 

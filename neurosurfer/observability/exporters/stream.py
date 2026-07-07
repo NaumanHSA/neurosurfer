@@ -23,6 +23,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from neurosurfer.agents.conversation import events
+from neurosurfer.observability.context import pop_trace_context, push_trace_context
 
 if TYPE_CHECKING:
     from neurosurfer.observability.context import TraceContext
@@ -49,6 +50,7 @@ class TraceStreamObserver:
         self._turn_answer: list[str] = []   # current turn's answer text
         self._status: str | None = None
         self._started = False
+        self._cv_token = None               # contextvar token for nesting
 
     # ── fan-out helper ──────────────────────────────────────────────────────
     def _fan(self, hook: str, **kw) -> None:
@@ -61,6 +63,9 @@ class TraceStreamObserver:
     # ── lifecycle ───────────────────────────────────────────────────────────
     def start(self, *, input: str | None = None) -> None:
         self._started = True
+        # Publish this run as the current context so sub-agents / node agents that
+        # start inside it nest under this run's span.
+        self._cv_token = push_trace_context(self._ctx)
         self._fan("on_run_start", name=self._name, input=input)
 
     def handle(self, ev: events.Event) -> None:
@@ -110,6 +115,12 @@ class TraceStreamObserver:
         """Close the trace and flush exporters. Safe to call once per run."""
         if not self._started:
             return
+        if self._cv_token is not None:
+            try:
+                pop_trace_context(self._cv_token)
+            except Exception:  # noqa: BLE001 — token from a different context, ignore
+                pass
+            self._cv_token = None
         self._fan(
             "on_run_finish",
             status=self._status or "completed",

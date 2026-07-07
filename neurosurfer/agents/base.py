@@ -23,7 +23,7 @@ from neurosurfer.agents.runtime.permissions import Guardrails, PermissionMode, P
 from neurosurfer.agents.trace import AgentTrace
 from neurosurfer.llm import types as lt
 from neurosurfer.llm.base import Provider
-from neurosurfer.observability.context import TraceContext
+from neurosurfer.observability.context import TraceContext, current_trace_context
 from neurosurfer.observability.exporters import get_active_exporters
 from neurosurfer.observability.exporters.stream import TraceStreamObserver
 from neurosurfer.tools.base import (
@@ -79,6 +79,7 @@ class BaseAgent:
         depth: int = 0,
         persist_scope: Callable[[str], None] | None = None,
         verbose: bool = True,
+        session_id: str | None = None,
     ):
         self.provider = provider
         self.tools = tools
@@ -96,6 +97,9 @@ class BaseAgent:
         self.durable = durable
         self.depth = depth
         self.context_manager = context_manager
+        # Optional grouping id: all runs of this agent share it, so a multi-message
+        # CLI conversation appears as one Langfuse *session* instead of N traces.
+        self.session_id = session_id
         # When True, the agent renders a live activity trace (animated spinner +
         # tool lines) as events flow past — so a caller that only handles ``TextDelta``
         # still sees the agent working. Front-ends with their own renderer (the CLI,
@@ -208,18 +212,26 @@ class BaseAgent:
                 observer.close()
 
     def _make_trace_observer(self) -> TraceStreamObserver | None:
-        """A per-run trace observer if any exporter is active, else ``None`` (no overhead)."""
+        """A per-run trace observer if any exporter is active, else ``None`` (no overhead).
+
+        If this run starts *inside* another traced run (a spawned sub-agent, or a
+        graph node's agent), it inherits that run's trace and nests under its span;
+        otherwise it opens a fresh top-level trace.
+        """
         exporters = get_active_exporters()
         if not exporters:
             return None
         model = getattr(self.provider, "model", None)
-        ctx = TraceContext(
-            metadata={
-                "agent_type": type(self).__name__,
-                "provider": type(self.provider).__name__,
-                "model": model,
-            }
-        )
+        meta = {
+            "agent_type": type(self).__name__,
+            "provider": type(self.provider).__name__,
+            "model": model,
+        }
+        parent = current_trace_context()
+        if parent is not None:
+            ctx = parent.child(metadata={**parent.metadata, **meta})
+        else:
+            ctx = TraceContext(session_id=self.session_id, metadata=meta)
         return TraceStreamObserver(
             ctx, exporters, model=model, name=f"{type(self).__name__}.run"
         )
