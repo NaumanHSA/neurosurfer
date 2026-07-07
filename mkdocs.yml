@@ -129,6 +129,7 @@ nav:
     - Graph & Workflows: guides/graph-workflows.md
     - Architect: guides/architect.md
     - MCP: guides/mcp.md
+    - Observability: guides/observability.md
   - Server:
     - server/index.md
     - Backends: server/backends.md

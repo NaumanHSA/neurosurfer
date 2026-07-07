@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .base import env_int, load_dotenv
 from .llm import DEFAULT_ANTHROPIC_MODEL, DEFAULT_CONTEXT_WINDOW, LLMConfig
-from .observability import ObservabilityConfig
+from .observability import ObservabilityConfig, detect_exporters_from_env
 from .projects import ProjectsConfig
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "load_config",
     "LLMConfig",
     "ObservabilityConfig",
+    "detect_exporters_from_env",
     "ProjectsConfig",
     "DEFAULT_ANTHROPIC_MODEL",
     "DEFAULT_CONTEXT_WINDOW",
@@ -92,6 +93,8 @@ def load_config(env_file: Path | None = None) -> Config:
         ),
         observability=ObservabilityConfig(
             log_level=os.environ.get("NEUROSURFER_LOG_LEVEL", "INFO").strip().upper(),
+            exporters=detect_exporters_from_env(),
+            service_name=os.environ.get("NEUROSURFER_SERVICE_NAME", "neurosurfer").strip(),
         ),
     )
     if state_dir:

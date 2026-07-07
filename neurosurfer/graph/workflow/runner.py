@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from neurosurfer.graph.engine import GraphExecutionResult, GraphExecutor, InputValidationError
 from neurosurfer.llm.base import Provider
-from neurosurfer.tools.base import ToolContext, ToolPool
+from neurosurfer.tools.base import BaseIOHandler, ToolContext, ToolPool, WriteChoice
 from neurosurfer.tools.registry import all_tools
 
 from .package import WorkflowPackage, _PackagePathContext
@@ -195,23 +195,18 @@ def run_workflow(
 
 # ── internal helpers ──────────────────────────────────────────────────────────
 
+class _HeadlessIO(BaseIOHandler):
+    """Non-interactive workflow IO: no human present, so *deny* anything that
+    would otherwise prompt (shell, out-of-scope writes) rather than silently
+    auto-approving. Everything else inherits the base defaults."""
+
+    async def request_shell_approval(self, command: str, reason: str) -> bool:
+        return False
+
+    async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
+        return "deny"
+
+
 def _make_tool_context(cwd: Path) -> ToolContext:
     """Minimal ToolContext for non-interactive workflow execution."""
-
-    class _HeadlessIO:
-        async def ask(self, question: str, options: Any = None) -> str:
-            return ""
-
-        async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
-            return (True, "")
-
-        async def request_shell_approval(self, command: str, reason: str) -> bool:
-            return False
-
-        async def request_write_approval(self, path: str, summary: str) -> Literal["always", "once", "deny"]:
-            return "deny"
-
-        def notify(self, message: str) -> None:
-            pass
-
     return ToolContext(cwd=cwd, io=_HeadlessIO())

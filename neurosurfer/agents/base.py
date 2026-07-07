@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Union
 
 from neurosurfer.agents.conversation import events
 from neurosurfer.agents.conversation.messages import MessageHistory
@@ -23,7 +23,35 @@ from neurosurfer.agents.runtime.permissions import Guardrails, PermissionMode, P
 from neurosurfer.agents.trace import AgentTrace
 from neurosurfer.llm import types as lt
 from neurosurfer.llm.base import Provider
-from neurosurfer.tools.base import IOHandler, SpawnFn, ToolContext, ToolPool
+from neurosurfer.observability.context import TraceContext
+from neurosurfer.observability.exporters import get_active_exporters
+from neurosurfer.observability.exporters.stream import TraceStreamObserver
+from neurosurfer.tools.base import (
+    AutoApproveIOHandler,
+    IOHandler,
+    SpawnFn,
+    TerminalIOHandler,
+    ToolContext,
+    ToolPool,
+)
+
+# How a gated tool (shell / write / network / plan) gets its yes-or-no:
+#   "auto" → approve everything, never block (the zero-config default)
+#   "ask"  → prompt the human on stdin (terminal or notebook)
+#   an IOHandler instance → your own approval UI (CLI, server, web, …)
+Approval = Union[Literal["auto", "ask"], IOHandler]
+
+
+def _resolve_io(approval: Approval) -> IOHandler:
+    if isinstance(approval, str):
+        if approval == "auto":
+            return AutoApproveIOHandler()
+        if approval == "ask":
+            return TerminalIOHandler()
+        raise ValueError(
+            f"approval must be 'auto', 'ask', or an IOHandler — got {approval!r}"
+        )
+    return approval  # already an IOHandler
 
 if TYPE_CHECKING:
     from neurosurfer.agents.context.durable_state import DurableState
@@ -40,8 +68,9 @@ class BaseAgent:
         tools: ToolPool,
         system_prompt: str,
         guardrails: Guardrails,
-        io: IOHandler,
-        cwd: Path,
+        approval: Approval = "auto",
+        io: IOHandler | None = None,
+        cwd: Path | None = None,
         gen_config: lt.GenerationConfig | None = None,
         mode: PermissionMode = "default",
         durable: DurableState | None = None,
@@ -55,7 +84,10 @@ class BaseAgent:
         self.tools = tools
         self.system_prompt = system_prompt
         self.guardrails = guardrails
-        self.io = io
+        # ``io`` (an explicit handler) always wins for back-compat; otherwise the
+        # friendly ``approval`` preset picks one so callers never hand-write a handler.
+        self.io = io if io is not None else _resolve_io(approval)
+        cwd = cwd if cwd is not None else Path.cwd()
         self.cwd = cwd
         self.gen_config = gen_config or lt.GenerationConfig(
             max_tokens=provider.capabilities.max_output_tokens
@@ -135,7 +167,7 @@ class BaseAgent:
         emit the activity trace (see :attr:`verbose`). Events are passed through
         unchanged, so consuming them is identical whether ``verbose`` is on or off.
         """
-        async for ev in self._tap(self._run(user_input)):
+        async for ev in self._tap(self._run(user_input), user_input=user_input):
             yield ev
 
     async def _run(self, user_input: str) -> AsyncIterator[events.Event]:
@@ -144,25 +176,53 @@ class BaseAgent:
         yield  # pragma: no cover — makes this an async generator for typing
 
     async def _tap(
-        self, stream: AsyncIterator[events.Event]
+        self, stream: AsyncIterator[events.Event], *, user_input: str = ""
     ) -> AsyncIterator[events.Event]:
-        """Yield every event untouched, driving the live activity trace alongside it.
+        """Yield every event untouched, driving side-channel observers alongside it.
 
         Independent of how the caller consumes the events: even a minimal
         ``async for ev in agent.run(task)`` that only handles ``TextDelta`` still shows
-        the animated thinking/tool spinner when ``verbose`` is set. A fresh
-        :class:`~neurosurfer.agents.trace.AgentTrace` is created per run and always
-        torn down (the spinner must not outlive the stream).
+        the animated thinking/tool spinner when ``verbose`` is set, and still ships a
+        trace to any configured backend (Langfuse / OTel). Both observers are created
+        per run and always torn down (they must not outlive the stream).
         """
         trace = AgentTrace() if self.verbose else None
+        observer = self._make_trace_observer()
+        if observer is not None:
+            observer.start(input=user_input or None)
         try:
             async for ev in stream:
                 if trace is not None:
                     trace.handle(ev)
+                if observer is not None:
+                    observer.handle(ev)
                 yield ev
+        except BaseException as exc:  # noqa: BLE001 — record then re-raise
+            if observer is not None:
+                observer.on_run_exception(exc)
+            raise
         finally:
             if trace is not None:
                 trace.close()
+            if observer is not None:
+                observer.close()
+
+    def _make_trace_observer(self) -> TraceStreamObserver | None:
+        """A per-run trace observer if any exporter is active, else ``None`` (no overhead)."""
+        exporters = get_active_exporters()
+        if not exporters:
+            return None
+        model = getattr(self.provider, "model", None)
+        ctx = TraceContext(
+            metadata={
+                "agent_type": type(self).__name__,
+                "provider": type(self.provider).__name__,
+                "model": model,
+            }
+        )
+        return TraceStreamObserver(
+            ctx, exporters, model=model, name=f"{type(self).__name__}.run"
+        )
 
     async def run_collect(self, user_input: str) -> events.RunResult:
         """Drive :meth:`run` to completion and collect a :class:`RunResult`."""

@@ -95,6 +95,11 @@ serve = [
 mcp = [
     "mcp>=1.2",                  # Model Context Protocol client/server SDK
 ]
+observability = [
+    "langfuse>=2.0,<3",                    # native LLM-observability backend (traces, cost, evals)
+    "opentelemetry-sdk>=1.20",             # vendor-neutral tracing substrate
+    "opentelemetry-exporter-otlp>=1.20",   # OTLP export → Phoenix / Grafana / Datadog / Langfuse
+]
 
 [project.urls]
 Homepage = "https://github.com/NaumanHSA/neurosurfer"

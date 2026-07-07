@@ -9,6 +9,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Observability: pluggable trace exporters.** Agent runs can now be shipped to an
+  external monitoring backend — **Langfuse** (traces, token cost, sessions) and
+  **OpenTelemetry** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog /
+  Langfuse). A side-channel observer on the agent event stream maps runs → traces,
+  LLM turns → generations (with token usage), and tool calls → spans. Auto-on from
+  the environment (`LANGFUSE_*` / `OTEL_EXPORTER_OTLP_ENDPOINT`), or configure in code
+  via `neurosurfer.observability.exporters`. Zero overhead when unconfigured; a bad or
+  unreachable exporter never breaks a run. Install with
+  `pip install "neurosurfer[observability]"`. See the
+  [Observability guide](guides/observability.md).
+
 ---
 
 ## [1.0.0] — 2026-07-01

@@ -61,7 +61,12 @@ class ToolResult:
 # IO + context
 # ──────────────────────────────────────────────────────────────────────────────
 class IOHandler(Protocol):
-    """How tools talk to the human (or a scripted test driver)."""
+    """How tools talk to the human (or a scripted test driver).
+
+    This is the *structural* type used for annotations. To implement one, subclass
+    :class:`BaseIOHandler` (below) so new hooks land with a default and your
+    handler never breaks when the protocol grows.
+    """
 
     async def ask(self, question: str, options: list[str] | None = None) -> str: ...
 
@@ -72,6 +77,82 @@ class IOHandler(Protocol):
     async def request_write_approval(self, path: str, summary: str) -> WriteChoice: ...
 
     def notify(self, message: str) -> None: ...
+
+
+class BaseIOHandler:
+    """Concrete :class:`IOHandler` whose every hook auto-approves.
+
+    This is the base you subclass to customise approvals: override only the hooks
+    you care about. Because the defaults live here, a new method added to the
+    protocol lands with a sensible default and existing handlers keep working —
+    no more re-implementing five methods just to run unattended.
+    """
+
+    async def ask(self, question: str, options: list[str] | None = None) -> str:
+        return ""
+
+    async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
+        return (True, "")
+
+    async def request_shell_approval(self, command: str, reason: str) -> bool:
+        return True
+
+    async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
+        return "once"
+
+    def notify(self, message: str) -> None:
+        pass
+
+
+# ``approval="auto"`` resolves to this — the zero-config default: run to
+# completion, never block for a human. Named for intent at call sites.
+AutoApproveIOHandler = BaseIOHandler
+
+
+class TerminalIOHandler(BaseIOHandler):
+    """Interactive handler that prompts on stdin — works in a terminal *and* a
+    notebook. Selected via ``approval="ask"``.
+
+    Blocks for a human decision at each gated step: y/N for shell & network,
+    once/always/deny for out-of-scope writes, and a free-text reply (or plan
+    feedback) otherwise. Uses ``input()`` on a worker thread so the event loop
+    keeps turning while it waits.
+    """
+
+    async def _prompt(self, text: str) -> str:
+        import asyncio
+
+        return (await asyncio.to_thread(input, text)).strip()
+
+    async def ask(self, question: str, options: list[str] | None = None) -> str:
+        suffix = f"\n   options: {' / '.join(options)}" if options else ""
+        return await self._prompt(f"\n❓ {question}{suffix}\n> ")
+
+    async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
+        print(f"\n📋 Plan proposed:\n{plan}")
+        answer = await self._prompt("Approve? [Y]es / type feedback to revise > ")
+        if answer.lower() in {"y", "yes", ""}:
+            return (True, "")
+        return (False, answer)
+
+    async def request_shell_approval(self, command: str, reason: str) -> bool:
+        answer = await self._prompt(f"\n⚠️  Allow: {command}\n   ({reason}) [y/N] > ")
+        return answer.lower() in {"y", "yes"}
+
+    async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
+        answer = (
+            await self._prompt(
+                f"\n✏️  Write {path}\n   {summary}\n   [o]nce / [a]lways / [d]eny > "
+            )
+        ).lower()
+        if answer in {"a", "always"}:
+            return "always"
+        if answer in {"o", "once", "y", "yes"}:
+            return "once"
+        return "deny"
+
+    def notify(self, message: str) -> None:
+        print(message)
 
 
 @dataclass

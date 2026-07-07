@@ -436,15 +436,8 @@ def main():
                 if isinstance(ns.get("ARGS"), dict):
                     test_args = ns["ARGS"]
 
-            class _IO:
-                async def ask(self, *a, **k): return ""
-                async def request_plan_approval(self, *a, **k): return (True, "")
-                async def request_shell_approval(self, *a, **k): return True
-                async def request_write_approval(self, *a, **k): return "once"
-                def notify(self, *a, **k): pass
-
-            from neurosurfer.tools.base import ToolContext, ToolResult
-            ctx = ToolContext(cwd=Path(os.getcwd()), io=_IO())
+            from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext, ToolResult
+            ctx = ToolContext(cwd=Path(os.getcwd()), io=AutoApproveIOHandler())
             args_obj = inst.input_model(**test_args)
             res = asyncio.run(inst.call(args_obj, ctx))
         except Exception as exc:  # noqa: BLE001

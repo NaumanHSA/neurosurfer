@@ -21,7 +21,7 @@ from neurosurfer.agents.react import ReactAgent
 from neurosurfer.agents.runtime.permissions import Guardrails
 from neurosurfer.llm.base import Provider
 from neurosurfer.llm.types import GenerationConfig
-from neurosurfer.tools.base import ToolContext, ToolPool
+from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext, ToolPool
 
 # ── async→sync bridge ────────────────────────────────────────────────────────
 
@@ -53,24 +53,8 @@ def run_coro_blocking(coro: Any) -> Any:
 
 
 # ── headless IO for workflow nodes ────────────────────────────────────────────
-
-class _HeadlessIO:
-    """Non-interactive IO: auto-approves everything; no prompts."""
-
-    async def ask(self, question: str, options: list[str] | None = None) -> str:
-        return ""
-
-    async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
-        return (True, "")
-
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
-        return True
-
-    async def request_write_approval(self, path: str, summary: str) -> str:
-        return "always"
-
-    def notify(self, message: str) -> None:
-        pass
+# Non-interactive nodes run unattended, so they auto-approve every gated step.
+_HeadlessIO = AutoApproveIOHandler
 
 
 _WORKFLOW_GUARDRAILS = Guardrails(

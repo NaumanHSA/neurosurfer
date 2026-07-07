@@ -161,6 +161,59 @@ def repair_json_args(raw: str) -> tuple[dict[str, Any], bool]:
     return {}, False
 
 
+_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
+_FN_NAME_RE = re.compile(r"<function\s*=\s*([^>\s]+)\s*>", re.DOTALL)
+_FN_PARAM_RE = re.compile(r"<parameter\s*=\s*([^>\s]+)\s*>(.*?)</parameter>", re.DOTALL)
+
+
+def _coerce_param(raw: str) -> Any:
+    """Best-effort typing of a hermes ``<parameter>`` value (JSON scalar or string)."""
+    raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def _parse_inline_tool_call(body: str) -> tuple[str, dict[str, Any]] | None:
+    """Parse one ``<tool_call>`` body into ``(name, args)``.
+
+    Handles the two shapes weak local models emit as text: a JSON object
+    (``{"name": ..., "arguments": {...}}``) and the hermes XML form
+    (``<function=name><parameter=k>v</parameter></function>``).
+    """
+    body = body.strip()
+    fn = _FN_NAME_RE.search(body)
+    if fn:
+        args = {k: _coerce_param(v) for k, v in _FN_PARAM_RE.findall(body)}
+        return fn.group(1), args
+    parsed, ok = repair_json_args(body)
+    if ok and isinstance(parsed.get("name"), str):
+        raw_args = parsed.get("arguments", parsed.get("parameters", {}))
+        return parsed["name"], raw_args if isinstance(raw_args, dict) else {}
+    return None
+
+
+def recover_inline_tool_calls(channel: str) -> tuple[list[ToolUseBlock], str]:
+    """Extract ``<tool_call>`` markup that leaked into a text/reasoning channel.
+
+    Some servers (LM Studio + Qwen, …) fail to hoist a model's tool call out of
+    its content or ``reasoning_content`` into the OpenAI ``tool_calls`` field, so
+    the call arrives as raw text and the turn looks like an empty final answer.
+    Returns the recovered blocks and the channel text with that markup stripped.
+    """
+    blocks: list[ToolUseBlock] = []
+    for i, match in enumerate(_TOOL_CALL_RE.finditer(channel)):
+        parsed = _parse_inline_tool_call(match.group(1))
+        if parsed is not None:
+            name, args = parsed
+            blocks.append(ToolUseBlock(id=f"call_inline_{i}", name=name, input=args))
+    if blocks:
+        channel = _TOOL_CALL_RE.sub("", channel).strip()
+        log.warning("recovered %d tool call(s) leaked into text channel", len(blocks))
+    return blocks, channel
+
+
 class _ToolCallAccumulator:
     """Reassembles streamed tool_call fragments keyed by stream index."""
 
@@ -324,11 +377,18 @@ class OpenAICompatProvider(Provider):
                 )
 
         tool_blocks = accumulator.finalize(self.strict_tools)
-        out_content: list[ContentBlock] = []
         thinking = "".join(thinking_buf)
+        text = "".join(text_buf)
+        # Recover tool calls the server left as raw <tool_call> markup in the text
+        # or reasoning channel instead of the native `tool_calls` field — without
+        # this the turn looks like an empty final answer and the agent loop stalls.
+        if not tool_blocks:
+            recovered_text, text = recover_inline_tool_calls(text)
+            recovered_think, thinking = recover_inline_tool_calls(thinking)
+            tool_blocks = recovered_text + recovered_think
+        out_content: list[ContentBlock] = []
         if thinking:
             out_content.append(ThinkingBlock(thinking=thinking))
-        text = "".join(text_buf)
         if text:
             out_content.append(TextBlock(text=text))
         out_content.extend(tool_blocks)

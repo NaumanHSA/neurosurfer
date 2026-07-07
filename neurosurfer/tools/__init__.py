@@ -7,8 +7,11 @@ all selected schemas are sent every turn (no deferred/ToolSearch indirection).
 from __future__ import annotations
 
 from .base import (
+    AutoApproveIOHandler,
+    BaseIOHandler,
     FileState,
     IOHandler,
+    TerminalIOHandler,
     Tool,
     ToolContext,
     ToolPool,
@@ -22,6 +25,9 @@ __all__ = [
     "ToolResult",
     "ToolContext",
     "IOHandler",
+    "BaseIOHandler",
+    "AutoApproveIOHandler",
+    "TerminalIOHandler",
     "FileState",
     "all_tools",
     "default_pool",
