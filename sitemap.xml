@@ -2,66 +2,70 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/changelog/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/cli/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/contributing/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/getting-started/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/tutorials/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/agents/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/architect/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/graph-workflows/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/mcp/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
+    </url>
+    <url>
+         <loc>https://NaumanHSA.github.io/neurosurfer/guides/observability/</loc>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/providers/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/rag/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/tools/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/server/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/server/backends/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/server/hooks/</loc>
-         <lastmod>2026-07-01</lastmod>
+         <lastmod>2026-07-07</lastmod>
     </url>
 </urlset>
