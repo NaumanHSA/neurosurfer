@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -11,6 +12,7 @@ from pydantic import BaseModel as PydModel
 # Native-stack (R3+R4)
 from neurosurfer.llm.base import Provider
 from neurosurfer.llm.types import GenerationConfig
+from neurosurfer.observability.run import traced_run
 from neurosurfer.tools.base import ToolContext, ToolPool
 from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
 
@@ -189,15 +191,27 @@ class GraphExecutor:
                     if not past.skipped and past.raw_output is not None:
                         prev_result = past.raw_output
                         break
-                return self._run_node(
-                    node=node,
-                    graph_inputs=graph_inputs,
-                    dependency_results=dep_results,
-                    previous_result=prev_result,
-                    manager_temperature=manager_temperature,
-                    manager_max_new_tokens=manager_max_new_tokens,
-                    trace_step=trace_step,
-                )
+                # One trace span per node: makes non-agent (function/tool) nodes
+                # visible and nests each node's agent under its *node* row. Pushes an
+                # ambient TraceContext the node agent inherits (across threads too,
+                # via the copy_context() used for parallel/timeout nodes).
+                with traced_run(
+                    f"node:{node.id}",
+                    metadata={"node_id": node.id, "kind": node.kind, "mode": node.mode},
+                    flush=False,
+                ) as span:
+                    result = self._run_node(
+                        node=node,
+                        graph_inputs=graph_inputs,
+                        dependency_results=dep_results,
+                        previous_result=prev_result,
+                        manager_temperature=manager_temperature,
+                        manager_max_new_tokens=manager_max_new_tokens,
+                        trace_step=trace_step,
+                    )
+                    if span is not None and result.error and not result.skipped:
+                        span.error(result.error)
+                    return result
 
             if self.parallelism == 1 or len(to_run) == 1:
                 for nid in to_run:
@@ -219,7 +233,14 @@ class GraphExecutor:
                 for nid in to_run:
                     _emit(nid, "start")
                 with ThreadPoolExecutor(max_workers=min(self.parallelism, len(to_run))) as pool:
-                    futures: Dict[str, Future] = {nid: pool.submit(_execute_one, nid) for nid in to_run}
+                    # Each worker thread runs inside a *fresh* copy of the current
+                    # context so the ambient observability TraceContext propagates and
+                    # parallel node agents nest under the workflow trace. One snapshot
+                    # per node — a Context can't be entered by two threads at once.
+                    futures: Dict[str, Future] = {
+                        nid: pool.submit(copy_context().run, _execute_one, nid)
+                        for nid in to_run
+                    }
                     for nid, fut in futures.items():
                         try:
                             result = fut.result()
@@ -458,7 +479,9 @@ class GraphExecutor:
         try:
             if timeout_s is not None:
                 with ThreadPoolExecutor(max_workers=1) as _pool:
-                    _fut = _pool.submit(_execute)
+                    # Carry the ambient context (observability TraceContext) into the
+                    # timeout worker so the node agent still nests under the workflow.
+                    _fut = _pool.submit(copy_context().run, _execute)
                     try:
                         raw = _fut.result(timeout=timeout_s)
                     except FuturesTimeout:

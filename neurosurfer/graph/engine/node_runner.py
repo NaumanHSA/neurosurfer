@@ -11,6 +11,7 @@ supplied to the executor.  Replaces the vendored _runtime Agent / ReActAgent.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import threading
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,11 @@ def run_coro_blocking(coro: Any) -> Any:
 
     Uses asyncio.run() when no loop is running; otherwise spawns a fresh
     daemon thread with its own loop to avoid "loop already running" errors.
+
+    The thread inherits a snapshot of the caller's ``contextvars`` (via
+    :func:`contextvars.copy_context`) so ambient state — notably the
+    observability :class:`~neurosurfer.observability.context.TraceContext` — rides
+    across the thread boundary and node agents still nest under the workflow trace.
     """
     try:
         asyncio.get_running_loop()
@@ -37,10 +43,11 @@ def run_coro_blocking(coro: Any) -> Any:
         return asyncio.run(coro)
 
     box: dict[str, Any] = {}
+    ctx = contextvars.copy_context()
 
     def _thread() -> None:
         try:
-            box["value"] = asyncio.run(coro)
+            box["value"] = ctx.run(asyncio.run, coro)
         except BaseException as exc:  # noqa: BLE001
             box["error"] = exc
 

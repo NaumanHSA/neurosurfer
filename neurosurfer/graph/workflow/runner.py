@@ -21,6 +21,7 @@ from typing import Any
 
 from neurosurfer.graph.engine import GraphExecutionResult, GraphExecutor, InputValidationError
 from neurosurfer.llm.base import Provider
+from neurosurfer.observability.run import traced_run
 from neurosurfer.tools.base import BaseIOHandler, ToolContext, ToolPool, WriteChoice
 from neurosurfer.tools.registry import all_tools
 
@@ -102,7 +103,10 @@ class WorkflowRunner:
             log_traces=False,
         )
 
-        with _PackagePathContext(pkg):
+        with _PackagePathContext(pkg), traced_run(
+            f"workflow:{pkg.manifest.name}",
+            metadata={"workflow": pkg.manifest.name, "kind": "workflow"},
+        ):
             result = executor.run(inputs, node_event=on_node_event)
 
         if tracer is not None and trace_path is not None:

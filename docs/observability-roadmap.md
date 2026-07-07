@@ -62,28 +62,59 @@ Code: `neurosurfer/observability/` (`context.py`, `exporters/`),
 
 ---
 
-## Remaining — Phase 5: Graph / workflow-executor nesting
+## Phase 5 — Graph / workflow-executor nesting ✅  *(code complete; live check pending)*
 
-Make a multi-node workflow render as one nested trace. Agent/sub-agent nesting is
-done; this extends it to the graph executor path. Split into two levels.
+Make a multi-node workflow render as one nested trace. Agent/sub-agent nesting was
+already done; this extended it to the graph executor path in two levels — both now
+built. Only a live multi-node Langfuse verification remains (needs credentials).
 
-### Level 1 — Workflow = one trace, node agents nested under it ⬜  *(~1 hr, low risk)*
-- [ ] Mint a root `TraceContext` for the graph run; `push_trace_context` around it
-      in the workflow runner / `GraphExecutor`
-- [ ] Node agents already flow through `base._tap()` → they nest automatically
-- [ ] Test + one live Langfuse check
-- Result: `WorkflowRun` (root) → each node's agent run → its tool spans, one trace.
+### Level 1 — Workflow = one trace, node agents nested under it ✅  *(~1 hr, low risk)*
+- [x] Mint a root `TraceContext` for the graph run; `push_trace_context` around it
+      in the workflow runner (`traced_run` in
+      [observability/run.py](../neurosurfer/observability/run.py), wrapping
+      `executor.run` in [graph/workflow/runner.py](../neurosurfer/graph/workflow/runner.py))
+- [x] Node agents already flow through `base._tap()` → they nest automatically
+- [x] Test ([tests/test_observability_workflow.py](../tests/test_observability_workflow.py):
+      root span + node nesting + no-exporter no-op)
+- [x] Thread propagation: parallel nodes (`parallelism>1`) and timeout nodes
+      (`policy.timeout_s`) hop to `ThreadPoolExecutor` workers, and
+      `run_coro_blocking` may spawn a thread — all now run inside a
+      `contextvars.copy_context()` snapshot, so the ambient `TraceContext` crosses
+      the thread boundary and those node agents nest too
+      ([executor.py](../neurosurfer/graph/engine/executor.py),
+      [node_runner.py](../neurosurfer/graph/engine/node_runner.py); tests cover both)
+- [ ] One live Langfuse check
+- Result: `workflow:<name>` (root) → each node's agent run → its tool spans, one trace.
+- Note: nodes nest whether they run serially, in parallel, or under a timeout. The
+  per-node span layer (Level 2) is now built on top of this.
 
-### Level 2 — Full `graph-run → node span → agent → tool` hierarchy ⬜  *(~half a day, more risk)*
-- [ ] Per-node span (not just the agent run) — wire structured `Tracer._record_step`
-      into exporters, or a lightweight node-level context
-- [ ] Handle nodes that bypass `agent.run` (native nodes) and usage dropped in
-      `graph/engine/node_runner.py`
-- [ ] Correct nesting for **parallel branches** (concurrent nodes + contextvars + gather)
-- [ ] Revive the currently-dead `NodeExecutionResult.traces` / `GraphExecutionResult.traces`
-      fields (`graph/engine/schema.py`)
-- [ ] Tests + real multi-node workflow verified in Langfuse
-- Risk driver: the graph executor path is less uniform than the agent path.
+### Level 2 — Full `graph-run → node span → agent → tool` hierarchy ✅  *(built)*
+- [x] Per-node span via a lightweight node-level context — each node's execution in
+      `GraphExecutor._execute_one` is wrapped in `traced_run("node:<id>", flush=False)`
+      ([executor.py](../neurosurfer/graph/engine/executor.py)), publishing an ambient
+      `TraceContext` the node's agent inherits. `traced_run` gained a `RunSpan` handle
+      so a node that *returns* (not raises) an error marks its span errored
+      ([observability/run.py](../neurosurfer/observability/run.py))
+- [x] Nodes that bypass `agent.run` (function / tool nodes) are now **visible** — they
+      get their own node span even with no agent underneath
+- [x] Correct nesting for **parallel branches** — the `copy_context()` snapshot from
+      Level 1 means each concurrent node grabs its own node span as parent; verified
+      with a 2-node `parallelism=2` graph
+- [x] Deeper nesting needs **no exporter change**: Langfuse + OTel both resolve the
+      parent by `parent_span_id` and register every span, so `workflow → node → agent
+      → tool` renders at arbitrary depth
+- [x] Tests: workflow→node→agent hierarchy, function-node visibility, error marking,
+      parallel + timeout thread nesting
+      ([tests/test_observability_workflow.py](../tests/test_observability_workflow.py))
+- [ ] One live multi-node Langfuse check (needs credentials — run locally)
+
+**Out of scope of the exporter work** (separate subsystems, left as-is):
+- The structured JSON `Tracer` and its dead `NodeExecutionResult.traces` /
+  `GraphExecutionResult.traces` fields (`graph/engine/schema.py`) — a different
+  tracing path from the pluggable exporters; not needed for backend nesting.
+- Per-node token **usage aggregation** on `GraphExecutionResult` (react nodes drop it
+  in `node_runner.py`). Usage is still captured *in the trace* per turn via each
+  agent's `on_turn`; only the result-object rollup is missing.
 
 **Recommendation:** ship Level 1 first (visible win, near-zero risk), then decide if
 Level 2's per-node polish is worth the extra half-day.
