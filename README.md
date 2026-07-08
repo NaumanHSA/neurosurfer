@@ -13,7 +13,6 @@
 <a href="https://naumanhsa.github.io/neurosurfer/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/documentation-light.png"><img height="42" alt="Documentation" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/documentation-dark.png"></picture></a>
 <a href="https://naumanhsa.github.io/neurosurfer/tutorials/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/examples-light.png"><img height="42" alt="Examples" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/examples-dark.png"></picture></a>
 <a href="https://pypi.org/project/neurosurfer/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/pypi-light.png"><img height="42" alt="PyPI" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/pypi-dark.png"></picture></a>
-<a href="https://github.com/NaumanHSA/neurosurfer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/github-light.png"><img height="42" alt="GitHub" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/github-dark.png"></picture></a>
 
 <br/>
 <br/>
