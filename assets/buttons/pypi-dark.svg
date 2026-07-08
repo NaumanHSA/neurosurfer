@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="123" height="44" viewBox="0 0 123 44" role="img" aria-label="PyPI">
-  <rect x="1" y="1" width="121" height="42" rx="10" fill="#111111" stroke="#111111" stroke-width="1.4"/>
-  <g transform="translate(22,10.0)" fill="none" stroke="#faf9f6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3.5l7 3.9v7.2l-7 3.9-7-3.9V7.4zM5.3 7.6L12 11.4l6.7-3.8M12 11.4v7.6"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="91" height="36" viewBox="0 0 91 36" role="img" aria-label="PyPI">
+  <rect x="0.75" y="0.75" width="89.5" height="34.5" rx="8" fill="#111111" stroke="#111111" stroke-width="1.2"/>
+  <g transform="translate(14,9.5)" fill="none" stroke="#faf9f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.5l7 3.9v7.2l-7 3.9-7-3.9V7.4zM5.3 7.6L12 11.4l6.7-3.8M12 11.4v7.6" transform="scale(0.7083333333333334)"/>
   </g>
-  <text x="58" y="22.0" fill="#faf9f6" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace" font-size="15" font-weight="600" letter-spacing="1.2" dominant-baseline="central">PyPI</text>
+  <text x="39" y="18.0" fill="#faf9f6" font-family="'JetBrains Mono','DejaVu Sans Mono','SFMono-Regular',Consolas,monospace" font-size="14" font-weight="600" letter-spacing="0.6" dominant-baseline="central">PyPI</text>
 </svg>

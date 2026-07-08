@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="220" height="44" viewBox="0 0 220 44" role="img" aria-label="Documentation">
-  <rect x="1" y="1" width="218" height="42" rx="10" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="1.4"/>
-  <g transform="translate(22,10.0)" fill="none" stroke="#0d0d0d" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M5 4.5h8.5a2 2 0 012 2V19.5a2.2 2.2 0 00-2-1.2H5zM19 4.5h-.5a2 2 0 00-2 2V18.3a2.2 2.2 0 012-1.2h.5zM7.5 8h6M7.5 11h6M7.5 14h4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="175" height="36" viewBox="0 0 175 36" role="img" aria-label="Documentation">
+  <rect x="0.75" y="0.75" width="173.5" height="34.5" rx="8" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="1.2"/>
+  <g transform="translate(14,9.5)" fill="none" stroke="#0d0d0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 4.5h8.5a2 2 0 012 2V19.5a2.2 2.2 0 00-2-1.2H5zM19 4.5h-.5a2 2 0 00-2 2V18.3a2.2 2.2 0 012-1.2h.5zM7.5 8h6M7.5 11h6M7.5 14h4" transform="scale(0.7083333333333334)"/>
   </g>
-  <text x="58" y="22.0" fill="#0d0d0d" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace" font-size="15" font-weight="600" letter-spacing="1.2" dominant-baseline="central">Documentation</text>
+  <text x="39" y="18.0" fill="#0d0d0d" font-family="'JetBrains Mono','DejaVu Sans Mono','SFMono-Regular',Consolas,monospace" font-size="14" font-weight="600" letter-spacing="0.6" dominant-baseline="central">Documentation</text>
 </svg>
