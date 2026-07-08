@@ -16,6 +16,8 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
+from neurosurfer.tools.base import ShellApproval
+
 from . import theme
 
 if TYPE_CHECKING:
@@ -318,7 +320,7 @@ class RichIOHandler:
         self._console.print(f"  [{theme.ERR}]✗ Plan rejected.[/{theme.ERR}]")
         return (False, "Plan rejected.")
 
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
+    async def request_shell_approval(self, command: str, reason: str) -> ShellApproval:
         self._pause()
         from rich.markup import escape
 
@@ -334,21 +336,44 @@ class RichIOHandler:
             self._console.print(f"  [{theme.DIM}]Reason:  {escape(reason)}[/{theme.DIM}]")
         self._console.print()
 
-        choices = ["✓  Allow", "✗  Deny"]
+        async def _redirect() -> ShellApproval:
+            self._console.print(
+                f"  [{theme.DIM}]Tell the agent what to do instead:[/{theme.DIM}]"
+            )
+            msg = (await _ainput("  > ")).strip()
+            return ShellApproval(False, msg or None)
+
+        allow, deny, redirect = (
+            "✓  Allow",
+            "✗  Deny",
+            "✎  Deny & tell the agent what to do instead",
+        )
         if _is_interactive():
-            picked = await _select_inline(choices)
-            return picked == choices[0]
+            picked = await _select_inline([allow, deny, redirect])
+            if picked == allow:
+                return ShellApproval(True)
+            if picked == redirect:
+                return await _redirect()
+            return ShellApproval(False)
 
         self._console.print(f"  [{theme.ACCENT}] 1 [/{theme.ACCENT}]  ✓  Allow")
         self._console.print(f"  [{theme.ACCENT}] 2 [/{theme.ACCENT}]  ✗  Deny")
+        self._console.print(
+            f"  [{theme.ACCENT}] 3 [/{theme.ACCENT}]  ✎  Deny & redirect the agent"
+        )
         self._console.print()
         while True:
-            raw = (await _ainput()).strip().lower()
-            if raw in ("1", "y", "yes", "allow"):
-                return True
-            if raw in ("2", "n", "no", "deny"):
-                return False
-            self._console.print(f"  [{theme.ERR}]Enter 1 (allow) or 2 (deny).[/{theme.ERR}]")
+            raw = (await _ainput()).strip()
+            low = raw.lower()
+            if low in ("1", "y", "yes", "allow"):
+                return ShellApproval(True)
+            if low in ("2", "n", "no", "deny"):
+                return ShellApproval(False)
+            if low in ("3", "r", "redirect"):
+                return await _redirect()
+            self._console.print(
+                f"  [{theme.ERR}]Enter 1 (allow), 2 (deny), or 3 (redirect).[/{theme.ERR}]"
+            )
 
     async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
         self._pause()

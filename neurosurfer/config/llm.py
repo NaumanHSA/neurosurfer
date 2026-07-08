@@ -24,6 +24,11 @@ class LLMConfig:
     # authoritative for local models.
     context_window: int = DEFAULT_CONTEXT_WINDOW
 
+    # Vision can't be auto-detected for local / OpenAI-compatible models (only known
+    # frontier OpenAI names are). None ⇒ auto-detect; set True to force-enable image
+    # input for a local vision model (Qwen-VL, LLaVA, Llama-3.2-Vision, …).
+    supports_vision: bool | None = None
+
     @property
     def is_anthropic(self) -> bool:
         return self.provider == "anthropic"

@@ -22,7 +22,13 @@ from typing import Any
 from neurosurfer.graph.engine import GraphExecutionResult, GraphExecutor, InputValidationError
 from neurosurfer.llm.base import Provider
 from neurosurfer.observability.run import traced_run
-from neurosurfer.tools.base import BaseIOHandler, ToolContext, ToolPool, WriteChoice
+from neurosurfer.tools.base import (
+    BaseIOHandler,
+    ShellApproval,
+    ToolContext,
+    ToolPool,
+    WriteChoice,
+)
 from neurosurfer.tools.registry import all_tools
 
 from .package import WorkflowPackage, _PackagePathContext
@@ -204,8 +210,8 @@ class _HeadlessIO(BaseIOHandler):
     would otherwise prompt (shell, out-of-scope writes) rather than silently
     auto-approving. Everything else inherits the base defaults."""
 
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
-        return False
+    async def request_shell_approval(self, command: str, reason: str) -> ShellApproval:
+        return ShellApproval(False)
 
     async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
         return "deny"

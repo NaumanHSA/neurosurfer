@@ -12,6 +12,8 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+from neurosurfer.tools.base import ShellApproval
+
 ScriptedTurn = tuple[str, list[tuple[str, dict[str, Any]]]]
 
 
@@ -211,11 +213,14 @@ class ScriptedIO:
         answers: list[str] | None = None,
         approve_plan: bool = True,
         approve_shell: bool = True,
+        shell_feedback: str | None = None,
         write_choice: str = "deny",
     ):
         self.answers = list(answers or [])
         self.approve_plan = approve_plan
         self.approve_shell = approve_shell
+        # Free-text redirect returned on a denied shell/network/MCP gate.
+        self.shell_feedback = shell_feedback
         # Out-of-scope writes default to "deny" in tests (preserving the
         # "guardrail blocks out-of-scope write" semantics); opt in per-test with
         # write_choice="once" or "always".
@@ -232,9 +237,10 @@ class ScriptedIO:
     async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
         return (self.approve_plan, "")
 
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
+    async def request_shell_approval(self, command: str, reason: str) -> ShellApproval:
         self.shell_requests.append(command)
-        return self.approve_shell
+        feedback = None if self.approve_shell else self.shell_feedback
+        return ShellApproval(self.approve_shell, feedback)
 
     async def request_write_approval(self, path: str, summary: str) -> str:
         self.write_requests.append(path)

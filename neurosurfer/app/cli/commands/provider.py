@@ -46,6 +46,17 @@ async def _radio(ctx: CLIContext, title: str, values: list[tuple]) -> str | None
     return await select_menu(ctx.console, title, list(values))
 
 
+async def _prompt_vision(ctx: CLIContext, current: bool | None) -> bool | None:
+    """Tri-state vision prompt for OpenAI-compatible profiles. Returns None
+    (auto-detect), True (force on), or False (force off); keeps *current* on cancel."""
+    choice = await _radio(ctx, "Image input (vision)", [
+        ("auto", "Auto-detect",   "Enable only for known vision model names"),
+        ("yes",  "Yes, supported", "Force-enable — for local vision models (Qwen-VL, LLaVA, …)"),
+        ("no",   "No",            "Force-disable image input"),
+    ])
+    return {"auto": None, "yes": True, "no": False}.get(choice, current)
+
+
 # ── rendering ─────────────────────────────────────────────────────────────────
 def _print_list(ctx: CLIContext) -> None:
     profiles = ctx.providers.list()
@@ -80,6 +91,7 @@ async def _add_profile(ctx: CLIContext) -> None:
     base_url: str | None = None
     context_window = 32_768
     max_output_tokens = 8192
+    supports_vision: bool | None = None
     if kind == "openai":
         base_url = await _prompt("Base URL", "http://localhost:1234/v1") or None
         cw_raw = await _prompt("Context window (tokens)", "32768")
@@ -92,6 +104,7 @@ async def _add_profile(ctx: CLIContext) -> None:
             max_output_tokens = int(mot_raw) if mot_raw else 8192
         except ValueError:
             max_output_tokens = 8192
+        supports_vision = await _prompt_vision(ctx, None)
     elif kind == "openai_native":
         mot_raw = await _prompt("Max output tokens per turn", "16384")
         try:
@@ -105,7 +118,7 @@ async def _add_profile(ctx: CLIContext) -> None:
     profile = ProviderProfile(
         name=name, kind=kind, base_url=base_url, model=model,
         api_key=api_key_raw or None, context_window=context_window,
-        max_output_tokens=max_output_tokens,
+        max_output_tokens=max_output_tokens, supports_vision=supports_vision,
     )
     try:
         ctx.providers.add(profile)
@@ -163,6 +176,7 @@ async def _edit_profile(ctx: CLIContext, name: str) -> None:
     model = await _prompt("Model id", p.model)
     base_url = p.base_url
     max_output_tokens = p.max_output_tokens
+    supports_vision = p.supports_vision
     if p.kind == "openai":
         base_url = (await _prompt("Base URL", p.base_url or "")) or None
         mot_raw = await _prompt("Max output tokens per turn", str(p.max_output_tokens))
@@ -170,6 +184,7 @@ async def _edit_profile(ctx: CLIContext, name: str) -> None:
             max_output_tokens = int(mot_raw) if mot_raw else p.max_output_tokens
         except ValueError:
             max_output_tokens = p.max_output_tokens
+        supports_vision = await _prompt_vision(ctx, p.supports_vision)
     elif p.kind == "openai_native":
         mot_raw = await _prompt("Max output tokens per turn", str(p.max_output_tokens))
         try:
@@ -177,7 +192,12 @@ async def _edit_profile(ctx: CLIContext, name: str) -> None:
         except ValueError:
             max_output_tokens = p.max_output_tokens
     api_key_raw = await _prompt("API key (blank = keep existing)", is_password=True)
-    changes: dict = {"model": model, "base_url": base_url, "max_output_tokens": max_output_tokens}
+    changes: dict = {
+        "model": model,
+        "base_url": base_url,
+        "max_output_tokens": max_output_tokens,
+        "supports_vision": supports_vision,
+    }
     if api_key_raw:
         changes["api_key"] = api_key_raw
     ctx.providers.update(name, **changes)

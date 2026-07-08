@@ -260,6 +260,7 @@ class OpenAICompatProvider(Provider):
         model: str,
         context_window: int | None = None,
         max_output_tokens: int = 8192,
+        supports_vision: bool | None = None,
     ):
         import warnings
 
@@ -295,7 +296,9 @@ class OpenAICompatProvider(Provider):
             timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=5.0),
         )
         self.model = model
-        self.capabilities = openai_capabilities(model, resolved, max_output_tokens)
+        self.capabilities = openai_capabilities(
+            model, resolved, max_output_tokens, supports_vision
+        )
         self.strict_tools = False
 
     async def stream(

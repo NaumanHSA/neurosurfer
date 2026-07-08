@@ -28,6 +28,17 @@ McpPolicy = Literal["gated", "open", "denied"]
 
 READ_TOOLS = {"read_file", "list_dir", "search", "data"}
 WRITE_TOOLS = {"write_file", "apply_edit"}
+
+
+def _unwrap_approval(res: object) -> tuple[bool, str | None]:
+    """Normalize an IOHandler shell-approval reply to ``(approved, feedback)``.
+
+    Accepts a :class:`~neurosurfer.tools.base.ShellApproval` (new) or a bare
+    ``bool`` (legacy / third-party handlers), so older handlers keep working.
+    """
+    if isinstance(res, bool):
+        return res, None
+    return bool(getattr(res, "approved", False)), getattr(res, "feedback", None)
 NETWORK_TOOLS = {"http", "browse"}
 CONTROL_TOOLS = {"ask_user", "present_plan", "propose_workflow", "todo", "finish", "spawn_agent"}
 
@@ -157,10 +168,12 @@ class Permissions:
             read_only = False
         if read_only:
             return Decision(True)
-        approved = await ctx.io.request_shell_approval(tool_name, "call an MCP tool")
+        approved, feedback = _unwrap_approval(
+            await ctx.io.request_shell_approval(tool_name, "call an MCP tool")
+        )
         if approved:
             return Decision(True)
-        return Decision(False, f"User declined the MCP tool call '{tool_name}'.")
+        return Decision(False, feedback or f"User declined the MCP tool call '{tool_name}'.")
 
     # ── reads ────────────────────────────────────────────────────────────────
     def _check_read(self, args: BaseModel) -> Decision:
@@ -183,10 +196,12 @@ class Permissions:
             return Decision(True)
         # gated: ask per command (unless accept_edits/bypass already trusted shell —
         # we still gate shell even in accept_edits, which only auto-approves writes).
-        approved = await ctx.io.request_shell_approval(command, description)
+        approved, feedback = _unwrap_approval(
+            await ctx.io.request_shell_approval(command, description)
+        )
         if approved:
             return Decision(True)
-        return Decision(False, "User declined to run the shell command.")
+        return Decision(False, feedback or "User declined to run the shell command.")
 
     # ── network ──────────────────────────────────────────────────────────────
     async def _check_network(
@@ -202,10 +217,12 @@ class Permissions:
         url = str(getattr(args, "url", "") or "")
         method = str(getattr(args, "method", "GET"))
         label = f"{method} {url}".strip()
-        approved = await ctx.io.request_shell_approval(label, "make a network request")
+        approved, feedback = _unwrap_approval(
+            await ctx.io.request_shell_approval(label, "make a network request")
+        )
         if approved:
             return Decision(True)
-        return Decision(False, "User declined the network request.")
+        return Decision(False, feedback or "User declined the network request.")
 
     # ── writes ───────────────────────────────────────────────────────────────
     async def _check_write(

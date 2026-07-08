@@ -190,6 +190,26 @@ async def test_shell_gate_denied(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_shell_gate_denied_with_feedback(tmp_path):
+    # Denying with a free-text redirect hands that message back to the model as the
+    # tool-result error, instead of a generic "declined".
+    turns = [
+        ("Running a command.", [("run_command", {"command": "rm -rf /"})]),
+        ("Done.", [("finish", {"summary": "ok"})]),
+    ]
+    agent = build_agent(
+        ScriptedProvider(turns),
+        tmp_path,
+        guardrails=Guardrails(write_scope=["docs/"], shell_policy="gated"),
+        io=ScriptedIO(approve_shell=False, shell_feedback="use `ls` instead, never rm"),
+    )
+    evs = await drive(agent, "go")
+    sh = [e for e in evs if isinstance(e, events.ToolFinished) and e.name == "run_command"][0]
+    assert sh.result.is_error
+    assert "use `ls` instead" in sh.result.content
+
+
+@pytest.mark.asyncio
 async def test_path_deny_blocks_read(tmp_path):
     (tmp_path / ".env").write_text("SECRET=1")
     turns = [

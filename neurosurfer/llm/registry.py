@@ -30,6 +30,7 @@ def build_provider(cfg: Config, model_override: str | None = None) -> Provider:
         api_key=cfg.llm.openai_api_key,
         model=model,
         context_window=cfg.llm.context_window,
+        supports_vision=cfg.llm.supports_vision,
     )
 
 
@@ -64,6 +65,7 @@ def build_provider_from_profile(
         model=model,
         context_window=profile.context_window,
         max_output_tokens=profile.max_output_tokens,
+        supports_vision=profile.supports_vision,
     )
 
 

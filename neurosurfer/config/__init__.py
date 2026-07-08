@@ -14,7 +14,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .base import env_int, load_dotenv
+from .base import env_bool_opt, env_int, load_dotenv
 from .llm import DEFAULT_ANTHROPIC_MODEL, DEFAULT_CONTEXT_WINDOW, LLMConfig
 from .observability import ObservabilityConfig, detect_exporters_from_env
 from .projects import ProjectsConfig
@@ -90,6 +90,7 @@ def load_config(env_file: Path | None = None) -> Config:
             openai_base_url=os.environ.get("OPENAI_BASE_URL", "http://localhost:1234/v1").strip(),
             openai_api_key=os.environ.get("OPENAI_API_KEY", "not-needed").strip() or "not-needed",
             context_window=env_int("CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW),
+            supports_vision=env_bool_opt("SUPPORTS_VISION"),
         ),
         observability=ObservabilityConfig(
             log_level=os.environ.get("NEUROSURFER_LOG_LEVEL", "INFO").strip().upper(),

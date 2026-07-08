@@ -161,6 +161,35 @@ async def test_tool_images_land_in_history(tmp_path: Path) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Vision capability override (local / OpenAI-compatible models)
+# ──────────────────────────────────────────────────────────────────────────────
+def test_openai_capabilities_vision_override() -> None:
+    from neurosurfer.llm.capabilities import openai_capabilities
+
+    # Unknown local model: auto-detection is off...
+    assert openai_capabilities("qwen2-vl-7b", 32_768).supports_vision is False
+    # ...but an explicit override forces it on.
+    assert openai_capabilities("qwen2-vl-7b", 32_768, supports_vision=True).supports_vision is True
+    # None keeps name detection (a known OpenAI vision name stays on).
+    assert openai_capabilities("gpt-4o", 128_000).supports_vision is True
+    # An explicit False overrides even a known vision name.
+    assert openai_capabilities("gpt-4o", 128_000, supports_vision=False).supports_vision is False
+
+
+def test_openai_provider_vision_override() -> None:
+    from neurosurfer.llm.providers.openai import OpenAICompatProvider
+
+    p = OpenAICompatProvider(
+        base_url="http://localhost:1234/v1",
+        api_key="not-needed",
+        model="qwen2-vl-7b",
+        context_window=8_192,
+        supports_vision=True,
+    )
+    assert p.capabilities.supports_vision is True
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # read_file image support
 # ──────────────────────────────────────────────────────────────────────────────
 async def test_read_file_returns_image(tmp_path: Path) -> None:

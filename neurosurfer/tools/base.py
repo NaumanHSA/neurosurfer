@@ -30,6 +30,20 @@ if TYPE_CHECKING:  # avoid import cycles; these are wired in later phases
 WriteChoice = Literal["always", "once", "deny"]
 
 
+@dataclass
+class ShellApproval:
+    """A human's answer to a shell / network / MCP approval prompt.
+
+    ``approved`` gates the action. ``feedback`` is an optional free-text redirect:
+    when the user denies *but* wants the agent to do something else instead, it is
+    passed back to the model (as the tool-result error) in place of a generic
+    "declined" — the Claude-Code-style "no, do this instead" affordance.
+    """
+
+    approved: bool
+    feedback: str | None = None
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Result
 # ──────────────────────────────────────────────────────────────────────────────
@@ -72,7 +86,7 @@ class IOHandler(Protocol):
 
     async def request_plan_approval(self, plan: str) -> tuple[bool, str]: ...
 
-    async def request_shell_approval(self, command: str, reason: str) -> bool: ...
+    async def request_shell_approval(self, command: str, reason: str) -> ShellApproval: ...
 
     async def request_write_approval(self, path: str, summary: str) -> WriteChoice: ...
 
@@ -94,8 +108,8 @@ class BaseIOHandler:
     async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
         return (True, "")
 
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
-        return True
+    async def request_shell_approval(self, command: str, reason: str) -> ShellApproval:
+        return ShellApproval(True)
 
     async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
         return "once"
@@ -135,9 +149,18 @@ class TerminalIOHandler(BaseIOHandler):
             return (True, "")
         return (False, answer)
 
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
-        answer = await self._prompt(f"\n⚠️  Allow: {command}\n   ({reason}) [y/N] > ")
-        return answer.lower() in {"y", "yes"}
+    async def request_shell_approval(self, command: str, reason: str) -> ShellApproval:
+        answer = await self._prompt(
+            f"\n⚠️  Allow: {command}\n   ({reason})"
+            f"\n   [y]es / [n]o / or type what to do instead > "
+        )
+        low = answer.lower().strip()
+        if low in {"y", "yes"}:
+            return ShellApproval(True)
+        if low in {"", "n", "no"}:
+            return ShellApproval(False)
+        # Any other free text is a redirect: deny, and hand the message to the agent.
+        return ShellApproval(False, answer.strip())
 
     async def request_write_approval(self, path: str, summary: str) -> WriteChoice:
         answer = (

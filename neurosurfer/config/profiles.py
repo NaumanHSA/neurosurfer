@@ -40,6 +40,9 @@ class ProviderProfile(BaseModel):
     # can consume this budget for internal chain-of-thought; lower values
     # keep individual turns snappy on local hardware.
     max_output_tokens: int = 8192
+    # Force-enable image input for OpenAI-compatible local vision models (auto-detection
+    # only knows frontier OpenAI names). None ⇒ auto-detect; True ⇒ force on.
+    supports_vision: bool | None = None
 
     def endpoint(self) -> str:
         if self.kind == "anthropic":
@@ -57,9 +60,13 @@ class ProviderProfile(BaseModel):
         kind = _KIND_LABEL.get(self.kind, self.kind)
         tail = "  (active)" if active else ""
         mot = f" · max_out={self.max_output_tokens}" if self.kind == "openai" else ""
+        # Only show the vision flag when explicitly set for an OpenAI-compatible profile.
+        vis = ""
+        if self.kind == "openai" and self.supports_vision is not None:
+            vis = " · vision=on" if self.supports_vision else " · vision=off"
         return (
             f"{self.name}: {kind} · {self.endpoint()} · {self.model or '(no model)'}"
-            f"{mot} · {mask_secret(self.api_key)}{tail}"
+            f"{mot}{vis} · {mask_secret(self.api_key)}{tail}"
         )
 
 

@@ -120,7 +120,10 @@ def openai_native_capabilities(
 
 
 def openai_capabilities(
-    model: str, context_window: int, max_output_tokens: int = 8192
+    model: str,
+    context_window: int,
+    max_output_tokens: int = 8192,
+    supports_vision: bool | None = None,
 ) -> ProviderCapabilities:
     # Local / OpenAI-compatible servers: no count endpoint, no prompt caching,
     # thinking is model-dependent and treated as unavailable. Window is
@@ -134,9 +137,12 @@ def openai_capabilities(
         # Capped per profile setting (default 8192). Reasoning models spend this
         # budget on chain-of-thought; smaller values keep turns short on local HW.
         max_output_tokens=min(max_output_tokens, context_window),
-        # Frontier OpenAI vision families are detected by name; unknown local models
-        # default to no vision (conservative — they'd otherwise error on image input).
-        supports_vision=_openai_supports_vision(model),
+        # Vision can't be auto-detected for arbitrary local models, so an explicit
+        # override wins; when unset, fall back to name-prefix detection (which only
+        # knows the frontier OpenAI families and defaults everything else to off).
+        supports_vision=(
+            _openai_supports_vision(model) if supports_vision is None else supports_vision
+        ),
     )
 
 

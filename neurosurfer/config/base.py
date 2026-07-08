@@ -42,3 +42,12 @@ def env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def env_bool_opt(name: str) -> bool | None:
+    """Tri-state bool from the environment: unset/empty ⇒ ``None`` (leave to
+    auto-detection); otherwise ``True`` for ``1/true/yes/on`` (case-insensitive)."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip().lower() in ("1", "true", "yes", "on")
