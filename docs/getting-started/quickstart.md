@@ -49,7 +49,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 ```
 
-See the [Providers guide](guides/providers.md) for local servers (Ollama, LM Studio, vLLM,
+See the [Providers guide](../guides/providers.md) for local servers (Ollama, LM Studio, vLLM,
 llama.cpp) and the full `Provider` API.
 
 ## Your first agent (Python)
@@ -90,13 +90,13 @@ async def main():
 asyncio.run(main())
 ```
 
-`agent.run(...)` is an async generator that yields streaming [events](guides/agents.md#events).
+`agent.run(...)` is an async generator that yields streaming [events](../guides/agents.md#events).
 Text arrives as `TextDelta` (which has a `.text` attribute), so the `hasattr` check above prints the
 answer as it streams.
 
 !!! warning
     `AutoIO` approves every action without prompting — only use it in trusted, sandboxed contexts,
-    and constrain tools with [`Guardrails`](guides/agents.md#permissions-and-guardrails).
+    and constrain tools with [`Guardrails`](../guides/agents.md#permissions-and-guardrails).
 
 ## Structured output (one-shot)
 
@@ -137,13 +137,13 @@ neurosurfer doctor       # check your provider configuration
 neurosurfer serve        # start the OpenAI-compatible gateway
 ```
 
-See the [CLI guide](cli.md) for provider profiles, slash commands, and `serve` flags.
+See the [CLI guide](../reference/cli.md) for provider profiles, slash commands, and `serve` flags.
 
 ## Where to next
 
-- [Providers](guides/providers.md) — cloud and local models behind one protocol.
-- [Agents](guides/agents.md) — the agent family, events, permissions, and sub-agents.
-- [Tools](guides/tools.md) — built-in tools and writing your own.
-- [RAG](guides/rag.md) — retrieval-augmented generation.
-- [Graph & Workflows](guides/graph-workflows.md) and the [Architect](guides/architect.md).
-- [Tutorials](tutorials.md) — hands-on Colab notebooks.
+- [Providers](../guides/providers.md) — cloud and local models behind one protocol.
+- [Agents](../guides/agents.md) — the agent family, events, permissions, and sub-agents.
+- [Tools](../guides/tools.md) — built-in tools and writing your own.
+- [RAG](../guides/rag.md) — retrieval-augmented generation.
+- [Graph & Workflows](../guides/graph-workflows.md) and the [Architect](../architect/index.md).
+- [Tutorials](../tutorials/index.md) — hands-on Colab notebooks.

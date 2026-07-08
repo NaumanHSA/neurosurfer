@@ -12,7 +12,7 @@ you go, on CPU or GPU.
 
     Install the package and run your first agent in a few minutes.
 
-    [:octicons-arrow-right-24: Getting Started](getting-started.md)
+    [:octicons-arrow-right-24: Getting Started](getting-started/quickstart.md)
 
 -   :material-robot:{ .lg .middle } **Agents**
 
@@ -36,7 +36,7 @@ you go, on CPU or GPU.
 
     Hands-on Colab notebooks from install to a full capstone project.
 
-    [:octicons-arrow-right-24: Tutorials](tutorials.md)
+    [:octicons-arrow-right-24: Tutorials](tutorials/index.md)
 
 </div>
 
@@ -64,7 +64,7 @@ pip install -U neurosurfer
 pip install -U "neurosurfer[search,serve]"
 ```
 
-See [Getting Started](getting-started.md) for the full list of optional extras.
+See [Getting Started](getting-started/quickstart.md) for the full list of optional extras.
 
 ## License
 

@@ -51,6 +51,12 @@ provider = OpenAICompatProvider(
 
 Common `context_window` values: `4_096`, `8_192`, `16_384`, `32_768`, `65_536`, `131_072`.
 
+!!! note "Only two adapters are first-class"
+    Neurosurfer ships exactly two provider adapters — **Anthropic** and **OpenAI-compatible**. vLLM,
+    Ollama, LM Studio, and llama.cpp are **not** separate providers; they're reached through
+    `OpenAICompatProvider` by setting `base_url` (env: `OPENAI_BASE_URL`). If a server speaks the
+    OpenAI API, it works here.
+
 !!! tip "Native tool-calling vs. ReAct"
     `AgenticLoop` uses the provider's **native** function-calling API. If your local model doesn't
     support tool calls, use [`ReactAgent`](agents.md) instead, which drives tools by parsing text.
@@ -67,7 +73,7 @@ from neurosurfer.llm import build_provider
 provider = build_provider(Config())
 ```
 
-This is the same mechanism the [CLI](../cli.md) uses for its provider profiles.
+This is the same mechanism the [CLI](../reference/cli.md) uses for its provider profiles.
 
 ## Capabilities
 

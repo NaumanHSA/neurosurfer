@@ -30,30 +30,12 @@ agent = AgenticLoop(
 
 ### The `io` handler
 
-`io` is an [`IOHandler`](../guides/tools.md) — the object an agent calls when a tool needs a
-decision (answer a question, approve a shell command, approve a file write). Interactive apps supply
-a UI-backed handler (the CLI uses a Rich-based one). For **scripts and notebooks**, supply a small
-auto-approving handler:
-
-```python
-class AutoIO:
-    """Auto-approving IOHandler for scripts and notebooks."""
-    async def ask(self, question: str, options=None) -> str:
-        return (options or ["yes"])[0]
-    async def request_plan_approval(self, plan: str) -> tuple[bool, str]:
-        return True, ""
-    async def request_shell_approval(self, command: str, reason: str) -> bool:
-        return True
-    async def request_write_approval(self, path: str, summary: str) -> str:
-        return "once"
-    def notify(self, message: str) -> None:
-        pass
-```
-
-!!! warning "Auto-approval runs tools without prompting"
-    `AutoIO` approves every action. Only use it in trusted, sandboxed contexts, and lean on
-    [`Guardrails`](#permissions-and-guardrails) (`write_scope`, `shell_policy`, `path_deny`) to
-    contain what tools can touch.
+`io` is an **`IOHandler`** — the object an agent calls when a tool needs a decision (answer a
+question, approve a shell command, approve a file write). Interactive apps supply a UI-backed handler
+(the CLI uses a Rich terminal one); scripts and notebooks use an auto-approving handler. The full
+approval model — the handler methods, `AutoApproveIOHandler`, and the safety caveats — lives in
+[Permissions & Safety](../learn/permissions.md#approvals-the-io-handler). Examples below use a headless
+`AutoIO()` for brevity.
 
 ## AgenticLoop
 
@@ -147,25 +129,8 @@ async for ev in agent.run(prompt):
 
 ## Permissions and guardrails
 
-`Guardrails` (a Pydantic model) enforces what an agent may do:
-
-| Field | Default | Purpose |
-|---|---|---|
-| `write_scope` | `["**"]` | Glob(s) the agent may write to. |
-| `shell_policy` | `"gated"` | `gated` (ask), `readonly`, or `denied`. |
-| `network_policy` | `"gated"` | `gated`, `open`, or `denied`. |
-| `mcp_policy` | `"gated"` | Gating for MCP tool calls. |
-| `path_allow` / `path_deny` | `["**"]` / `.env`, `secrets`, `.git`, … | Readable-path allow/deny globs. |
-| `max_turns` | `200` | Hard cap on model turns. |
-| `max_subagent_depth` | `2` | How deep sub-agents may nest. |
-| `max_concurrent_subagents` | `4` | Parallel sub-agent cap. |
-
-The agent's `mode` (a `PermissionMode`) sets the overall posture:
-
-- `"plan"` — the agent must present a plan for approval before acting.
-- `"default"` — gated actions prompt through `io`.
-- `"accept_edits"` — file edits are auto-approved.
-- `"bypass"` — skip gating (trusted/automated contexts only).
+Every agent takes a `guardrails=` (what it's allowed to do) and a `mode=` (the runtime posture, e.g.
+`"plan"` / `"default"` / `"accept_edits"` / `"bypass"`):
 
 ```python
 agent = AgenticLoop(
@@ -176,15 +141,16 @@ agent = AgenticLoop(
 )
 ```
 
+The full field reference, the permission modes, and the approval flow are covered in
+[Permissions & Safety](../learn/permissions.md).
+
 ## Sub-agents
 
-Agents can spawn scoped sub-agents (via the `spawn_agent` tool and `SubAgentRunner`) to parallelise
-work; nesting depth and concurrency are bounded by the guardrails above. See the
-[Tools guide](tools.md) for `spawn_agent`.
+Agents can spawn scoped sub-agents (via the `spawn_agent` tool) to parallelise work, bounded by the
+guardrails above. See the [Sub-agents guide](subagents.md).
 
 ## Context management
 
-`ContextManager` keeps a run within the model's context window by **auto-compacting** older history
-into a summary as it approaches the limit (emitting a `Compacted` event), and `DurableState` pins
-plan/todos/decisions outside the compactable history so they survive summarisation. Pass a
-`context_manager=` and/or `durable=` to customise; the defaults are sensible for most runs.
+Long runs stay within the context window via automatic compaction (`ContextManager`) while
+`DurableState` pins the plan/todos/decisions that must survive it. Pass `context_manager=` and/or
+`durable=`; see [Context & Memory](context.md).

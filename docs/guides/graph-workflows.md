@@ -7,7 +7,7 @@ Neurosurfer has a graph layer for **multi-step** pipelines:
 - **`neurosurfer.graph.workflow`** — a persisted, versioned **Workflow package** layered on the
   engine: save a graph to disk, register it, and run it later.
 
-The [Architect](architect.md) builds these graphs for you from plain English — this page covers
+The [Architect](../architect/index.md) builds these graphs for you from plain English — this page covers
 building and running them directly.
 
 ## Build a graph
@@ -106,9 +106,9 @@ result = WorkflowRunner(provider, cwd=repo_root).run(
 ```
 
 Use `save_package` / `load_package` to move packages between the filesystem and the registry. The
-registry is also what the [gateway](../server/index.md) and [CLI](../cli.md) use to run registered
+registry is also what the [gateway](../server/index.md) and [CLI](../reference/cli.md) use to run registered
 workflows on any provider.
 
 !!! tip "Don't want to hand-build graphs?"
-    The [Architect](architect.md) designs and builds a Workflow package from a plain-English
+    The [Architect](../architect/index.md) designs and builds a Workflow package from a plain-English
     description — then you run it exactly as above.

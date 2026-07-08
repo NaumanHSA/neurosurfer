@@ -23,7 +23,7 @@ provider/status line, and slash commands. Type a message to chat; type `/` to se
 | `/status` | Show provider + task status. |
 | `/provider` | Manage provider profiles (add, switch, list). |
 | `/mcp` | Manage MCP servers (list, add, remove, tools). |
-| `/workflow` | Build and run workflows (drives the [Architect](guides/architect.md)). |
+| `/workflow` | Build and run workflows (drives the [Architect](../architect/index.md)). |
 | `/doctor` | Check the active connection. |
 | `/new` | Clear chat history and start a fresh session. |
 | `/theme` | Change the color theme. |
@@ -52,7 +52,7 @@ servers) are reachable — a quick first check when something isn't connecting.
 
 ## serve — the gateway
 
-`neurosurfer serve` starts the [OpenAI-compatible gateway](server/index.md):
+`neurosurfer serve` starts the [OpenAI-compatible gateway](../server/index.md):
 
 ```bash
 neurosurfer serve --host 0.0.0.0 --port 8000
@@ -70,4 +70,4 @@ neurosurfer serve --upstream-url http://localhost:1234/v1
 | `--reload` | Auto-reload (development). |
 | `--no-docs` | Disable the `/docs` UI. |
 
-See the [Server guide](server/index.md) for registering agents and workflows programmatically.
+See the [Server guide](../server/index.md) for registering agents and workflows programmatically.

@@ -12,35 +12,34 @@ copyright: Copyright &copy; 2026 Neurosurfer Team
 theme:
   name: material
   palette:
-    # Light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
+    # Light mode is the default for every visitor (no prefers-color-scheme media
+    # key → does not auto-follow the OS); the toggle switches + persists in localStorage.
+    # Colours (monochrome black/white) are defined in stylesheets/extra.css.
+    - scheme: default
       primary: --md-primary-fg-color
-      accent: cyan
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    # Dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
+    # Dark mode (opt-in via the toggle)
+    - scheme: slate
       primary: --md-primary-fg-color
-      accent: cyan
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
 
+  # Monospace / coding-style type throughout.
   font:
-    text: Roboto
-    code: Roboto Mono
+    text: JetBrains Mono
+    code: JetBrains Mono
 
   features:
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.tracking
+    # Top-level → tabs in the header; each tab's pages fill the left sidebar.
     - navigation.tabs
     - navigation.tabs.sticky
-    - navigation.sections
-    - navigation.expand
+    - navigation.prune
     - navigation.path
     - navigation.indexes
     - navigation.top
@@ -53,6 +52,9 @@ theme:
     - content.code.annotate
     - content.tabs.link
     - toc.follow
+    # Fold each page's sub-sections into the left sidebar (nested under the page),
+    # so they expand/collapse there instead of showing on the right.
+    - toc.integrate
 
   logo: assets/logo/neurosurfer_logo_white_hollow.png
 
@@ -116,28 +118,61 @@ plugins:
       minify_html: true
   - git-revision-date-localized:
       enable_creation_date: true
+      enable_git_follow: false
       type: timeago
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+  - Learn:
+    - Architecture: learn/architecture.md
+    - Core Concepts: learn/concepts.md
+    - Permissions & Safety: learn/permissions.md
   - Guides:
     - Providers: guides/providers.md
     - Agents: guides/agents.md
+    - Structured Output: guides/structured-output.md
     - Tools: guides/tools.md
+    - Sub-agents: guides/subagents.md
+    - Background Tasks: guides/tasks.md
+    - Context & Memory: guides/context.md
     - RAG: guides/rag.md
     - Graph & Workflows: guides/graph-workflows.md
-    - Architect: guides/architect.md
     - MCP: guides/mcp.md
-    - Observability: guides/observability.md
+  - Architect:
+    - Overview: architect/index.md
+    - How It Works: architect/how-it-works.md
+    - Building Workflows: architect/building.md
+  - Observability:
+    - Overview: observability/index.md
+    - Langfuse: observability/langfuse.md
+    - OpenTelemetry: observability/opentelemetry.md
+    - Custom Exporters: observability/custom-exporters.md
   - Server:
-    - server/index.md
+    - Overview: server/index.md
+    - Serving Agents: server/agents.md
     - Backends: server/backends.md
     - Hooks: server/hooks.md
-  - CLI: cli.md
-  - Tutorials: tutorials.md
-  - Contributing: contributing.md
-  - Changelog: changelog.md
+    - Deployment: server/deployment.md
+  - Reference:
+    - CLI: reference/cli.md
+    - Configuration: reference/configuration.md
+    - Tools Catalog: reference/tools-catalog.md
+  - Tutorials:
+    - Overview: tutorials/index.md
+    - Installation: tutorials/installation.md
+    - Providers & Agents: tutorials/providers-and-agents.md
+    - Custom Tools: tutorials/custom-tools.md
+    - Graph Agents: tutorials/graph-agents.md
+    - MCP Servers: tutorials/mcp-servers.md
+    - Insight Engine: tutorials/insight-engine.md
+    - SQL Agent: tutorials/sql-agent.md
+  - About:
+    - Contributing: about/contributing.md
+    - Roadmap: about/roadmap.md
+    - Changelog: about/changelog.md
 
 extra_css:
   - stylesheets/extra.css

@@ -1,7 +1,7 @@
 # Observability Roadmap
 
 Status of the pluggable trace-exporter work (Langfuse + OpenTelemetry). User-facing
-usage lives in [guides/observability.md](guides/observability.md); this file tracks
+usage lives in [the Observability section](../observability/index.md); this file tracks
 what's built and what's left.
 
 **Legend:** ✅ done · 🚧 in progress · ⬜ not started
@@ -11,7 +11,7 @@ what's built and what's left.
 ## Design summary
 
 Agent runs emit a typed event stream (`ToolStarted`, `TurnCompleted{usage}`, …).
-A side-channel **observer** on that stream ([base._tap](../neurosurfer/agents/base.py))
+A side-channel **observer** on that stream ([base._tap](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/agents/base.py))
 translates it into backend-neutral `TraceExporter` calls: run → trace, LLM turn →
 generation (with token cost), tool call → span. Auto-on from the environment
 (`LANGFUSE_*` / `OTEL_EXPORTER_OTLP_ENDPOINT`); zero overhead when unconfigured; a bad
@@ -71,18 +71,18 @@ built. Only a live multi-node Langfuse verification remains (needs credentials).
 ### Level 1 — Workflow = one trace, node agents nested under it ✅  *(~1 hr, low risk)*
 - [x] Mint a root `TraceContext` for the graph run; `push_trace_context` around it
       in the workflow runner (`traced_run` in
-      [observability/run.py](../neurosurfer/observability/run.py), wrapping
-      `executor.run` in [graph/workflow/runner.py](../neurosurfer/graph/workflow/runner.py))
+      [observability/run.py](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/observability/run.py), wrapping
+      `executor.run` in [graph/workflow/runner.py](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/graph/workflow/runner.py))
 - [x] Node agents already flow through `base._tap()` → they nest automatically
-- [x] Test ([tests/test_observability_workflow.py](../tests/test_observability_workflow.py):
+- [x] Test ([tests/test_observability_workflow.py](https://github.com/NaumanHSA/neurosurfer/blob/main/tests/test_observability_workflow.py):
       root span + node nesting + no-exporter no-op)
 - [x] Thread propagation: parallel nodes (`parallelism>1`) and timeout nodes
       (`policy.timeout_s`) hop to `ThreadPoolExecutor` workers, and
       `run_coro_blocking` may spawn a thread — all now run inside a
       `contextvars.copy_context()` snapshot, so the ambient `TraceContext` crosses
       the thread boundary and those node agents nest too
-      ([executor.py](../neurosurfer/graph/engine/executor.py),
-      [node_runner.py](../neurosurfer/graph/engine/node_runner.py); tests cover both)
+      ([executor.py](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/graph/engine/executor.py),
+      [node_runner.py](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/graph/engine/node_runner.py); tests cover both)
 - [ ] One live Langfuse check
 - Result: `workflow:<name>` (root) → each node's agent run → its tool spans, one trace.
 - Note: nodes nest whether they run serially, in parallel, or under a timeout. The
@@ -91,10 +91,10 @@ built. Only a live multi-node Langfuse verification remains (needs credentials).
 ### Level 2 — Full `graph-run → node span → agent → tool` hierarchy ✅  *(built)*
 - [x] Per-node span via a lightweight node-level context — each node's execution in
       `GraphExecutor._execute_one` is wrapped in `traced_run("node:<id>", flush=False)`
-      ([executor.py](../neurosurfer/graph/engine/executor.py)), publishing an ambient
+      ([executor.py](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/graph/engine/executor.py)), publishing an ambient
       `TraceContext` the node's agent inherits. `traced_run` gained a `RunSpan` handle
       so a node that *returns* (not raises) an error marks its span errored
-      ([observability/run.py](../neurosurfer/observability/run.py))
+      ([observability/run.py](https://github.com/NaumanHSA/neurosurfer/blob/main/neurosurfer/observability/run.py))
 - [x] Nodes that bypass `agent.run` (function / tool nodes) are now **visible** — they
       get their own node span even with no agent underneath
 - [x] Correct nesting for **parallel branches** — the `copy_context()` snapshot from
@@ -105,7 +105,7 @@ built. Only a live multi-node Langfuse verification remains (needs credentials).
       → tool` renders at arbitrary depth
 - [x] Tests: workflow→node→agent hierarchy, function-node visibility, error marking,
       parallel + timeout thread nesting
-      ([tests/test_observability_workflow.py](../tests/test_observability_workflow.py))
+      ([tests/test_observability_workflow.py](https://github.com/NaumanHSA/neurosurfer/blob/main/tests/test_observability_workflow.py))
 - [ ] One live multi-node Langfuse check (needs credentials — run locally)
 
 **Out of scope of the exporter work** (separate subsystems, left as-is):

@@ -1,17 +1,20 @@
 # Tutorials
 
-Hands-on notebooks that build up from installation to a full capstone project. Open any of them
-directly in Google Colab, or find them under
+Hands-on lessons that build from installation to a full capstone. Each has a **short written guide**
+here (the essence, copy-pasteable) plus the **full notebook** you can open in Google Colab. Browse
+them in order, or jump to whichever fits.
+
+| # | Tutorial | What you'll build |
+|---|----------|-------------------|
+| 0 | [Installation](installation.md) | Install Neurosurfer and its extras; verify your setup. |
+| 1 | [Providers & Agents](providers-and-agents.md) | Connect cloud/local providers; run `AgenticLoop`, `ReactAgent`, one-shot `Agent`. |
+| 2 | [Custom Tools](custom-tools.md) | Write your own tool and give an agent a new capability. |
+| 3 | [Graph Agents](graph-agents.md) | Compose multi-step workflows with the graph engine. |
+| 4 | [MCP Servers](mcp-servers.md) | Connect an external MCP server and expose its tools to an agent. |
+| 5 | [Capstone: Insight Engine](insight-engine.md) | A database-backed insight engine over MCP. |
+| 6 | [Capstone: SQL Agent](sql-agent.md) | A SQL agent — `ReactAgent` vs `AgenticLoop` on the same task. |
+
+All notebooks also live under
 [`tutorials/`](https://github.com/NaumanHSA/neurosurfer/tree/main/tutorials) in the repo.
 
-| # | Tutorial | Open in Colab | What you'll build |
-|---|----------|---------------|-------------------|
-| 0 | **Installation** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/00_installation.ipynb) | Install Neurosurfer and its optional extras; verify your setup. |
-| 1 | **Providers & Agents** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/01_providers_and_agents.ipynb) | Connect cloud and local providers, then run `AgenticLoop`, `ReactAgent`, and one-shot `Agent`. |
-| 2 | **Custom Tools** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/02_custom_tools.ipynb) | Write your own tools and give agents new capabilities. |
-| 3 | **Graph Agents** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/03_graph_agents.ipynb) | Compose multi-step workflows with the graph engine and Workflow packages. |
-| 4 | **MCP Servers** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/04_mcp_servers.ipynb) | Connect external Model Context Protocol servers and expose their tools to agents. |
-| 5 | **Capstone: Insight Engine** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb) | Put it all together — a database-backed insight engine over MCP. |
-
-Prefer prose? The [guides](guides/agents.md) cover the same concepts with focused, copy-pasteable
-snippets.
+Prefer reference prose? The [guides](../guides/agents.md) cover the same concepts in depth.
