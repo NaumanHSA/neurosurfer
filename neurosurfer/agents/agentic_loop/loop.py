@@ -51,8 +51,12 @@ class AgenticLoop(BaseAgent):
                 return
 
             self.usage = self.usage.add(response.usage)
+            sent = self.history.snapshot()  # messages the model saw this turn
             self.history.add_assistant_response(response)
-            yield events.TurnCompleted(response.usage, response.stop_reason)
+            yield events.TurnCompleted(
+                response.usage, response.stop_reason,
+                input=sent, output=response.as_message(),
+            )
 
             tool_uses = response.tool_uses()
             if not tool_uses:

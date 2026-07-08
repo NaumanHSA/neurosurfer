@@ -45,6 +45,7 @@ class TraceExporter:
         usage: Usage,
         model: str | None,
         stop_reason: str,
+        input: Any = None,
         output: str | None = None,
     ) -> None:
         """One LLM turn completed — record a generation with token usage."""
@@ -116,7 +117,7 @@ class MemoryExporter(TraceExporter):
             input=input,
         )
 
-    def on_turn(self, ctx, *, usage, model, stop_reason, output=None):
+    def on_turn(self, ctx, *, usage, model, stop_reason, input=None, output=None):
         self._rec(
             "turn",
             trace_id=ctx.trace_id,
@@ -125,6 +126,7 @@ class MemoryExporter(TraceExporter):
             output_tokens=usage.output_tokens,
             model=model,
             stop_reason=stop_reason,
+            input=input,
             output=output,
         )
 

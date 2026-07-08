@@ -67,13 +67,14 @@ class LangfuseExporter(TraceExporter):
             )
             self._runs[ctx.span_id] = ("trace", handle)
 
-    def on_turn(self, ctx, *, usage: Usage, model, stop_reason, output=None) -> None:
+    def on_turn(self, ctx, *, usage: Usage, model, stop_reason, input=None, output=None) -> None:
         handle = self._handle(ctx)
         if handle is None:
             return
         handle.generation(
             name="llm-turn",
             model=model,
+            input=input,
             usage={
                 "input": int(usage.input_tokens),
                 "output": int(usage.output_tokens),

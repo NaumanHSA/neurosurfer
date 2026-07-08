@@ -80,6 +80,7 @@ class BaseAgent:
         persist_scope: Callable[[str], None] | None = None,
         verbose: bool = True,
         session_id: str | None = None,
+        trace_name: str | None = None,
     ):
         self.provider = provider
         self.tools = tools
@@ -100,6 +101,8 @@ class BaseAgent:
         # Optional grouping id: all runs of this agent share it, so a multi-message
         # CLI conversation appears as one Langfuse *session* instead of N traces.
         self.session_id = session_id
+        # Optional human-friendly trace name; falls back to ``<AgentType>.run``.
+        self._trace_name = trace_name
         # When True, the agent renders a live activity trace (animated spinner +
         # tool lines) as events flow past — so a caller that only handles ``TextDelta``
         # still sees the agent working. Front-ends with their own renderer (the CLI,
@@ -232,9 +235,8 @@ class BaseAgent:
             ctx = parent.child(metadata={**parent.metadata, **meta})
         else:
             ctx = TraceContext(session_id=self.session_id, metadata=meta)
-        return TraceStreamObserver(
-            ctx, exporters, model=model, name=f"{type(self).__name__}.run"
-        )
+        name = self._trace_name or f"{type(self).__name__}.run"
+        return TraceStreamObserver(ctx, exporters, model=model, name=name)
 
     async def run_collect(self, user_input: str) -> events.RunResult:
         """Drive :meth:`run` to completion and collect a :class:`RunResult`."""

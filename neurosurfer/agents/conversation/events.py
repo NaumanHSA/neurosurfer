@@ -59,6 +59,12 @@ class ToolFinished:
 class TurnCompleted:
     usage: Usage
     stop_reason: str
+    # Snapshot of the messages sent to the model for this turn — the LLM
+    # generation's *input*. Carried here so trace exporters can record it.
+    input: Any = None
+    # The model's assistant response for this turn (thinking + text + tool_use
+    # blocks) — the generation's *output*. Distinct from the streamed answer text.
+    output: Any = None
 
 
 @dataclass

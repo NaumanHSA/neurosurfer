@@ -80,7 +80,7 @@ class OtelExporter(TraceExporter):
         self._runs[ctx.span_id] = {"root": root, "ctx": child_ctx, "tools": {}}
 
     def on_turn(
-        self, ctx, *, usage: Usage, model, stop_reason, output=None
+        self, ctx, *, usage: Usage, model, stop_reason, input=None, output=None
     ) -> None:
         run = self._runs.get(ctx.span_id)
         if run is None:

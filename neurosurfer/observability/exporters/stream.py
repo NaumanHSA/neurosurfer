@@ -33,6 +33,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger("neurosurfer.observability")
 
 
+def _summarize_message(m) -> dict:
+    """Compact, JSON-friendly view of a single canonical message. Image payloads
+    are elided so traces stay small; all other blocks (thinking / text / tool_use
+    / tool_result) are preserved as-is."""
+    blocks: list[dict] = []
+    for b in m.content:
+        d = b.model_dump()
+        if d.get("type") == "image":
+            d["data"] = "<base64 image elided>" if d.get("data") else None
+        blocks.append(d)
+    return {"role": m.role, "content": blocks}
+
+
+def _summarize_messages(messages: list | None) -> list[dict] | None:
+    """The messages sent to the model this turn — the generation's *input*."""
+    if not messages:
+        return None
+    return [_summarize_message(m) for m in messages]
+
+
+def _run_output(answer: str, last_message) -> str | None:
+    """Run-level output: the streamed answer text, or — when the final turn
+    produced no user-facing text (its answer lives in the thinking channel, as
+    some reasoning models do) — that turn's thinking, so the trace isn't blank."""
+    if answer:
+        return answer
+    if last_message is not None:
+        thinking = "".join(getattr(b, "thinking", "") or "" for b in last_message.content)
+        if thinking:
+            return thinking
+    return None
+
+
 class TraceStreamObserver:
     def __init__(
         self,
@@ -46,8 +79,8 @@ class TraceStreamObserver:
         self._exporters = exporters
         self._model = model
         self._name = name
-        self._answer: list[str] = []       # whole-run answer text
-        self._turn_answer: list[str] = []   # current turn's answer text
+        self._answer: list[str] = []       # whole-run answer text (→ run output)
+        self._last_output = None            # last turn's assistant message (fallback output)
         self._status: str | None = None
         self._started = False
         self._cv_token = None               # contextvar token for nesting
@@ -71,7 +104,6 @@ class TraceStreamObserver:
     def handle(self, ev: events.Event) -> None:
         if isinstance(ev, events.TextDelta):
             self._answer.append(ev.text)
-            self._turn_answer.append(ev.text)
         elif isinstance(ev, events.ToolStarted):
             self._fan("on_tool_start", call_id=ev.id, name=ev.name, args=ev.args)
         elif isinstance(ev, events.ToolFinished):
@@ -83,14 +115,17 @@ class TraceStreamObserver:
                 is_error=bool(ev.result.is_error),
             )
         elif isinstance(ev, events.TurnCompleted):
+            self._last_output = ev.output
             self._fan(
                 "on_turn",
                 usage=ev.usage,
                 model=self._model,
                 stop_reason=ev.stop_reason,
-                output="".join(self._turn_answer) or None,
+                input=_summarize_messages(ev.input),
+                # The model's own output this turn — thinking + text + tool_use —
+                # so each generation shows what *it* produced, not just the answer text.
+                output=_summarize_message(ev.output) if ev.output is not None else None,
             )
-            self._turn_answer.clear()
         elif isinstance(ev, events.ModeChanged):
             self._fan("on_event", kind="mode_changed", mode=ev.mode, reason=ev.reason)
         elif isinstance(ev, events.Compacted):
@@ -124,7 +159,7 @@ class TraceStreamObserver:
         self._fan(
             "on_run_finish",
             status=self._status or "completed",
-            output="".join(self._answer) or None,
+            output=_run_output("".join(self._answer), self._last_output),
         )
         for exp in self._exporters:
             try:

@@ -13,7 +13,7 @@ from neurosurfer.agents import events
 from neurosurfer.agents.oneshot import Agent
 from neurosurfer.agents.runtime.permissions import Guardrails
 from neurosurfer.config.observability import detect_exporters_from_env
-from neurosurfer.llm.types import Usage
+from neurosurfer.llm.types import Message, TextBlock, Usage
 from neurosurfer.observability.context import TraceContext
 from neurosurfer.observability.exporters import (
     MemoryExporter,
@@ -67,7 +67,11 @@ def test_observer_lifecycle_mapping():
         events.TurnCompleted(usage=Usage(input_tokens=100, output_tokens=20), stop_reason="tool_use"),
         events.TextDelta("The answer "),
         events.TextDelta("is 42."),
-        events.TurnCompleted(usage=Usage(input_tokens=130, output_tokens=8), stop_reason="end_turn"),
+        events.TurnCompleted(
+            usage=Usage(input_tokens=130, output_tokens=8),
+            stop_reason="end_turn",
+            output=Message(role="assistant", content=[TextBlock(text="The answer is 42.")]),
+        ),
         events.RunFinished(status="completed", report="The answer is 42."),
     ]:
         obs.handle(ev)
@@ -78,7 +82,10 @@ def test_observer_lifecycle_mapping():
     ]
     turns = mem.of("turn")
     assert (turns[0]["input_tokens"], turns[0]["output_tokens"]) == (100, 20)
-    assert turns[1]["output"] == "The answer is 42."
+    assert turns[1]["output"] == {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "The answer is 42."}],
+    }
     assert mem.of("run_finish")[0]["output"] == "The answer is 42."
 
 

@@ -125,6 +125,7 @@ def build_assistant(ctx: CLIContext, *, plan_mode: bool = False):
         # One session per conversation → the CLI's messages group as a single
         # Langfuse session (reset on /clear via clear_assistant()).
         session_id=new_run_id(),
+        trace_name="neurosurfer-cli",
     ), io
 
 
