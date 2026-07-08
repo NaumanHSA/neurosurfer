@@ -18,45 +18,46 @@
 <br/>
 <br/>
 
-![PyPI](https://img.shields.io/pypi/v/neurosurfer?style=flat-square&labelColor=111111&color=111111)
-![Python](https://img.shields.io/pypi/pyversions/neurosurfer?style=flat-square&labelColor=111111&color=111111)
-![License](https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square&labelColor=111111)
-![Status](https://img.shields.io/badge/status-stable-111111?style=flat-square&labelColor=111111)
+<a href="https://pypi.org/project/neurosurfer/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/neurosurfer?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&labelColor=111111&color=111111"></a>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/neurosurfer?style=for-the-badge&logo=python&logoColor=white&label=Python&labelColor=111111&color=111111"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/"><img alt="Documentation" src="https://img.shields.io/badge/Docs-online-111111?style=for-the-badge&logo=readthedocs&logoColor=white&labelColor=111111"></a>
+<a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-111111?style=for-the-badge&labelColor=111111"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NaumanHSA/neurosurfer?style=for-the-badge&logo=github&logoColor=white&label=Stars&labelColor=111111&color=111111"></a>
 
 </div>
 
-**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval** — with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go, on CPU or GPU.
+**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval**, with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go, on CPU or GPU.
 
 ---
 
-## What's new
+## 📰 What's new
 
-- **Observability — pluggable trace exporters** *(latest)* — ship **every agent run** to a real monitoring backend with **no code changes**. Ships with **[Langfuse](https://naumanhsa.github.io/neurosurfer/observability/langfuse/)** (traces, token cost, sessions) and **[OpenTelemetry](https://naumanhsa.github.io/neurosurfer/observability/opentelemetry/)** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog). Auto-on from the environment; runs → traces, LLM turns → generations, tool calls → spans, sub-agents & workflow nodes nest automatically. `pip install "neurosurfer[observability]"` — see [Observability](#observability).
-- **Trace nesting & sessions** — a run spawned inside another run nests under it in the same trace (propagated across `await` and `asyncio.gather`); agents accept a `session_id` so a whole conversation groups into one session.
-- **v1.0.0 — first stable release** *(2026-07-01)* — the public API (`neurosurfer.agents`, `.llm`, `.tools`, `.rag`, `.graph`, `.architect`, `.mcp`, `.app.server`) is now stable under semantic versioning.
+- **Observability: pluggable trace exporters** *(latest)*: ship **every agent run** to a real monitoring backend with **no code changes**. Ships with **[Langfuse](https://naumanhsa.github.io/neurosurfer/observability/langfuse/)** (traces, token cost, sessions) and **[OpenTelemetry](https://naumanhsa.github.io/neurosurfer/observability/opentelemetry/)** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog). Auto-on from the environment; runs → traces, LLM turns → generations, tool calls → spans, sub-agents & workflow nodes nest automatically. `pip install "neurosurfer[observability]"`; see [Observability](#-observability).
+- **Trace nesting & sessions**: a run spawned inside another run nests under it in the same trace (propagated across `await` and `asyncio.gather`); agents accept a `session_id` so a whole conversation groups into one session.
+- **v1.0.0: first stable release** *(2026-07-01)*: the public API (`neurosurfer.agents`, `.llm`, `.tools`, `.rag`, `.graph`, `.architect`, `.mcp`, `.app.server`) is now stable under semantic versioning.
 
 > Full history in the [Changelog](CHANGELOG.md).
 
 ---
 
-## What's in the box
+## 📦 What's in the box
 
-- **Agent family** — `AgenticLoop` (native multi-step tool-use), `ReactAgent` (text-parsing ReAct for models without a native tool API), and `Agent` (one-shot, optionally with structured output).
-- **LLM providers** — Anthropic Claude, OpenAI, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp) behind one `Provider` protocol.
-- **Rich tool ecosystem** — 15+ built-in tools: web search (DuckDuckGo/SerpAPI), sandboxed Python execution, file ops, HTTP, headless browser, memory — plus a simple framework for your own.
-- **RAG pipeline** — ingest → chunk → embed → retrieve → token-aware context injection.
-- **Graph & Workflows** — a standalone DAG engine and persisted, runnable Workflow packages.
-- **Architect** — describe a workflow in plain English; it designs and builds the graph for you.
-- **MCP client** — connect external Model Context Protocol servers and expose their tools to agents.
-- **OpenAI-compatible gateway** — `/v1/models` + `/v1/chat/completions` with SSE streaming; proxy upstream backends or route to your own agents; request/response hooks.
-- **Observability** — pluggable trace exporters (Langfuse, OpenTelemetry) with zero-overhead-when-off tracing.
-- **Interactive CLI** — a `neurosurfer` REPL for chat and `neurosurfer serve` for the gateway.
+- 🤖 **Agent family:** `AgenticLoop` (native multi-step tool-use), `ReactAgent` (text-parsing ReAct for models without a native tool API), and `Agent` (one-shot, optionally with structured output).
+- 🧠 **LLM providers:** Anthropic Claude, OpenAI, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp) behind one `Provider` protocol.
+- 🔧 **Rich tool ecosystem:** 15+ built-in tools: web search (DuckDuckGo/SerpAPI), sandboxed Python execution, file ops, HTTP, headless browser, and memory, plus a simple framework for your own.
+- 📚 **RAG pipeline:** ingest → chunk → embed → retrieve → token-aware context injection.
+- 🕸️ **Graph & Workflows:** a standalone DAG engine and persisted, runnable Workflow packages.
+- 🏗️ **Architect:** describe a workflow in plain English; it designs and builds the graph for you.
+- 🔌 **MCP client:** connect external Model Context Protocol servers and expose their tools to agents.
+- ⚙️ **OpenAI-compatible gateway:** `/v1/models` + `/v1/chat/completions` with SSE streaming; proxy upstream backends or route to your own agents; request/response hooks.
+- 🔭 **Observability:** pluggable trace exporters (Langfuse, OpenTelemetry) with zero-overhead-when-off tracing.
+- 🧪 **Interactive CLI:** a `neurosurfer` REPL for chat and `neurosurfer serve` for the gateway.
 
 ---
 
-## Tutorials
+## 🎓 Tutorials
 
-Hands-on notebooks — open any of them directly in Google Colab:
+Hands-on notebooks: open any of them directly in Google Colab.
 
 | # | Tutorial | What you'll build |
 |---|----------|-------------------|
@@ -65,11 +66,11 @@ Hands-on notebooks — open any of them directly in Google Colab:
 | 2 | **[Custom Tools](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/02_custom_tools.ipynb)** | Write your own tools and give agents new capabilities. |
 | 3 | **[Graph Agents](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/03_graph_agents.ipynb)** | Compose multi-step workflows with the graph engine and Workflow packages. |
 | 4 | **[MCP Servers](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/04_mcp_servers.ipynb)** | Connect external Model Context Protocol servers and expose their tools to agents. |
-| 5 | **[Capstone: Insight Engine](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb)** | Put it all together — a database-backed insight engine over MCP. |
+| 5 | **[Capstone: Insight Engine](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb)** | Put it all together: a database-backed insight engine over MCP. |
 
 ---
 
-## Quick start
+## ⚡ Quick start
 
 **Install:**
 ```bash
@@ -154,40 +155,29 @@ server.run()  # → http://localhost:8000/v1/chat/completions
 
 ---
 
-## Observability
+## 🔭 Observability
 
-See and debug **what your agents actually do** — the LLM turns, tool calls, token usage, and cost — in a real dashboard. Tracing is a cross-cutting, side-channel layer: it *observes* the event stream every agent already emits, never consumes it, so nothing about how you call `agent.run(...)` changes.
+See and debug **what your agents actually do** in a real dashboard: the LLM turns, tool calls, token usage, and cost. Tracing is a cross-cutting, side-channel layer: it *observes* the event stream every agent already emits, never consumes it, so nothing about how you call `agent.run(...)` changes.
 
-- **Zero code changes** — auto-on from the environment. Set a backend's connection vars and it activates on the next run.
-- **Two backends in the box** — **Langfuse** (batteries-included LLM observability) and **OpenTelemetry** (vendor-neutral GenAI-semconv spans over OTLP → Honeycomb, Phoenix, Grafana Tempo, Datadog…). Or write your own `TraceExporter`.
-- **Automatic nesting** — a run is a **trace**; each LLM turn a **generation** (with token cost); each tool call a **span**; spawned sub-agents and workflow nodes nest under the parent (`workflow → node → agent → tool`).
-- **Safe by design** — zero overhead when off, and a misbehaving or unreachable exporter never breaks a run.
+- **Zero code changes:** auto-on from the environment. Set a backend's connection vars and it activates on the next run.
+- **Two backends in the box:** **Langfuse** (batteries-included LLM observability) and **OpenTelemetry** (vendor-neutral GenAI-semconv spans over OTLP → Honeycomb, Phoenix, Grafana Tempo, Datadog…). Or write your own `TraceExporter`.
+- **Automatic nesting:** a run is a **trace**; each LLM turn a **generation** (with token cost); each tool call a **span**; spawned sub-agents and workflow nodes nest under the parent (`workflow → node → agent → tool`).
+- **Safe by design:** zero overhead when off, and a misbehaving or unreachable exporter never breaks a run.
 
 ```bash
 pip install "neurosurfer[observability]"
 
-# Langfuse — auto-detected from the environment:
+# Langfuse: auto-detected from the environment
 export LANGFUSE_PUBLIC_KEY=pk-...  LANGFUSE_SECRET_KEY=sk-...
 # …or any OTel backend:
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
-That's it — run any agent and the traces show up. Full guide: **[Observability docs](https://naumanhsa.github.io/neurosurfer/observability/)**.
+That's it. Run any agent and the traces show up. Full guide: **[Observability docs](https://naumanhsa.github.io/neurosurfer/observability/)**.
 
 ---
 
-## Key features
-
-- **Native tool-use** — provider-native function calling; no sentinel leakage, clean structured output.
-- **ReactAgent** — text-parsing ReAct for models without native tool APIs (Ollama, llama.cpp, small local models).
-- **Sandboxed code execution** — subprocess-isolated Python with process-group kill, memory cap, and env sanitisation.
-- **Web search** — DuckDuckGo (free) or SerpAPI (Google), BM25-ranked result injection within a token budget.
-- **Workflow builder** — plain-English → multi-step DAG → registered workflow; runs on any provider.
-- **OpenAI gateway** — drop-in server; register agents as model IDs; hooks for auth, request rewriting, response filtering.
-
----
-
-## Install options
+## 🧩 Install options
 
 | Extra | What you get |
 |---|---|
@@ -207,18 +197,18 @@ pip install "neurosurfer[search,serve,rag,observability]"
 
 ---
 
-## License
+## 📄 License
 
 Licensed under the **Apache-2.0 License**. See [`LICENSE`](LICENSE).
 
-## Support
+## 💬 Support
 
 - Star the project on [GitHub](https://github.com/NaumanHSA/neurosurfer)
 - Ask & share in [Discussions](https://github.com/NaumanHSA/neurosurfer/discussions)
 - File [Issues](https://github.com/NaumanHSA/neurosurfer/issues)
 - Security: report privately to **naumanhsa965@gmail.com**
 
-## Citation
+## 📚 Citation
 
 ```bibtex
 @software{neurosurfer,
