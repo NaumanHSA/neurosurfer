@@ -187,8 +187,8 @@ That's it. Run any agent and the traces show up. Full guide: **[Observability do
 | `local` | `tiktoken` for accurate token counting with local models |
 | `rag` | ChromaDB, sentence-transformers, PDF/DOCX/PPTX readers |
 | `serve` | FastAPI + uvicorn for the OpenAI-compatible gateway |
+| `mcp` | Model Context Protocol client SDK |
 | `observability` | Langfuse + OpenTelemetry trace exporters |
-| `local-models` | PyTorch + Transformers for local model inference |
 | `dev` | pytest, ruff, mypy, build tools |
 
 ```bash

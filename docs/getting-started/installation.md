@@ -20,7 +20,6 @@ Install only what you use. Combine them in one bracket, e.g. `pip install -U "ne
 | `mcp` | Model Context Protocol client | `mcp` |
 | `observability` | Langfuse + OpenTelemetry trace exporters | `langfuse`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp` |
 | `local` | Accurate token counting for local models | `tiktoken` |
-| `local-models` | In-process local inference backends | `torch`, `transformers`, `accelerate`, `sentencepiece` |
 | `dev` | Test/lint/build toolchain | `pytest`, `ruff`, `mypy`, `build`, `twine` |
 
 !!! tip "Pick extras by task, not by fear of missing out"

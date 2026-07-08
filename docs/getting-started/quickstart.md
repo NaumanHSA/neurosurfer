@@ -28,7 +28,6 @@ pip install -U neurosurfer
 | `local` | `tiktoken` for accurate token counting with local models |
 | `rag` | ChromaDB, sentence-transformers, PDF/DOCX/PPTX readers |
 | `serve` | FastAPI + uvicorn for the OpenAI-compatible gateway |
-| `local-models` | PyTorch + Transformers for local model inference |
 | `mcp` | Model Context Protocol client SDK |
 | `dev` | pytest, ruff, mypy, build tools |
 

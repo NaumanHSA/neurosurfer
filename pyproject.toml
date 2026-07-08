@@ -66,18 +66,6 @@ search = [
 browser = [
     "playwright>=1.40",     # headless browser for the `browse` tool (run: playwright install chromium)
 ]
-
-# ── Optional heavy backends (local inference) ───────────────────────────────────
-# The core executor runs on the base install. These extras add optional capabilities;
-# their imports are lazy so a base install never requires them.
-local-models = [
-    "torch>=2.2",                 # local inference backends
-    "transformers>=4.56",
-    "accelerate>=0.30",
-    "sentencepiece>=0.2",
-    # optional, install as needed for their backends:
-    #   "unsloth>=2025.10", "llama-cpp-python>=0.3", "bitsandbytes>=0.43"
-]
 rag = [
     "chromadb>=1.0",              # vector store for RAG nodes
     "sentence-transformers>=5.1", # embeddings
