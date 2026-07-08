@@ -1,25 +1,26 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "neurosurfer"
 version = "1.0.0"
-description = "Build intelligent apps that blend LLM reasoning, tools, and retrieval — with a ready-to-run OpenAI-compatible gateway. CPU-only or GPU-accelerated."
+description = "Build intelligent apps that blend LLM reasoning, tools, and retrieval, with a ready-to-run OpenAI-compatible gateway."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Neurosurfer Team", email = "naumanhsa965@gmail.com" }]
 maintainers = [{ name = "Neurosurfer Team", email = "naumanhsa965@gmail.com" }]
 keywords = [
-    "agent", "llm", "agentic", "rag", "anthropic", "openai", "claude",
-    "ai-agent", "local-llm", "vllm", "ollama", "lm-studio", "tool-use",
-    "openai-compatible", "fastapi", "cli", "neurosurfer",
+    "agent", "agent-framework", "llm", "agentic", "rag", "anthropic", "openai",
+    "claude", "ai-agent", "local-llm", "vllm", "ollama", "lm-studio", "tool-use",
+    "mcp", "workflow", "observability", "openai-compatible", "fastapi", "cli",
+    "neurosurfer",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -36,7 +37,6 @@ dependencies = [
     "anthropic>=0.40.0",
     "openai>=1.40.0",
     "pydantic>=2.6",
-    "pydantic-settings>=2.0",  # rag/config.py (ChunkerConfig BaseSettings)
     "anyio>=4.0",              # vendored runtime chat-model concurrency (sync<->async bridging)
     "pyyaml>=6.0",
     "rich>=13.0",
@@ -69,6 +69,7 @@ browser = [
 rag = [
     "chromadb>=1.0",              # vector store for RAG nodes
     "sentence-transformers>=5.1", # embeddings
+    "pydantic-settings>=2.0",     # rag/config.py (ChunkerConfig BaseSettings)
     "SQLAlchemy>=2.0",            # SQL tools / metadata
     "python-docx>=1.1",           # DOCX file reader
     "PyMuPDF>=1.24",              # PDF file reader (fitz)
@@ -79,6 +80,7 @@ rag = [
 serve = [
     "fastapi>=0.110,<1.0",       # OpenAI-compatible workflow serving gateway
     "uvicorn[standard]>=0.29",
+    "pydantic-settings>=2.0",    # app/server/config.py (ServerSettings)
 ]
 mcp = [
     "mcp>=1.2",                  # Model Context Protocol client/server SDK
