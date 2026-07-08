@@ -206,7 +206,7 @@ discovered automatically on startup and appear in `neurosurfer task list`.
 4. **Update docs** if you add or change user-visible behavior (README, relevant
    `docs/` file).
 5. **Fill in the PR template** — summary, test plan, and checklist.
-6. **CI must pass** — ruff, mypy, pytest, docker build, twine check.
+6. **CI must pass** — ruff, mypy, pytest, and the package build (twine check).
 7. A maintainer will review and merge. Squash merges are used to keep `main`
    history clean.
 

@@ -42,17 +42,25 @@ app = server.create_app()      # a FastAPI instance
 uvicorn app:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-## Docker + observability stack
+## Containerized deployment
 
-To run the gateway alongside a self-hosted [Langfuse](../observability/index.md) so traces stay
-local, compose the gateway with the Langfuse services and point the tracing env at the internal
-Langfuse host:
+Neurosurfer doesn't ship a Docker image — the gateway is a plain pip-installed service, so a minimal
+image is all you need:
+
+```dockerfile
+FROM python:3.12-slim
+RUN pip install --no-cache-dir "neurosurfer[serve]"
+EXPOSE 8000
+CMD ["neurosurfer", "serve", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+To run it alongside a self-hosted [Langfuse](../observability/index.md) so traces stay local, compose
+the gateway with the Langfuse services and point the tracing env at the internal Langfuse host:
 
 ```yaml
 services:
   gateway:
-    image: your-neurosurfer-image
-    command: ["neurosurfer", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    build: .          # the Dockerfile above
     environment:
       - NEUROSURFER_EXPORTERS=langfuse
       - LANGFUSE_HOST=http://langfuse-web:3000
@@ -66,13 +74,6 @@ services:
 The gateway reaches Langfuse over the internal Docker network (`langfuse-web:3000`), so tracing works
 without exposing Langfuse publicly. See [Observability](../observability/index.md) for the full
 tracing setup, and the [Configuration reference](../reference/configuration.md) for every env var.
-
-!!! warning "The bundled `docker-compose.yml` references a launcher that isn't shipped"
-    The repository's `docker-compose.yml` sets
-    `NEUROSURFER_BACKEND_APP=neurosurfer.examples.quickstart_app:ns`, but no `neurosurfer.examples`
-    module ships in the package. Use `neurosurfer serve` or the programmatic ASGI app above as your
-    entrypoint, or provide your own module that builds a `NeurosurferServer` and registers your
-    agents.
 
 ## Production checklist
 

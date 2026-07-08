@@ -1,8 +1,9 @@
 name: CI
 
-# Push does not trigger CI (active development — frequent pushes). Runs on PRs
-# and can be started manually from the Actions tab.
+# Runs on pushes to main, on PRs, and manually from the Actions tab.
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -49,12 +50,3 @@ jobs:
 
       - name: Check distribution metadata
         run: twine check dist/*
-
-  docker:
-    name: Docker build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build image
-        run: docker build --target runtime -t neurosurfer:ci .

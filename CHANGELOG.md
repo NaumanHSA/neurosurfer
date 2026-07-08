@@ -33,6 +33,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`KEY=val   # note` → `val`), while preserving `#` inside quoted values. Prevents
   a comment leaking into a value (e.g. a malformed `LANGFUSE_HOST`).
 
+### Removed
+
+- **`local-models` extra** (`torch`, `transformers`, `accelerate`, `sentencepiece`)
+  — Neurosurfer never loads a model in-process; LLMs are reached over the API
+  (Anthropic, OpenAI, and OpenAI-compatible servers over HTTP). The extra pulled a
+  multi-GB torch stack for a capability that doesn't exist. `pydantic-settings`
+  also moved out of the core install into the `rag`/`serve` extras that import it.
+- **Docker artifacts** — the stale GPU `Dockerfile` and `docker-compose.yml` (built
+  on the removed local-inference stack) are gone. Containerize the gateway with a
+  minimal `python:3.12-slim` + `pip install "neurosurfer[serve]"` image — see
+  [Deployment](server/deployment.md#containerized-deployment).
+
 ---
 
 ## [1.0.0] — 2026-07-01
