@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="199" height="44" viewBox="0 0 199 44" role="img" aria-label="Quick Start">
-  <rect x="1" y="1" width="197" height="42" rx="10" fill="#111111" stroke="#111111" stroke-width="1.4"/>
-  <g transform="translate(22,10.0)" fill="none" stroke="#faf9f6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3.5c2.6 1.2 4.2 3.6 4.2 6.8 0 1.2-.3 2.3-.8 3.3l-3.4 3.4-3.4-3.4c-.5-1-.8-2.1-.8-3.3 0-3.2 1.6-5.6 4.2-6.8zM12 9.3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM9.6 16.2 8 18.5m6.4-2.3L16 18.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="157" height="36" viewBox="0 0 157 36" role="img" aria-label="Quick Start">
+  <rect x="0.75" y="0.75" width="155.5" height="34.5" rx="8" fill="#111111" stroke="#111111" stroke-width="1.2"/>
+  <g transform="translate(14,9.5)" fill="none" stroke="#faf9f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.5c2.6 1.2 4.2 3.6 4.2 6.8 0 1.2-.3 2.3-.8 3.3l-3.4 3.4-3.4-3.4c-.5-1-.8-2.1-.8-3.3 0-3.2 1.6-5.6 4.2-6.8zM12 9.3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM9.6 16.2 8 18.5m6.4-2.3L16 18.5" transform="scale(0.7083333333333334)"/>
   </g>
-  <text x="58" y="22.0" fill="#faf9f6" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace" font-size="15" font-weight="600" letter-spacing="1.2" dominant-baseline="central">Quick Start</text>
+  <text x="39" y="18.0" fill="#faf9f6" font-family="'JetBrains Mono','DejaVu Sans Mono','SFMono-Regular',Consolas,monospace" font-size="14" font-weight="600" letter-spacing="0.6" dominant-baseline="central">Quick Start</text>
 </svg>
