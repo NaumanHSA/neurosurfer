@@ -69,7 +69,7 @@ async def probe_provider(ctx: CLIContext) -> tuple[bool, str]:
     try:
         await asyncio.wait_for(_drain(), timeout=15.0)
         return True, f"connected · {model}"
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return False, f"timed out · {model}"
     except Exception as e:  # noqa: BLE001
         msg = str(e).lower()

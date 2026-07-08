@@ -13,12 +13,9 @@ These tests cover:
 
 from __future__ import annotations
 
-import asyncio
 import json
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -33,15 +30,12 @@ from neurosurfer.app.server.hooks.base import Hook, HookContext
 from neurosurfer.app.server.hooks.builtin import StripReasoningHook, SystemPromptInjectorHook
 from neurosurfer.app.server.registry import ModelRouter, RouteTarget
 from neurosurfer.app.server.schemas.openai import (
-    ChatCompletionChunk,
     ChatCompletionRequest,
-    ChatCompletionResponse,
     ChatMessage,
     ModelCard,
 )
 from neurosurfer.app.server.streaming.openai_chunks import chunk_end, chunk_role, chunk_text
 from neurosurfer.app.server.streaming.sse import sse_data, sse_done, sse_ping
-
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -412,7 +406,6 @@ class TestServeCLI:
         assert callable(add_serve_parser)
 
     def test_serve_parser_registered(self):
-        import argparse
 
         from neurosurfer.app.cli import build_parser
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -26,7 +26,7 @@ def _get_model_fields(model: type[BaseModel]) -> set[str]:
     return set(model.__fields__.keys())  # type: ignore[attr-defined]
 
 
-def _sanitize_graph_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_graph_dict(raw: dict[str, Any]) -> dict[str, Any]:
     """
     Remove unknown keys from the raw dict for Graph / GraphNode and
     emit warnings describing what was ignored.
@@ -37,7 +37,7 @@ def _sanitize_graph_dict(raw: Dict[str, Any]) -> Dict[str, Any]:
     Top-level extras -> warning and ignore.
     Per-node extras -> warning and ignore.
     """
-    cleaned: Dict[str, Any] = dict(raw)
+    cleaned: dict[str, Any] = dict(raw)
 
     # --- Top-level Graph fields ---
     graph_fields = _get_model_fields(Graph)
@@ -107,7 +107,7 @@ def _format_validation_error(e: ValidationError) -> str:
     return "\n".join(parts)
 
 
-def _pydantic_from_dict(model: type[BaseModel], data: Dict[str, Any]) -> BaseModel:
+def _pydantic_from_dict(model: type[BaseModel], data: dict[str, Any]) -> BaseModel:
     """
     Wrapper around Pydantic model construction with version compatibility.
     """
@@ -186,7 +186,7 @@ def _validate_graph_spec(spec: Graph) -> None:
         ) from e
 
 
-def load_graph_from_dict(data: Dict[str, Any]) -> Graph:
+def load_graph_from_dict(data: dict[str, Any]) -> Graph:
     """
     Load a Graph from a raw dict, with:
       - Unknown keys warned and ignored
@@ -209,7 +209,7 @@ def load_graph_from_dict(data: Dict[str, Any]) -> Graph:
     return spec
 
 
-def load_graph(path: Union[str, Path]) -> Graph:
+def load_graph(path: str | Path) -> Graph:
     """
     Load a Graph from a YAML or JSON file.
 

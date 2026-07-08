@@ -1,10 +1,11 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal
-from neurosurfer.vectorstores.base import Doc
+
+import os
+from dataclasses import dataclass
+from typing import Any, Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings
-import os
 
 
 class ChunkerConfig(BaseSettings):
@@ -60,13 +61,13 @@ class ChunkerConfig(BaseSettings):
 RetrievalScope = Literal["small", "medium", "wide", "full"]
 AnswerBreadth = Literal["single_fact", "short_list", "long_list", "aggregation", "summary"]
 RetrievalMode = Literal["classic", "smart"]
-RETRIEVAL_SCOPE_BASE_K: Dict[str, int] = {
+RETRIEVAL_SCOPE_BASE_K: dict[str, int] = {
     "small": 5,
     "medium": 10,
     "wide": 20,
     "full": 40,
 }
-ANSWER_BREADTH_MULTIPLIER: Dict[str, int] = {
+ANSWER_BREADTH_MULTIPLIER: dict[str, int] = {
     "single_fact": 1,
     "short_list": 2,
     "long_list": 4,
@@ -84,12 +85,12 @@ class RetrievalPlan:
       - RAGAgent itself via an internal LLM call.
     """
     mode: RetrievalMode = "classic"
-    scope: Optional[RetrievalScope] = None
-    answer_breadth: Optional[AnswerBreadth] = None
-    optimized_query: Optional[str] = None
-    top_k: Optional[int] = None
-    notes: Optional[str] = None
-    extra: Dict[str, Any] = None
+    scope: RetrievalScope | None = None
+    answer_breadth: AnswerBreadth | None = None
+    optimized_query: str | None = None
+    top_k: int | None = None
+    notes: str | None = None
+    extra: dict[str, Any] = None
 
 @dataclass
 class RAGIngestorConfig:
@@ -97,23 +98,23 @@ class RAGIngestorConfig:
     max_workers: int = max(4, os.cpu_count() or 4)
     deduplicate: bool = True
     normalize_embeddings: bool = True
-    default_metadata: Optional[Dict[str, Any]] = None
-    tmp_dir: Optional[str] = "./tmp"
+    default_metadata: dict[str, Any] | None = None
+    tmp_dir: str | None = "./tmp"
 
 @dataclass
 class RAGAgentConfig:
     # default embedding model; only used if no embedder is provided
-    embedding_model: Optional[str] = "intfloat/e5-small-v2"           # Embedding model to use for RAG
+    embedding_model: str | None = "intfloat/e5-small-v2"           # Embedding model to use for RAG
 
     # vectorstore
-    persist_directory: Optional[str] = "./rag-storage"                # Directory to persist vectorstore
-    collection_name: Optional[str] = "neurosurfer-rag-agent"          # Name of the vectorstore collection
-    clear_collection_on_init: Optional[bool] = True                   # Whether to clear the collection on init
+    persist_directory: str | None = "./rag-storage"                # Directory to persist vectorstore
+    collection_name: str | None = "neurosurfer-rag-agent"          # Name of the vectorstore collection
+    clear_collection_on_init: bool | None = True                   # Whether to clear the collection on init
     top_k: int = 5                                                     # Number of chunks to return from vectorstore
-    similarity_threshold: Optional[float] = None                       # Optional similarity threshold for retrieval
+    similarity_threshold: float | None = None                       # Optional similarity threshold for retrieval
 
     # Output budgeting
-    fixed_max_new_tokens: Optional[int] = None                         # Fixed max new tokens for output
+    fixed_max_new_tokens: int | None = None                         # Fixed max new tokens for output
     auto_output_ratio: float = 0.25                                    # Auto output ratio
     min_output_tokens: int = 64                                        # Minimum output tokens
     safety_margin_tokens: int = 128                                    # Safety margin tokens

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Type
+from typing import Any
 
 # ── Root ────────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ class NodeFailedError(GraphExecutionError):
         node_id: str,
         message: str,
         *,
-        cause: Optional[BaseException] = None,
+        cause: BaseException | None = None,
         attempt: int = 1,
         duration_ms: int = 0,
     ) -> None:
@@ -101,7 +101,7 @@ class StructuredOutputError(AgentError, NodeFailedError):
     def __init__(
         self,
         node_id: str,
-        schema: Type[Any],
+        schema: type[Any],
         last_raw: str,
         *,
         attempts: int = 1,

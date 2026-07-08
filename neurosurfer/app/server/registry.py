@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
 
 from .backends.base import Backend
 
@@ -9,15 +8,15 @@ from .backends.base import Backend
 @dataclass
 class RouteTarget:
     backend: Backend
-    upstream_model: Optional[str] = None
+    upstream_model: str | None = None
 
 
 class ModelRouter:
     """Routes model IDs to their backends."""
 
     def __init__(self):
-        self._models: Dict[str, RouteTarget] = {}
-        self._default_backend: Optional[Backend] = None
+        self._models: dict[str, RouteTarget] = {}
+        self._default_backend: Backend | None = None
 
     def set_default_backend(self, backend: Backend) -> None:
         self._default_backend = backend
@@ -32,5 +31,5 @@ class ModelRouter:
             return RouteTarget(backend=self._default_backend, upstream_model=model_id)
         raise KeyError(f"Unknown model: {model_id!r}")
 
-    def all_models(self) -> Dict[str, RouteTarget]:
+    def all_models(self) -> dict[str, RouteTarget]:
         return dict(self._models)

@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 from collections import defaultdict
-from typing import List, Tuple
-from neurosurfer.vectorstores.base import Doc, BaseVectorDB
+
 from neurosurfer.embeddings import Embedder as BaseEmbedder
+from neurosurfer.vectorstores.base import BaseVectorDB, Doc
 
 
 def pick_files_by_grouped_chunk_hits(
@@ -12,13 +13,13 @@ def pick_files_by_grouped_chunk_hits(
     candidate_pool_size: int = 200,
     n_files: int = 10,
     file_key: str = "filename",
-) -> List[str]:
+) -> list[str]:
     """
     Broad similarity search -> aggregate by file -> top-N.
     Useful for large codebases to decide focus files.
     """
     qemb = embedder.embed([section_query])[0]
-    hits: List[Tuple[Doc, float]] = vector_db.similarity_search(
+    hits: list[tuple[Doc, float]] = vector_db.similarity_search(
         query_embedding=qemb, top_k=candidate_pool_size
     )
     by_file = defaultdict(float)

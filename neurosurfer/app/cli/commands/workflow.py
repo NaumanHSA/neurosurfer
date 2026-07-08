@@ -89,9 +89,10 @@ def _delete(ctx: CLIContext, name: str) -> None:
 
 
 async def _run(ctx: CLIContext, name: str) -> None:
-    from neurosurfer.llm.registry import resolve_provider
     from neurosurfer.graph.workflow.registry import WorkflowNotFoundError, WorkflowRegistry
     from neurosurfer.graph.workflow.runner import WorkflowRunner
+    from neurosurfer.llm.registry import resolve_provider
+
     from ..render_workflow import print_execution_result
 
     reg = WorkflowRegistry()
@@ -157,12 +158,13 @@ _ARCHITECT_NODE_LABELS = {
 async def _build(ctx: CLIContext, intent: str) -> None:
     import asyncio
 
-    from neurosurfer.llm.registry import resolve_provider
     from neurosurfer.architect import (
         ArchitectBuilder,
         ArchitectConversation,
         WorkflowInfeasible,
     )
+    from neurosurfer.llm.registry import resolve_provider
+
     from ..io import RichIOHandler
 
     try:
@@ -312,6 +314,7 @@ def _print_built_summary(ctx: CLIContext, registered_path: str) -> None:
     from pathlib import Path
 
     from neurosurfer.graph.workflow.package import load_package
+
     from ..render_workflow import print_workflow_summary
 
     try:
@@ -323,9 +326,9 @@ def _print_built_summary(ctx: CLIContext, registered_path: str) -> None:
 
 async def _refine(ctx: CLIContext, name: str) -> None:
     """Run a workflow and self-heal failing nodes from their run-time errors (E7)."""
-    from neurosurfer.llm.registry import resolve_provider
     from neurosurfer.architect.refine import WorkflowRefiner
     from neurosurfer.graph.workflow.registry import WorkflowNotFoundError, WorkflowRegistry
+    from neurosurfer.llm.registry import resolve_provider
 
     reg = WorkflowRegistry()
     try:

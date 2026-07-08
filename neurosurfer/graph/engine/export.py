@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import GeneratorType
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
 
@@ -26,9 +26,9 @@ class GraphExportConfig:
     - include_trace_dump: if True and traces exist, exporter writes traces JSON next to node outputs.
     - traces_filename: if set, writes a single file with the whole graph traces dump.
     """
-    export_base_dir: Union[str, Path] = "exports"
+    export_base_dir: str | Path = "exports"
     include_trace_dump: bool = False
-    traces_filename: Optional[str] = None  # e.g. "traces_{ts}.json"
+    traces_filename: str | None = None  # e.g. "traces_{ts}.json"
     default_raw_ext: str = ".md"
     default_json_ext: str = ".json"
 
@@ -60,16 +60,16 @@ class GraphExporter:
     def __init__(
         self,
         *,
-        config: Optional[GraphExportConfig] = None,
-        tracer: Optional[Tracer] = None,
-        logger: Optional[logging.Logger] = None,
+        config: GraphExportConfig | None = None,
+        tracer: Tracer | None = None,
+        logger: logging.Logger | None = None,
         log_traces: bool = True,
     ) -> None:
         self.config = config or GraphExportConfig()
         self.logger = logger or LOGGER
         self.log_traces = log_traces
 
-        self.tracer: Optional[Tracer] = tracer or Tracer(
+        self.tracer: Tracer | None = tracer or Tracer(
             config=TracerConfig(log_steps=self.log_traces),
             meta={
                 "agent_type": "GraphExporter",
@@ -104,7 +104,7 @@ class GraphExporter:
             trace_step.inputs(export_dir=str(self.config.export_base_dir))
             try:
                 for node_id, node_result in graph_results.nodes.items():
-                    node: Optional[GraphNode] = node_map.get(node_id)
+                    node: GraphNode | None = node_map.get(node_id)
                     if not node:
                         trace_step.log(message=f"No GraphNode found for node_id={node_id}; skipping export.", type="warning")
                         continue
@@ -112,7 +112,7 @@ class GraphExporter:
                         continue
                     try:
                         filepath = self.export_single_node(node=node, result=node_result)
-                        trace_step.log(message=f"Exported node {node.id} output to {filepath}", type="info")        
+                        trace_step.log(message=f"Exported node {node.id} output to {filepath}", type="info")
                     except Exception as e:
                         trace_step.log(message=f"Failed to export node {node_id}: {e}", type="error")
 
@@ -149,7 +149,7 @@ class GraphExporter:
             filepath.write_text(text, encoding="utf-8")
         return filepath
 
-    def _resolve_base_dir(self, trace_step: Optional[TraceStepContext] = None) -> None:
+    def _resolve_base_dir(self, trace_step: TraceStepContext | None = None) -> None:
         base = Path(self.config.export_base_dir)
         if base.exists() and not base.is_dir():
             trace_step.log(message=f"Export base path exists but is not a directory: {base}. Falling back to 'exports'.", type="warning")
@@ -183,7 +183,7 @@ class GraphExporter:
 
         return self.config.export_base_dir / default_filename
 
-    def _base_meta(self, node: GraphNode, result: NodeExecutionResult) -> Dict[str, Any]:
+    def _base_meta(self, node: GraphNode, result: NodeExecutionResult) -> dict[str, Any]:
         return {
             "node_id": node.id,
             "mode": getattr(result.mode, "value", str(result.mode)),
@@ -198,12 +198,12 @@ class GraphExporter:
         node: GraphNode,
         result: NodeExecutionResult,
         content_kind: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         base_meta = self._base_meta(node, result)
 
         if content_kind == "structured":
             sr = result.structured_output
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 **base_meta,
                 "type": "structured",
                 "output_schema": getattr(getattr(sr, "output_schema", None), "__name__", None),
@@ -284,7 +284,7 @@ class GraphExporter:
         out = self.config.export_base_dir / filename
 
         # collect node traces
-        traces: Dict[str, Any] = {}
+        traces: dict[str, Any] = {}
         for node_id, node_res in graph_results.nodes.items():
             t = getattr(node_res, "traces", None)
             if t is None:
@@ -294,7 +294,7 @@ class GraphExporter:
             except Exception:
                 traces[node_id] = str(t)
         out.write_text(json.dumps({
-            "type": "graph_traces", 
+            "type": "graph_traces",
             "nodes": traces
         }, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
         return out

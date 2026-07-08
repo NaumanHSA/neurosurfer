@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from neurosurfer.agents import events
+
 from . import theme
 
 if TYPE_CHECKING:

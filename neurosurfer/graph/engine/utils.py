@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib
 import logging
 import re
-from typing import Any, Dict, List, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from .errors import GraphConfigurationError
 from .schema import Graph, GraphInput, GraphNode
@@ -26,8 +27,8 @@ def get_from_ctx(ctx: Mapping[str, Any], path: str) -> Any:
         elif isinstance(cur, (list, tuple)):
             try:
                 idx = int(part)
-            except ValueError:
-                raise KeyError(f"Cannot index list by non-int key: {part!r}")
+            except ValueError as exc:
+                raise KeyError(f"Cannot index list by non-int key: {part!r}") from exc
             cur = cur[idx]
         else:
             raise KeyError(f"Cannot descend into non-container: {cur!r}")
@@ -39,7 +40,8 @@ def render_template(text: str, ctx: Mapping[str, Any]) -> str:
     Replaces `{{ path.to.value }}` with a value looked up via `get_from_ctx`.
     If lookup fails, leaves the placeholder untouched.
     """
-    if not text: return text
+    if not text:
+        return text
     def repl(m: re.Match) -> str:
         path = m.group(1).strip()
         try:
@@ -49,13 +51,13 @@ def render_template(text: str, ctx: Mapping[str, Any]) -> str:
             return m.group(0)
     return _TMPL_RE.sub(repl, text)
 
-def topo_sort(nodes: Sequence[GraphNode]) -> List[str]:
+def topo_sort(nodes: Sequence[GraphNode]) -> list[str]:
     """
     Topologically sort nodes based on their `depends_on` list.
     Raises GraphConfigurationError on cycles or unknown dependencies.
     """
     node_ids = {n.id for n in nodes}
-    deps: Dict[str, set[str]] = {n.id: set(n.depends_on) for n in nodes}
+    deps: dict[str, set[str]] = {n.id: set(n.depends_on) for n in nodes}
 
     # Validate dependencies reference valid node IDs
     unknown = {d for n in nodes for d in n.depends_on if d not in node_ids}
@@ -63,7 +65,7 @@ def topo_sort(nodes: Sequence[GraphNode]) -> List[str]:
         raise GraphConfigurationError(f"Unknown dependency node IDs: {sorted(unknown)}")
 
     # Kahn's algorithm
-    result: List[str] = []
+    result: list[str] = []
     no_deps = [nid for nid, ds in deps.items() if not ds]
     while no_deps:
         nid = no_deps.pop()
@@ -99,7 +101,7 @@ def import_string(path: str) -> Any:
 
 
 # Normalize and Validate Graph Inputs
-def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> Dict[str, Any]:
+def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> dict[str, Any]:
     """
     Enforce graph-level input spec if declared.
 
@@ -138,7 +140,7 @@ def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> Dict[str, 
             ", ".join(sorted(extra)),
         )
 
-    normalized: Dict[str, Any] = {}
+    normalized: dict[str, Any] = {}
     for spec in specs:
         name = spec.name
         if name not in provided:

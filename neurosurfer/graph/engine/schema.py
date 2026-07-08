@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from neurosurfer.tracing import TraceResult
 
 
-class NodeMode(str, Enum):
+class NodeMode(StrEnum):
     AUTO = "auto"
     TEXT = "text"
     STRUCTURED = "structured"
@@ -38,7 +38,7 @@ class GraphInput(BaseModel):
         default=True,
         description="If True, this key must be present in runtime inputs.",
     )
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None,
         description="Optional human description of the input.",
     )
@@ -85,10 +85,10 @@ class NodePolicy(BaseModel):
               repair_with_llm: true
               strict_tool_call: true
     """
-    max_new_tokens: Optional[int] = Field(default=None, description="Override AgentConfig.max_new_tokens for this node only.")
-    temperature: Optional[float] = Field(default=None, description="Override AgentConfig.temperature for this node only.")
-    retries: Optional[int] = Field(default=None, description="Override AgentConfig.retry.max_route_retries for this node.")
-    timeout_s: Optional[int] = Field(
+    max_new_tokens: int | None = Field(default=None, description="Override AgentConfig.max_new_tokens for this node only.")
+    temperature: float | None = Field(default=None, description="Override AgentConfig.temperature for this node only.")
+    retries: int | None = Field(default=None, description="Override AgentConfig.retry.max_route_retries for this node.")
+    timeout_s: int | None = Field(
         default=None,
         description=(
             "Soft timeout for this node in seconds. Execution isn't forcibly "
@@ -96,15 +96,15 @@ class NodePolicy(BaseModel):
         ),
     )
     # Direct AgentConfig-like overrides
-    allow_input_pruning: Optional[bool] = None
-    repair_with_llm: Optional[bool] = None
-    strict_tool_call: Optional[bool] = None
-    strict_json: Optional[bool] = None
-    max_json_repair_attempts: Optional[int] = None    # for malformed JSON repairs
-    
-    skip_special_tokens: Optional[bool] = None
-    return_stream_by_default: Optional[bool] = None
-    log_internal_thoughts: Optional[bool] = None
+    allow_input_pruning: bool | None = None
+    repair_with_llm: bool | None = None
+    strict_tool_call: bool | None = None
+    strict_json: bool | None = None
+    max_json_repair_attempts: int | None = None    # for malformed JSON repairs
+
+    skip_special_tokens: bool | None = None
+    return_stream_by_default: bool | None = None
+    log_internal_thoughts: bool | None = None
 
     class Config:
         extra = "ignore"  # ignore unknown keys under 'policy'
@@ -118,30 +118,30 @@ _VALID_NODE_KINDS = {"base", "react", "function", "python", "tool"}
 
 class GraphNode(BaseModel):
     id: str
-    description: Optional[str] = None
+    description: str | None = None
     kind: str = Field(default="base", description="Node kind: base | react | function | python | tool")
-    purpose: Optional[str] = None
-    goal: Optional[str] = None
-    expected_result: Optional[str] = None
+    purpose: str | None = None
+    goal: str | None = None
+    expected_result: str | None = None
     tools: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     mode: NodeMode = Field(default=NodeMode.AUTO)
-    output_schema: Optional[str] = None
-    model: Optional[str] = None
-    rag: Optional[bool] = False
+    output_schema: str | None = None
+    model: str | None = None
+    rag: bool | None = False
 
     # function / python node: import path to the callable (module:attr or module.attr)
-    callable: Optional[str] = Field(default=None, description="Import path for function/python nodes.")
+    callable: str | None = Field(default=None, description="Import path for function/python nodes.")
     # tool node: static kwargs merged with graph inputs + dep outputs before calling the tool
-    tool_args: Optional[Dict[str, Any]] = Field(default=None, description="Static kwargs for tool nodes.")
+    tool_args: dict[str, Any] | None = Field(default=None, description="Static kwargs for tool nodes.")
 
-    policy: Optional[NodePolicy] = Field(
+    policy: NodePolicy | None = Field(
         default=None,
         description="Optional per-node AgentConfig/policy overrides.",
     )
     # save node's output as files
-    export: Optional[bool] = Field(default=False, description="Whether to export the node's output as files.")
-    export_path: Optional[str] = Field(default=None, description="Optional custom path for exporting the node's output.")
+    export: bool | None = Field(default=False, description="Whether to export the node's output as files.")
+    export_path: str | None = Field(default=None, description="Optional custom path for exporting the node's output.")
 
     @field_validator("kind")
     def _kind_not_invalid(cls, v: str) -> str:
@@ -160,7 +160,7 @@ class GraphNode(BaseModel):
 
 class Graph(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
     # When True, the executor stops on the first failed node (LangChain's
     # RunnableSequence "short-circuit" behaviour). When False, all non-blocked
@@ -260,7 +260,7 @@ class Graph(BaseModel):
 
     @field_validator("inputs")
     @classmethod
-    def _unique_input_names(cls, v: List[GraphInput]) -> List[GraphInput]:
+    def _unique_input_names(cls, v: list[GraphInput]) -> list[GraphInput]:
         names = [f.name for f in v]
         if len(names) != len(set(names)):
             dupes = {n for n in names if names.count(n) > 1}
@@ -275,15 +275,15 @@ class NodeExecutionResult(BaseModel):
     node_id: str
     mode: NodeMode
     raw_output: object
-    structured_output: Optional[object] = None
-    tool_call_output: Optional[object] = None
+    structured_output: object | None = None
+    tool_call_output: object | None = None
     started_at: float
     duration_ms: int
-    error: Optional[str] = None
+    error: str | None = None
     # True when the node was not run because an upstream dependency failed.
     skipped: bool = False
     skip_reason: str = ""
-    traces: Optional[TraceResult] = None
+    traces: TraceResult | None = None
 
     @property
     def ok(self) -> bool:
@@ -293,14 +293,14 @@ class NodeExecutionResult(BaseModel):
 
 class GraphExecutionResult(BaseModel):
     graph: Graph
-    nodes: Dict[str, NodeExecutionResult]
-    final: Dict[str, Any]
+    nodes: dict[str, NodeExecutionResult]
+    final: dict[str, Any]
     # Nodes that failed (error is set and not skipped).
-    errors: Dict[str, str] = Field(default_factory=dict)
+    errors: dict[str, str] = Field(default_factory=dict)
     # Nodes skipped due to upstream failures.
-    skipped: List[str] = Field(default_factory=list)
-    traces: Optional[TraceResult] = None
-    logs: Optional[str] = None
+    skipped: list[str] = Field(default_factory=list)
+    traces: TraceResult | None = None
+    logs: str | None = None
 
     @property
     def succeeded(self) -> bool:

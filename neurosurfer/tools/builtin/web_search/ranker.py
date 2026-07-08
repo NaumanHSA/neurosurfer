@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import re
 
-from ....llm.tokens import estimate_text_tokens
-from . import config as _config
-
 # Re-exported from agents.lexical (shared with memory retrieval).
 # Existing imports like `from ...tools.builtin.web_search import rank_chunks` keep working.
 from ....agents.lexical import rank_chunks, select_within_budget  # noqa: F401
+from ....llm.tokens import estimate_text_tokens
+from . import config as _config
 
 __all__ = ["chunk_text", "rank_chunks", "select_within_budget"]
 

@@ -17,7 +17,11 @@ from typing import Any
 
 from ...observability.logging import get_logger
 from ..base import Provider
-from ..capabilities import openai_capabilities, openai_native_capabilities, resolve_openai_context_window
+from ..capabilities import (
+    openai_capabilities,
+    openai_native_capabilities,
+    resolve_openai_context_window,
+)
 from ..retry import with_retry
 from ..tokens import estimate_messages_tokens
 from ..types import (

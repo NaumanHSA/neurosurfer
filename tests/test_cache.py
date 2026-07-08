@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,7 +15,6 @@ from neurosurfer.cache import (
     get_response_cache,
 )
 from neurosurfer.cache.base import CacheKey
-from neurosurfer.cache.provider import _make_key
 from neurosurfer.llm.types import (
     CanonicalResponse,
     GenerationConfig,
@@ -24,7 +22,6 @@ from neurosurfer.llm.types import (
     TextBlock,
     Usage,
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures

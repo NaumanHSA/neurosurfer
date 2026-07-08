@@ -63,24 +63,26 @@ Example:
     >>> chunks = chunker.chunk(text, custom=custom_handler)
 """
 # add to your imports
-from typing import List, Optional, Callable, Dict, Union, Protocol, Tuple
-import os, re, json
-from dataclasses import dataclass
 import ast
 import copy
+import json
+import os
+import re
+from collections.abc import Callable
+from typing import Protocol
+
 from .config import ChunkerConfig
 
-
-StrategyFn = Callable[[str, Optional[str]], List[str]]
+StrategyFn = Callable[[str, str | None], list[str]]
 
 class CustomChunkHandler(Protocol):
     def __call__(
         self,
         text: str,
         *,
-        file_path: Optional[str] = None,
-        config: Optional[ChunkerConfig] = None
-    ) -> List[str]: ...
+        file_path: str | None = None,
+        config: ChunkerConfig | None = None
+    ) -> list[str]: ...
 
 
 class Chunker:
@@ -154,7 +156,7 @@ class Chunker:
         self._line_comment_markers = ("#", "//", "--", "%")
 
         # Strategy registry: ext -> function(code, file_path) -> List[str]
-        self._strategies: Dict[str, StrategyFn] = {}
+        self._strategies: dict[str, StrategyFn] = {}
 
         # Built-in strategies (lightweight, replace as you like)
         self.register({'.py'}, self._chunk_python)
@@ -163,14 +165,14 @@ class Chunker:
         self.register({'.md', '.txt'}, self._chunk_readme)
 
         # custom handler infra
-        self._custom_handlers: Dict[str, CustomChunkHandler] = {}
-        self._ext_to_custom: Dict[str, str] = {}
-        self._router: Optional[Callable[[Optional[str], str], Optional[str]]] = None
+        self._custom_handlers: dict[str, CustomChunkHandler] = {}
+        self._ext_to_custom: dict[str, str] = {}
+        self._router: Callable[[str | None, str], str | None] | None = None
         # optional logger hook (don’t force logging impl on caller)
-        self._log: Optional[Callable[[str], None]] = None
+        self._log: Callable[[str], None] | None = None
 
     # handlers: registration
-    def register(self, exts: List[str], fn: StrategyFn):
+    def register(self, exts: list[str], fn: StrategyFn):
         for ext in exts:
             self._strategies[ext] = fn
 
@@ -214,14 +216,14 @@ class Chunker:
                     del self._ext_to_custom[ext]
             self._log_info(f"Unregistered custom handler '{name}'.")
 
-    def list_custom_handlers(self) -> List[str]:
+    def list_custom_handlers(self) -> list[str]:
         return sorted(self._custom_handlers.keys())
 
     # ---------------------------
     # Routing options
     # ---------------------------
     # Map file extensions to custom handlers
-    def use_custom_for_ext(self, exts: List[str], handler_name: str):
+    def use_custom_for_ext(self, exts: list[str], handler_name: str):
         if handler_name not in self._custom_handlers:
             raise KeyError(f"No custom handler registered with name '{handler_name}'.")
         for ext in exts:
@@ -229,12 +231,12 @@ class Chunker:
             self._ext_to_custom[key] = handler_name
         self._log_info(f"Mapped {exts} -> '{handler_name}'.")
 
-    def clear_custom_for_ext(self, exts: List[str]):
+    def clear_custom_for_ext(self, exts: list[str]):
         for ext in exts:
             key = ext.lower() if ext.startswith('.') else f".{ext.lower()}"
             self._ext_to_custom.pop(key, None)
 
-    def set_router(self, router: Optional[Callable[[Optional[str], str], Optional[str]]]):
+    def set_router(self, router: Callable[[str | None, str], str | None] | None):
         """
         router(file_path, text) -> handler_name or None
         Called before strategies and fallbacks. Return a registered name or None.
@@ -244,10 +246,10 @@ class Chunker:
         self._router = router
         self._log_info(f"Router set: {bool(router)}")
 
-    def list_ext_mappings(self) -> List[Tuple[str, str]]:
+    def list_ext_mappings(self) -> list[tuple[str, str]]:
         return sorted(self._ext_to_custom.items())
 
-    
+
     # ---------------------------
     # Hardened custom handler execution
     # ---------------------------
@@ -258,14 +260,14 @@ class Chunker:
         A chunk where ≥65% of non-empty lines contain no letters (digits, dashes, dots only)
         and there are at least 4 such lines is useless for RAG and should be discarded.
         """
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         if len(lines) < min_numeric_lines:
             return False
-        no_letter = sum(1 for l in lines if not re.search(r'[A-Za-z]', l))
+        no_letter = sum(1 for ln in lines if not re.search(r'[A-Za-z]', ln))
         return no_letter >= min_numeric_lines and (no_letter / len(lines)) >= threshold
 
-    def _sanitize_chunks(self, chunks: List[str]) -> List[str]:
-        cleaned: List[str] = []
+    def _sanitize_chunks(self, chunks: list[str]) -> list[str]:
+        cleaned: list[str] = []
         total_chars = 0
         for ch in chunks:
             if not isinstance(ch, str):
@@ -288,7 +290,7 @@ class Chunker:
                 break
         return cleaned
 
-    def _run_custom(self, handler_name: str, text: str, file_path: Optional[str]) -> Optional[List[str]]:
+    def _run_custom(self, handler_name: str, text: str, file_path: str | None) -> list[str] | None:
         handler = self._custom_handlers.get(handler_name)
         if not handler:
             self._log_warn(f"Custom handler '{handler_name}' not found.")
@@ -306,7 +308,7 @@ class Chunker:
         except Exception as e:
             self._log_error(f"Custom handler '{handler_name}' failed: {e}")
             return None
-            
+
      # ---------------------------
     # Main entry: prefer custom if provided
     # ---------------------------
@@ -315,10 +317,10 @@ class Chunker:
         text: str,
         *,
         source_id: str = None,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
         k: int = 40,
-        custom: Optional[Union[str, CustomChunkHandler]] = None
-    ) -> List[str]:
+        custom: str | CustomChunkHandler | None = None
+    ) -> list[str]:
         """
         Chunk text into smaller pieces using a priority-based strategy selection.
 
@@ -399,11 +401,11 @@ class Chunker:
         # ---- (5) fallback heuristic
         mode = "line" if self._looks_like_code(text) else "char"
         return self._line_windows(text) if mode == "line" else self._char_windows(text, self.cfg.char_chunk_size, self.cfg.char_overlap)
-            
+
 
     def _should_skip_file(self, file_path):
         return any(p.match(file_path) for p in self.blacklist_patterns)
-    
+
     def _split_into_chunks(self, lines):
         chunks = []
         total_lines = len(lines)
@@ -416,7 +418,7 @@ class Chunker:
                     chunks.append("\n".join(cleaned))
         return chunks
 
-    def _chunk_python(self, code: str) -> List[str]:
+    def _chunk_python(self, code: str) -> list[str]:
         # first filter out prompt like blocks
         code = self._filter_prompt_like_blocks(code)
         chunks = []
@@ -450,10 +452,10 @@ class Chunker:
             node_ranges.sort()
             for start, end in node_ranges:
                 block = lines[start:end]
-                
+
                 if self._is_prompt_like(''.join(block)):
                     continue
-                
+
                 add_chunk(block, start, end)
                 used_lines.update(range(start, end))
 
@@ -486,7 +488,7 @@ class Chunker:
                 chunks.append("\n".join(cleaned))
         return chunks
 
-    def _chunk_json(self, text: str) -> List[str]:
+    def _chunk_json(self, text: str) -> list[str]:
         chunks = []
         try:
             parsed = json.loads(text)
@@ -518,7 +520,7 @@ class Chunker:
             chunks.append("\n".join(current))
         return chunks
 
-    def _line_windows(self, text: str, *, window: Optional[int] = None) -> List[str]:
+    def _line_windows(self, text: str, *, window: int | None = None) -> list[str]:
         """
         Break text into line-based windows, removing empty lines.
         """
@@ -529,7 +531,7 @@ class Chunker:
 
         win = min(window or self.cfg.fallback_chunk_size, self.cfg.max_chunk_lines)
         step = max(1, win - self.cfg.overlap_lines)
-        out: List[str] = []
+        out: list[str] = []
         for i in range(0, len(lines), step):
             block = self._clean_lines(lines[i:i + win])
             # Also ensure no empty lines inside block
@@ -538,7 +540,7 @@ class Chunker:
                 out.append("\n".join(block))
         return out
 
-    def _char_windows(self, text: str, size: int, overlap: int) -> List[str]:
+    def _char_windows(self, text: str, size: int, overlap: int) -> list[str]:
         """
         Break text into char-based windows, stripping empty lines inside each chunk.
         """
@@ -548,7 +550,7 @@ class Chunker:
             # Clean out empty lines
             return ["\n".join([ln for ln in text.splitlines() if ln.strip()])]
 
-        out: List[str] = []
+        out: list[str] = []
         start = 0
         end = size
         while start < len(text):
@@ -561,15 +563,18 @@ class Chunker:
             end = start + size
         return out
 
-     # ----- Heuristics / primitives -----    
+     # ----- Heuristics / primitives -----
     def _looks_like_code(self, text: str) -> bool:
         # Cheap heuristic: braces, semicolons, keywords, many short lines, indent patterns
         sample = text[:4000]
         signals = 0
-        if re.search(r'[;{}()<>\[\]]', sample): signals += 1
-        if re.search(r'^\s*(def|class|import|from|function|var|let|const|if|for|while)\b', sample, re.M): signals += 1
-        if re.search(r'^\s{2,}\S', sample, re.M): signals += 1
-        if sample.count('\n') > 10 and sum(len(l) < 120 for l in sample.splitlines()) / max(1, sample.count('\n')) > 0.7:
+        if re.search(r'[;{}()<>\[\]]', sample):
+            signals += 1
+        if re.search(r'^\s*(def|class|import|from|function|var|let|const|if|for|while)\b', sample, re.M):
+            signals += 1
+        if re.search(r'^\s{2,}\S', sample, re.M):
+            signals += 1
+        if sample.count('\n') > 10 and sum(len(ln) < 120 for ln in sample.splitlines()) / max(1, sample.count('\n')) > 0.7:
             signals += 1
         return signals >= 2
 
@@ -577,7 +582,7 @@ class Chunker:
         s = line.strip()
         return bool(s) and any(s.startswith(m) for m in self._line_comment_markers)
 
-    def _is_fully_commented(self, lines: List[str]) -> bool:
+    def _is_fully_commented(self, lines: list[str]) -> bool:
         if len(lines) < self.cfg.comment_block_threshold:
             return False
         return all((ln.strip() == "" or self._is_comment_line(ln)) for ln in lines)
@@ -624,11 +629,6 @@ class Chunker:
         code_to_return = copy.deepcopy(code)
         for match in matches:
             full_text = match.group(0)
-            # Estimate line range
-            start_pos = match.start()
-            end_pos = match.end()
-            start_line = code[:start_pos].count("\n")
-            end_line = code[:end_pos].count("\n")
             # prompt_block = ''.join(code.splitlines()[start_line:end_line])
             # print(full_text)
             if self._is_prompt_like(full_text):

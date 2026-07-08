@@ -17,8 +17,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from neurosurfer.tools.base import ToolContext
-from neurosurfer.graph.workflow.node_tool import WriteWorkflowNodeTool
 from neurosurfer.architect.nodes import assemble, clarify
 from neurosurfer.architect.schemas import (
     ClarifyingQuestion,
@@ -26,7 +24,9 @@ from neurosurfer.architect.schemas import (
     NodePlan,
     WorkflowPlan,
 )
+from neurosurfer.graph.workflow.node_tool import WriteWorkflowNodeTool
 from neurosurfer.graph.workflow.package import load_package
+from neurosurfer.tools.base import ToolContext
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -410,9 +410,9 @@ class TestArchitectPackage:
 
 class TestArchitectBuilder:
     def test_builder_loads_package(self) -> None:
+        from neurosurfer.architect.build import ArchitectBuilder
         from neurosurfer.llm.base import Provider
         from neurosurfer.llm.capabilities import ProviderCapabilities
-        from neurosurfer.architect.build import ArchitectBuilder
 
         class _DummyProvider(Provider):
             model = "dummy"
@@ -463,7 +463,9 @@ class TestCapabilityPlan:
 
     def test_all_feasible_stays_feasible(self) -> None:
         from neurosurfer.architect.schemas import (
-            CapabilityPlan, NodeCapability, ToolSpec,
+            CapabilityPlan,
+            NodeCapability,
+            ToolSpec,
         )
 
         cp = CapabilityPlan(nodes=[
@@ -494,6 +496,7 @@ class TestCapabilityPlan:
 
     def test_capability_nodes_from_json_string(self) -> None:
         import json
+
         from neurosurfer.architect.schemas import CapabilityPlan
 
         cp = CapabilityPlan.model_validate({"nodes": json.dumps([
@@ -508,6 +511,7 @@ class TestSchemaTolerance:
 
     def test_workflow_plan_nodes_as_json_string(self) -> None:
         import json
+
         from neurosurfer.architect.schemas import WorkflowPlan
 
         nodes = json.dumps([
@@ -526,6 +530,7 @@ class TestSchemaTolerance:
 
     def test_outputs_bare_string_wrapped(self) -> None:
         import json
+
         from neurosurfer.architect.schemas import WorkflowPlan
 
         nodes = json.dumps([{"id": "only", "kind": "base", "purpose": "p"}])
@@ -536,6 +541,7 @@ class TestSchemaTolerance:
 
     def test_stage_plan_stages_as_json_string(self) -> None:
         import json
+
         from neurosurfer.architect.schemas import StagePlan
 
         sp = StagePlan.model_validate({"intent": "x", "stages": json.dumps([
@@ -579,6 +585,7 @@ class TestSchemaTolerance:
         # WorkflowPlan needs ≥1 node — garbage must NOT silently become a valid empty plan.
         import pytest as _pytest
         from pydantic import ValidationError
+
         from neurosurfer.architect.schemas import WorkflowPlan
 
         with _pytest.raises(ValidationError):
@@ -589,10 +596,12 @@ class TestSchemaTolerance:
 
 class TestCapabilityOverrides:
     def test_overrides_inputs_and_goal_suffix(self) -> None:
-        from neurosurfer.architect.schemas import (
-            CapabilityPlan, NodeCapability, ToolSpec,
-        )
         from neurosurfer.architect.nodes.assemble import _capability_overrides
+        from neurosurfer.architect.schemas import (
+            CapabilityPlan,
+            NodeCapability,
+            ToolSpec,
+        )
 
         cp = CapabilityPlan(nodes=[
             NodeCapability(
@@ -639,8 +648,8 @@ class TestFeasibilityGate:
     def test_builder_raises_workflow_infeasible(self) -> None:
         from neurosurfer.architect import WorkflowInfeasible
         from neurosurfer.architect.build import ArchitectBuilder
-        from neurosurfer.graph.workflow.validate import INFEASIBLE_MARKER
         from neurosurfer.architect.schemas import CapabilityPlan, NodeCapability
+        from neurosurfer.graph.workflow.validate import INFEASIBLE_MARKER
 
         # Minimal fake run result: assemble produced the infeasible marker, and the
         # tool_design node carries the CapabilityPlan.
@@ -766,7 +775,9 @@ class TestRichSpecThreading:
     def test_builder_builds_rich_gap_specs(self) -> None:
         from neurosurfer.architect.build import ArchitectBuilder
         from neurosurfer.architect.schemas import (
-            CapabilityPlan, NodeCapability, ToolSpec,
+            CapabilityPlan,
+            NodeCapability,
+            ToolSpec,
         )
 
         cp = CapabilityPlan(nodes=[
@@ -792,11 +803,13 @@ class TestDeclaredInputsEmitted:
     def test_connection_string_becomes_graph_input(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from neurosurfer.architect.schemas import (
+            CapabilityPlan,
+            NodeCapability,
+            ToolSpec,
+        )
         from neurosurfer.config.projects import ProjectsConfig as _PC
         from neurosurfer.graph.workflow.registry import WorkflowRegistry as _WR
-        from neurosurfer.architect.schemas import (
-            CapabilityPlan, NodeCapability, ToolSpec,
-        )
 
         projects_dir = tmp_path / "projects"
         registry_dir = tmp_path / "registry"

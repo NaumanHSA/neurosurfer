@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class HookContext:
     request_id: str
     model: str
-    user: Optional[str] = None
-    client_ip: Optional[str] = None
+    user: str | None = None
+    client_ip: str | None = None
 
 
 class Hook:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,7 +20,7 @@ class ModelPermission(OpenAIBase):
     allow_view: bool = True
     allow_fine_tuning: bool = False
     organization: str = "*"
-    group: Optional[str] = None
+    group: str | None = None
     is_blocking: bool = False
 
 
@@ -29,49 +29,49 @@ class ModelCard(OpenAIBase):
     object: Literal["model"] = "model"
     created: int
     owned_by: str = "neurosurfer"
-    root: Optional[str] = None
-    parent: Optional[str] = None
-    max_model_len: Optional[int] = None
-    permission: List[ModelPermission] = Field(default_factory=list)
+    root: str | None = None
+    parent: str | None = None
+    max_model_len: int | None = None
+    permission: list[ModelPermission] = Field(default_factory=list)
 
 
 class ModelList(OpenAIBase):
     object: Literal["list"] = "list"
-    data: List[ModelCard]
+    data: list[ModelCard]
 
 
 class ChatMessage(OpenAIBase):
     role: str
     content: Any = None
-    name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-    tool_calls: Optional[list[dict]] = None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[dict] | None = None
 
 
 class ChatCompletionRequest(OpenAIBase):
     model: str
-    messages: List[ChatMessage]
+    messages: list[ChatMessage]
     stream: bool = False
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    max_completion_tokens: Optional[int] = None
-    top_p: Optional[float] = None
-    stop: Optional[Union[str, List[str]]] = None
-    presence_penalty: Optional[float] = None
-    frequency_penalty: Optional[float] = None
-    seed: Optional[int] = None
-    tools: Optional[list[dict]] = None
-    tool_choice: Optional[Union[str, dict]] = None
-    user: Optional[str] = None
-    response_format: Optional[dict] = None
-    stream_options: Optional[dict] = None
-    metadata: Optional[dict] = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    max_completion_tokens: int | None = None
+    top_p: float | None = None
+    stop: str | list[str] | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    seed: int | None = None
+    tools: list[dict] | None = None
+    tool_choice: str | dict | None = None
+    user: str | None = None
+    response_format: dict | None = None
+    stream_options: dict | None = None
+    metadata: dict | None = None
 
 
 class ChatCompletionChoice(OpenAIBase):
     index: int = 0
     message: ChatMessage
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class ChatCompletionResponse(OpenAIBase):
@@ -79,19 +79,19 @@ class ChatCompletionResponse(OpenAIBase):
     object: Literal["chat.completion"] = "chat.completion"
     created: int
     model: str
-    choices: List[ChatCompletionChoice]
+    choices: list[ChatCompletionChoice]
 
 
 class ChatCompletionChunkDelta(OpenAIBase):
-    role: Optional[str] = None
-    content: Optional[str] = None
-    tool_calls: Optional[list[dict]] = None
+    role: str | None = None
+    content: str | None = None
+    tool_calls: list[dict] | None = None
 
 
 class ChatCompletionChunkChoice(OpenAIBase):
     index: int = 0
     delta: ChatCompletionChunkDelta = Field(default_factory=ChatCompletionChunkDelta)
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class ChatCompletionChunk(OpenAIBase):
@@ -99,4 +99,4 @@ class ChatCompletionChunk(OpenAIBase):
     object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
     created: int
     model: str
-    choices: List[ChatCompletionChunkChoice]
+    choices: list[ChatCompletionChunkChoice]

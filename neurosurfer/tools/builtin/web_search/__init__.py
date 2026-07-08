@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from . import config  # expose for test patching: monkeypatch.setattr(ws.config, "BUDGET_TOKENS", N)
 from .config import (
+    _UA,
     BUDGET_TOKENS,
     CHUNK_TOKENS,
     DEFAULT_ENGINE,
@@ -30,10 +31,9 @@ from .config import (
     FETCH_TOP_K,
     MAX_PAGE_BYTES,
     MAX_RESULTS,
-    _UA,
 )
 from .engines import BaseEngine, DuckDuckGoEngine, EngineResult, SerpApiEngine, get_engine
-from .extractor import _normalize_text, _fetch_page, _store_full_text, extract_body
+from .extractor import _fetch_page, _normalize_text, _store_full_text, extract_body
 from .ranker import chunk_text, rank_chunks, select_within_budget
 from .tool import WebSearchArgs, WebSearchTool
 

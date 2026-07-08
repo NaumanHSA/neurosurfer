@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Literal
 
 from neurosurfer.agents.conversation import events
 from neurosurfer.agents.conversation.messages import MessageHistory
@@ -39,7 +39,7 @@ from neurosurfer.tools.base import (
 #   "auto" → approve everything, never block (the zero-config default)
 #   "ask"  → prompt the human on stdin (terminal or notebook)
 #   an IOHandler instance → your own approval UI (CLI, server, web, …)
-Approval = Union[Literal["auto", "ask"], IOHandler]
+Approval = Literal["auto", "ask"] | IOHandler
 
 
 def _resolve_io(approval: Approval) -> IOHandler:

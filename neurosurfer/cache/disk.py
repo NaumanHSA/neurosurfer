@@ -7,8 +7,8 @@ from pathlib import Path
 
 from neurosurfer.llm.types import CanonicalResponse
 
-from .base import CacheEntry, CacheKey, ResponseCache
-from ._serde import serialize, deserialize
+from ._serde import deserialize, serialize
+from .base import CacheKey, ResponseCache
 
 
 class DiskResponseCache(ResponseCache):

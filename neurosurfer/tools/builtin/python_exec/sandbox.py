@@ -23,7 +23,6 @@ import tempfile
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .env import build_sandbox_env
 from .errors import CodeExecutionError
@@ -88,7 +87,7 @@ class SandboxResult:
     stdout: str
     stderr: str
     exit_code: int
-    result_value: Optional[object]  # deserialised Python value from `result =`
+    result_value: object | None  # deserialised Python value from `result =`
     sandbox_path: str
     timed_out: bool = False
 
@@ -98,7 +97,7 @@ class SandboxResult:
 # ---------------------------------------------------------------------------
 
 
-def check_syntax(code: str) -> Optional[str]:
+def check_syntax(code: str) -> str | None:
     """Return a human-readable error string if ``code`` has a syntax error, else ``None``."""
     try:
         ast.parse(code)
@@ -185,7 +184,7 @@ async def _execute(
 
     exit_code = proc.returncode or 0
 
-    result_value: Optional[object] = None
+    result_value: object | None = None
     if not timed_out and result_file.exists():
         try:
             raw = result_file.read_text(encoding="utf-8").strip()

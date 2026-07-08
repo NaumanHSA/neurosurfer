@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Tuple
 
 
 class Backend(ABC):
@@ -14,7 +13,7 @@ class Backend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def chat_completions(self, req: dict, *, request_id: str) -> Tuple[bool, object]:
+    async def chat_completions(self, req: dict, *, request_id: str) -> tuple[bool, object]:
         """Return ``(is_stream, result)``.
 
         ``is_stream=False`` → result is a JSON-serialisable dict.

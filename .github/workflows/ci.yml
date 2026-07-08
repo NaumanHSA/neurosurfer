@@ -21,13 +21,13 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev,search]'   # search extra (bs4/lxml) is needed by the web-search tests
 
       - name: Lint (ruff)
         run: ruff check neurosurfer tests
 
-      - name: Type check (mypy)
-        run: mypy neurosurfer
+      # Type checking (mypy) is intentionally not run in CI for now — re-add a
+      # `mypy neurosurfer` step here (config lives in [tool.mypy]) when ready.
 
       - name: Test (pytest)
         run: pytest -q

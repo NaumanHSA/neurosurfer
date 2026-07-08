@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 from neurosurfer.config import Config
+
 from . import theme
 from .banner import print_banner, status_summary
 from .commands import build_registry

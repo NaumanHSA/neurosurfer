@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from neurosurfer.tools.builtin.python_exec import CodeExecutionError, PythonExecTool
+from neurosurfer.tools.base import ToolContext
+from neurosurfer.tools.builtin.python_exec import PythonExecTool
 from neurosurfer.tools.builtin.python_exec.env import _SENSITIVE, build_sandbox_env
 from neurosurfer.tools.builtin.python_exec.sandbox import (
     SandboxResult,
@@ -31,9 +32,7 @@ from neurosurfer.tools.builtin.python_exec.sandbox import (
     check_syntax,
 )
 from neurosurfer.tools.builtin.python_exec.tool import PythonExecArgs, _format
-from neurosurfer.tools.base import ToolContext, ToolPool
 from tests.fakes import ScriptedIO
-
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -181,12 +180,10 @@ class TestEnvSanitisation:
             "STRIPE_SECRET_KEY",
             "MY_AUTH_TOKEN",
         ]
-        from neurosurfer.tools.builtin.python_exec.env import _SENSITIVE
         for key in sensitive_keys:
             assert any(pat.search(key) for pat in _SENSITIVE), f"{key!r} should be sensitive"
 
     def test_build_sandbox_env_strips_sensitive(self):
-        import os
         with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-secret", "PATH": "/usr/bin"}):
             env = build_sandbox_env(Path("/tmp/sandbox"))
         assert "OPENAI_API_KEY" not in env
@@ -206,7 +203,6 @@ class TestEnvSanitisation:
     @pytest.mark.asyncio
     async def test_env_not_leaked_to_child(self):
         """Child must not see OPENAI_API_KEY even if it's in the parent env."""
-        import os
         tool = PythonExecTool()
         with patch.dict(os.environ, {"MY_SUPER_SECRET_KEY": "leaked!"}):
             args = PythonExecArgs(
@@ -252,7 +248,6 @@ class TestKeepSandbox:
     @pytest.mark.asyncio
     async def test_sandbox_cleaned_by_default(self):
         """After a normal run, the sandbox temp dir should be gone."""
-        import shutil
         import tempfile
         seen_paths: list[str] = []
 

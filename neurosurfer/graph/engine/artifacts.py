@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
 class ArtifactStore:
@@ -12,7 +12,7 @@ class ArtifactStore:
     """
 
     def __init__(self) -> None:
-        self._data: Dict[str, Any] = {}
+        self._data: dict[str, Any] = {}
 
     def put(self, key: str, value: Any) -> None:
         self._data[key] = value
@@ -22,5 +22,5 @@ class ArtifactStore:
             raise KeyError(f"Artifact not found: {key}")
         return self._data[key]
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return dict(self._data)

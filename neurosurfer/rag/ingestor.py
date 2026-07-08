@@ -29,17 +29,17 @@ Example:
     >>> from neurosurfer.rag.ingestor import RAGIngestor
     >>> from neurosurfer.embeddings import _LocalEmbedder
     >>> from neurosurfer.vectorstores import ChromaVectorStore
-    >>> 
+    >>>
     >>> embedder = SentenceTransformerEmbedder()
     >>> vectorstore = ChromaVectorStore(collection_name="docs")
-    >>> 
+    >>>
     >>> ingestor = RAGIngestor(
     ...     embedder=embedder,
     ...     vector_store=vectorstore,
     ...     batch_size=64,
     ...     max_workers=4
     ... )
-    >>> 
+    >>>
     >>> # Add files and ingest
     >>> ingestor.add_files(["./docs"])
     >>> ingestor.ingest()
@@ -48,31 +48,26 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
-import io
 import logging
-import mimetypes
 import os
+import shutil
+import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
-from pathlib import Path
 import zipfile
-import tempfile
-import shutil
-from typing import (
-    Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple, Union
-)
+from collections.abc import Callable, Iterable, Sequence
+from pathlib import Path
+from typing import Any
 
 from neurosurfer.embeddings import Embedder as BaseEmbedder
 from neurosurfer.vectorstores.base import BaseVectorDB, Doc
 
-from .filereader import FileReader
 from .chunker import Chunker
-from .constants import supported_file_types, exclude_dirs_in_code
-from .url_fetcher import URLFetcher, URLFetcherConfig, URLFetchResult
+from .constants import exclude_dirs_in_code, supported_file_types
+from .filereader import FileReader
+from .url_fetcher import URLFetcher, URLFetcherConfig
 
-
-ProgressCallback = Callable[[Dict[str, Any]], None]
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 # --------------------------
 # Utility
@@ -93,13 +88,13 @@ def now_ts() -> float:
 class RAGIngestor:
     """
     Production-grade RAG document ingestor.
-    
+
     This class orchestrates the complete document ingestion pipeline:
     reading, chunking, embedding, deduplication, and vector storage.
-    
+
     It supports multiple input sources and provides progress tracking,
     cancellation, and parallel processing capabilities.
-    
+
     Attributes:
         embedder (BaseEmbedder): Embedding model for generating vectors
         vs (BaseVectorDB): Vector store for document storage
@@ -112,7 +107,7 @@ class RAGIngestor:
         max_workers (int): Max parallel workers for processing
         deduplicate (bool): Enable content-based deduplication
         normalize_embeddings (bool): Normalize embedding vectors
-    
+
     Example:
         >>> ingestor = RAGIngestor(
         ...     embedder=embedder,
@@ -120,11 +115,11 @@ class RAGIngestor:
         ...     batch_size=64,
         ...     progress_cb=lambda p: print(f"Progress: {p['percent']:.1f}%")
         ... )
-        >>> 
+        >>>
         >>> # Add multiple sources
         >>> ingestor.add_files(["./docs", "./code"])
         >>> ingestor.add_text("Custom content", metadata={"source": "manual"})
-        >>> 
+        >>>
         >>> # Ingest all
         >>> stats = ingestor.ingest()
         >>> print(f"Ingested {stats['chunks_added']} chunks")
@@ -135,17 +130,17 @@ class RAGIngestor:
         *,
         embedder: BaseEmbedder,
         vectorstore: BaseVectorDB,
-        file_reader: Optional[FileReader] = None,
-        chunker: Optional[Chunker] = None,
-        logger: Optional[logging.Logger] = None,
-        progress_cb: Optional[ProgressCallback] = None,
-        cancel_event: Optional[threading.Event] = None,
+        file_reader: FileReader | None = None,
+        chunker: Chunker | None = None,
+        logger: logging.Logger | None = None,
+        progress_cb: ProgressCallback | None = None,
+        cancel_event: threading.Event | None = None,
         batch_size: int = 64,
         max_workers: int = max(4, os.cpu_count() or 4),
         deduplicate: bool = True,
         normalize_embeddings: bool = True,
-        default_metadata: Optional[Dict[str, Any]] = None,
-        tmp_dir: Optional[str] = None,
+        default_metadata: dict[str, Any] | None = None,
+        tmp_dir: str | None = None,
     ):
         self.embedder = embedder
         self.vs = vectorstore
@@ -170,7 +165,7 @@ class RAGIngestor:
             file_reader=self.reader,
             logger=self.logger,
         )
-        self._queue: List[Tuple[str, str, Dict[str, Any]]] = []  # (source_id, text, metadata)
+        self._queue: list[tuple[str, str, dict[str, Any]]] = []  # (source_id, text, metadata)
         self._seen_hashes: set[str] = set()
 
     def set_vectorstore(self, vectorstore: BaseVectorDB) -> None:
@@ -181,19 +176,19 @@ class RAGIngestor:
     # ----------------------
     def add_files(
         self,
-        paths: Sequence[Union[str, Path]],
-        include_exts: Optional[set[str]] = supported_file_types,
+        paths: Sequence[str | Path],
+        include_exts: set[str] | None = supported_file_types,
         *,
-        root: Optional[Union[str, Path]] = None,
-        extra_metadata: Optional[Dict[str, Any]] = None
-    ) -> "RAGIngestor":
+        root: str | Path | None = None,
+        extra_metadata: dict[str, Any] | None = None
+    ) -> RAGIngestor:
         extra_metadata = extra_metadata or {}
         for p in paths:
             p = Path(p)
             if p.suffix.lower() not in include_exts:
                 continue
             text = self.reader.read(p)
-            if not text: 
+            if not text:
                 continue
             rel = str(Path(p).relative_to(root)) if root and Path(p).is_relative_to(root) else str(p)
             md = {**self.default_md, **extra_metadata, "file_path": rel, "source_type": "file"}
@@ -201,13 +196,13 @@ class RAGIngestor:
         return self
 
     def add_directory(
-        self, 
-        directory: Union[str, Path], 
-        *, 
-        include_exts: Optional[set[str]] = supported_file_types,
-        exclude_dirs: Optional[set[str]] = None, 
-        extra_metadata: Optional[Dict[str, Any]] = None
-    ) -> "RAGIngestor":
+        self,
+        directory: str | Path,
+        *,
+        include_exts: set[str] | None = supported_file_types,
+        exclude_dirs: set[str] | None = None,
+        extra_metadata: dict[str, Any] | None = None
+    ) -> RAGIngestor:
         extra_metadata = extra_metadata or {}
         directory = Path(directory)
         exclude_dirs = exclude_dirs or {".git", "__pycache__", ".venv", "node_modules", "dist", "build"}
@@ -228,14 +223,14 @@ class RAGIngestor:
         return self
 
     def add_texts(
-        self, 
-        texts: Sequence[str], 
-        *, 
-        base_id: str = "text", 
-        metadatas: Optional[Sequence[Dict[str, Any]]] = None
-    ) -> "RAGIngestor":
+        self,
+        texts: Sequence[str],
+        *,
+        base_id: str = "text",
+        metadatas: Sequence[dict[str, Any]] | None = None
+    ) -> RAGIngestor:
         metadatas = metadatas or [{}] * len(texts)
-        for i, (t, md) in enumerate(zip(texts, metadatas)):
+        for i, (t, md) in enumerate(zip(texts, metadatas, strict=False)):
             if not t:
                 continue
             source_id = f"{base_id}:{i}"
@@ -244,10 +239,10 @@ class RAGIngestor:
         return self
 
     def add_urls(
-        self, 
-        urls: Sequence[str], 
-        extra_metadata: Optional[Dict[str, Any]] = None
-    ) -> "RAGIngestor":
+        self,
+        urls: Sequence[str],
+        extra_metadata: dict[str, Any] | None = None
+    ) -> RAGIngestor:
         """Pass a custom fetcher to keep this offline-friendly. Example fetcher can use requests/bs4."""
         extra_metadata = extra_metadata or {}
         for url in urls:
@@ -263,11 +258,11 @@ class RAGIngestor:
         return self
 
     def add_git_folder(
-        self, repo_root: Union[str, Path], 
-        *, 
-        include_exts: Optional[set[str]] = None,
-        extra_metadata: Optional[Dict[str, Any]] = None
-    ) -> "RAGIngestor":
+        self, repo_root: str | Path,
+        *,
+        include_exts: set[str] | None = None,
+        extra_metadata: dict[str, Any] | None = None
+    ) -> RAGIngestor:
         """Index an already-cloned repo folder (avoids adding .git, node_modules, etc.)."""
         return self.add_directory(
             repo_root,
@@ -278,12 +273,12 @@ class RAGIngestor:
 
     def add_zipfile(
         self,
-        zip_path: Union[str, Path],
+        zip_path: str | Path,
         *,
-        include_exts: Optional[set[str]] = supported_file_types,
-        exclude_dirs: Optional[set[str]] = exclude_dirs_in_code,
-        extra_metadata: Optional[Dict[str, Any]] = None,
-    ) -> "RAGIngestor":
+        include_exts: set[str] | None = supported_file_types,
+        exclude_dirs: set[str] | None = exclude_dirs_in_code,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> RAGIngestor:
         """
         Extract a single .zip into a temporary folder, index its contents using add_directory,
         then delete the temp folder. Adds {'source_zip': <zip filename>} to each doc's metadata.
@@ -323,13 +318,13 @@ class RAGIngestor:
 
     def ingest(
         self,
-        sources: Optional[Union[str, Path, Iterable[Union[str, Path, str]]]] = None,
+        sources: str | Path | Iterable[str | Path | str] | None = None,
         *,
-        url_fetcher: Optional[Callable[[str], Optional[str]]] = None,
-        include_exts: Optional[set[str]] = supported_file_types,
-        extra_metadata: Optional[Dict[str, Any]] = None,
+        url_fetcher: Callable[[str], str | None] | None = None,
+        include_exts: set[str] | None = supported_file_types,
+        extra_metadata: dict[str, Any] | None = None,
         reset_state: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Unified high-level ingestion wrapper.
 
@@ -388,7 +383,7 @@ class RAGIngestor:
 
         # Normalize sources into a flat list
         if isinstance(sources, (str, Path)):
-            raw_items: List[Union[str, Path]] = [sources]
+            raw_items: list[str | Path] = [sources]
         elif isinstance(sources, Iterable):
             raw_items = list(sources)
         else:
@@ -401,7 +396,7 @@ class RAGIngestor:
 
         extra_metadata = extra_metadata or {}
         include_exts = {e.lower() for e in (include_exts or set())}
-        unsupported: List[Any] = []
+        unsupported: list[Any] = []
         accepted_count = 0
 
         for src in raw_items:
@@ -422,7 +417,7 @@ class RAGIngestor:
                     self.add_urls([stripped], extra_metadata=extra_metadata)
                     accepted_count += 1
                     continue
-                
+
                 try:
                     path = Path(stripped)
                     is_path = path.exists()
@@ -495,7 +490,7 @@ class RAGIngestor:
         summary["total_docs_in_collection"] = self.vs.count()
         return summary
 
-    def build(self) -> Dict[str, Any]:
+    def build(self) -> dict[str, Any]:
         """
         Execute the ingestion:
           - chunk queued sources
@@ -511,11 +506,11 @@ class RAGIngestor:
             return {"status": "cancelled", "queued_sources": len(self._queue)}
 
         # 1) Chunk concurrently
-        chunk_records: List[Tuple[str, str, Dict[str, Any]]] = []  # (doc_id, chunk_text, metadata)
+        chunk_records: list[tuple[str, str, dict[str, Any]]] = []  # (doc_id, chunk_text, metadata)
         total_sources = len(self._queue)
         completed = 0
 
-        def _chunk_one(args: Tuple[str, str, Dict[str, Any]]):
+        def _chunk_one(args: tuple[str, str, dict[str, Any]]):
             source_id, text, md = args
             return [(source_id, c, md) for c in self.chunker.chunk(text, source_id=source_id)]
 
@@ -542,7 +537,7 @@ class RAGIngestor:
             return {"status": "cancelled", "chunked": len(chunk_records)}
 
         # 2) Deduplicate by chunk hash
-        unique_chunks: List[Tuple[str, str, Dict[str, Any]]] = []
+        unique_chunks: list[tuple[str, str, dict[str, Any]]] = []
         for source_id, chunk_text, md in chunk_records:
             h = sha256_text(chunk_text)
             if self.deduplicate and h in self._seen_hashes:
@@ -554,7 +549,7 @@ class RAGIngestor:
             self.progress_cb({"stage": "dedupe", "before": len(chunk_records), "after": len(unique_chunks)})
 
         # 3) Batch embed
-        docs_to_add: List[Doc] = []
+        docs_to_add: list[Doc] = []
         for i in range(0, len(unique_chunks), self.batch_size):
             if self.cancel_event.is_set():
                 break
@@ -566,7 +561,7 @@ class RAGIngestor:
                 self.logger.exception(f"Embedding batch failed (idx={i}): {e}")
                 continue
 
-            for (source_id, chunk_text, md), emb in zip(batch, embeddings):
+            for (source_id, chunk_text, md), emb in zip(batch, embeddings, strict=False):
                 doc_id = f"{md.get('content_hash')[:16]}:{sha256_text(source_id)[:8]}"
                 docs_to_add.append(Doc(id=doc_id, text=chunk_text, embedding=emb, metadata=md))
 
@@ -603,17 +598,17 @@ class RAGIngestor:
     # ----------------------
     # Optional retrieval (smoke test)
     # ----------------------
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         return self.embedder.embed([text])[0]
 
-    def search(self, text: str, top_k: int = 5) -> List[Tuple[Doc, float]]:
+    def search(self, text: str, top_k: int = 5) -> list[tuple[Doc, float]]:
         q = self.embed_query(text)
         return self.vs.similarity_search(q, top_k=top_k)
 
     # ----------------------
     # Internals
     # ----------------------
-    def _enqueue(self, *, source_id: str, text: str, metadata: Dict[str, Any]) -> None:
+    def _enqueue(self, *, source_id: str, text: str, metadata: dict[str, Any]) -> None:
         if self.cancel_event.is_set():
             return
         self._queue.append((source_id, text, metadata))

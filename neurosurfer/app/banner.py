@@ -10,8 +10,6 @@ import platform
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
-from typing import List, Optional, Tuple
-
 
 # ── silencing ─────────────────────────────────────────────────────────────────
 
@@ -33,7 +31,7 @@ def _in_jupyter() -> bool:
 
 # ── package version helpers ───────────────────────────────────────────────────
 
-def _v(pkg: str) -> Optional[str]:
+def _v(pkg: str) -> str | None:
     try:
         return _pkg_version(pkg)
     except PackageNotFoundError:
@@ -42,14 +40,14 @@ def _v(pkg: str) -> Optional[str]:
 
 # ── torch / CUDA / MPS detection ─────────────────────────────────────────────
 
-def _torch_info() -> Tuple[Optional[str], Optional[str], bool, bool, Optional[bool], List[str]]:
+def _torch_info() -> tuple[str | None, str | None, bool, bool, bool | None, list[str]]:
     try:
         import torch  # type: ignore
 
         torch_ver = torch.__version__
-        cuda_ver: Optional[str] = getattr(torch.version, "cuda", None)
+        cuda_ver: str | None = getattr(torch.version, "cuda", None)
         cuda_avail = bool(torch.cuda.is_available())
-        gpu_names: List[str] = []
+        gpu_names: list[str] = []
         if cuda_avail:
             for i in range(torch.cuda.device_count()):
                 try:
@@ -58,7 +56,7 @@ def _torch_info() -> Tuple[Optional[str], Optional[str], bool, bool, Optional[bo
                     gpu_names.append(f"cuda:{i}")
 
         mps_avail = False
-        mps_built: Optional[bool] = None
+        mps_built: bool | None = None
         try:
             mps = getattr(torch.backends, "mps", None)
             if mps is not None:
@@ -107,7 +105,7 @@ def _jupyter_banner(version: str) -> str:
     def yn(x: bool) -> str:
         return "<span style='color:#22d3ee'>yes</span>" if x else "<span style='opacity:.5'>no</span>"
 
-    def cv(s: Optional[str]) -> str:
+    def cv(s: str | None) -> str:
         return f"<span style='color:#22d3ee'>{s}</span>" if s else "<span style='opacity:.4'>-</span>"
 
     logo_escaped = _html.escape("\n".join(_LOGO))

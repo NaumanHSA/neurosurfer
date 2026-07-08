@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Tuple
+
 import importlib
 
 
@@ -47,7 +47,7 @@ class TokenCounter:
         return int(max(1, round(len(text) / self.chars_per_token)))
 
     # -------- trimming --------
-    def trim_to_tokens(self, text: str, max_tokens: int) -> Tuple[str, int]:
+    def trim_to_tokens(self, text: str, max_tokens: int) -> tuple[str, int]:
         if max_tokens <= 0 or not text:
             return "", 0
         # HF fast path
@@ -85,7 +85,7 @@ class TokenCounter:
         return best.strip(), int(best_tokens)
 
     # -------- chat template helpers --------
-    def apply_chat_template(self, messages: List[dict]) -> str:
+    def apply_chat_template(self, messages: list[dict]) -> str:
         """
         Try llm.tokenizer.apply_chat_template; else naive concatenation.
         """

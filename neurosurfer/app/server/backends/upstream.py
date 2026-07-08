@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import AsyncIterator, Optional, Tuple
+from collections.abc import AsyncIterator
 
 import httpx
 
-from .base import Backend
 from ..errors import OpenAIHTTPError
+from .base import Backend
 
 
 class UpstreamBackend(Backend):
@@ -19,7 +19,7 @@ class UpstreamBackend(Backend):
         base_url: str,
         api_key: str = "",
         models_mode: str = "proxy",
-        static_models: Optional[dict] = None,
+        static_models: dict | None = None,
         timeout: float = 120.0,
     ):
         self._name = name
@@ -47,7 +47,7 @@ class UpstreamBackend(Backend):
             raise OpenAIHTTPError(r.status_code, f"Upstream /models failed: {r.text}")
         return r.json()
 
-    async def chat_completions(self, req: dict, *, request_id: str) -> Tuple[bool, object]:
+    async def chat_completions(self, req: dict, *, request_id: str) -> tuple[bool, object]:
         url = f"{self.base_url}/chat/completions"
         stream = bool(req.get("stream"))
 

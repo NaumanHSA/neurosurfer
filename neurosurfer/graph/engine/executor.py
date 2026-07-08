@@ -2,31 +2,26 @@ from __future__ import annotations
 
 import logging
 import time
-from contextvars import copy_context
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from contextvars import copy_context
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel as PydModel
 
 # Native-stack (R3+R4)
 from neurosurfer.llm.base import Provider
-from neurosurfer.llm.types import GenerationConfig
 from neurosurfer.observability.run import traced_run
 from neurosurfer.tools.base import ToolContext, ToolPool
-from neurosurfer.tracing import Tracer, TracerConfig, TraceStepContext
+from neurosurfer.tracing import Tracer, TraceStepContext
 
 if TYPE_CHECKING:
-    from neurosurfer.rag.agent import RAGAgent
+    pass
 
 from .artifacts import ArtifactStore
 from .errors import (
     GraphConfigurationError,
     GraphExecutionError,
-    NodeFailedError,
-    NodeSkippedError,
-    NodeTimeoutError,
-    StructuredOutputError,
 )
 from .export import GraphExporter
 from .manager import ManagerAgent, ManagerConfig
@@ -51,19 +46,19 @@ class GraphExecutor:
         self,
         graph: Graph,
         *,
-        provider: Optional[Provider] = None,
-        native_tools: Optional[ToolPool] = None,
-        tool_ctx: Optional[ToolContext] = None,
+        provider: Provider | None = None,
+        native_tools: ToolPool | None = None,
+        tool_ctx: ToolContext | None = None,
         # Legacy params — accepted but ignored so old call-sites don't crash.
         llm: Any = None,
         toolkit: Any = None,
         manager_llm: Any = None,
-        rag_agent: Optional[Any] = None,
-        manager_config: Optional[ManagerConfig] = None,
-        exporter: Optional[GraphExporter] = None,
-        tracer: Optional[Tracer] = None,
-        artifact_store: Optional[ArtifactStore] = None,
-        logger: Optional[logging.Logger] = None,
+        rag_agent: Any | None = None,
+        manager_config: ManagerConfig | None = None,
+        exporter: GraphExporter | None = None,
+        tracer: Tracer | None = None,
+        artifact_store: ArtifactStore | None = None,
+        logger: logging.Logger | None = None,
         log_traces: bool = True,
         parallelism: int = 1,
     ) -> None:
@@ -85,9 +80,9 @@ class GraphExecutor:
             log_traces=log_traces,
         )
 
-        self._node_map: Dict[str, GraphNode] = self.graph.node_map()
+        self._node_map: dict[str, GraphNode] = self.graph.node_map()
         self._order = topo_sort(self.graph.nodes)
-        self._layers: List[List[str]] = _topo_layers(self.graph.nodes)
+        self._layers: list[list[str]] = _topo_layers(self.graph.nodes)
 
         self._validate_tools()
 
@@ -95,7 +90,7 @@ class GraphExecutor:
     # Public API
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _topo_layers_static(nodes) -> List[List[str]]:
+    def _topo_layers_static(nodes) -> list[list[str]]:
         return _topo_layers(nodes)
 
     def run(
@@ -104,8 +99,8 @@ class GraphExecutor:
         *,
         manager_temperature: float = None,
         manager_max_new_tokens: int = None,
-        trace_step: Optional[TraceStepContext] = None,
-        node_event: Optional[Any] = None,
+        trace_step: TraceStepContext | None = None,
+        node_event: Any | None = None,
     ) -> GraphExecutionResult:
         """
         Execute the entire graph once.
@@ -134,10 +129,10 @@ class GraphExecutor:
             Contains the graph spec, all node results, and the final outputs.
         """
         graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
-        nodes_results: Dict[str, NodeExecutionResult] = {}
+        nodes_results: dict[str, NodeExecutionResult] = {}
         # Track which nodes failed (error set, raw_output None) — their dependents
         # must be skipped rather than receiving None in dep_results.
-        failed_ids: Set[str] = set()
+        failed_ids: set[str] = set()
 
         def _emit(node_id: str, status: str) -> None:
             """Fire the optional per-node lifecycle callback, ignoring callback errors."""
@@ -237,7 +232,7 @@ class GraphExecutor:
                     # context so the ambient observability TraceContext propagates and
                     # parallel node agents nest under the workflow trace. One snapshot
                     # per node — a Context can't be entered by two threads at once.
-                    futures: Dict[str, Future] = {
+                    futures: dict[str, Future] = {
                         nid: pool.submit(copy_context().run, _execute_one, nid)
                         for nid in to_run
                     }
@@ -306,8 +301,8 @@ class GraphExecutor:
     def _run_function_node(
         self,
         node: GraphNode,
-        graph_inputs: Dict[str, Any],
-        dependency_results: Dict[str, Any],
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
     ) -> NodeExecutionResult:
         started_at = time.time()
         try:
@@ -339,8 +334,8 @@ class GraphExecutor:
     def _run_tool_node(
         self,
         node: GraphNode,
-        graph_inputs: Dict[str, Any],
-        dependency_results: Dict[str, Any],
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
     ) -> NodeExecutionResult:
         started_at = time.time()
         try:
@@ -385,12 +380,12 @@ class GraphExecutor:
         self,
         *,
         node: GraphNode,
-        graph_inputs: Dict[str, Any],
-        dependency_results: Dict[str, Any],
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
         previous_result: Any,
         manager_temperature: float,
         manager_max_new_tokens: int,
-        trace_step: Optional[TraceStepContext] = None,
+        trace_step: TraceStepContext | None = None,
     ) -> NodeExecutionResult:
 
         # Non-LLM dispatch — no prompt building, no agent needed
@@ -430,12 +425,11 @@ class GraphExecutor:
         node: GraphNode,
         system_prompt: str,
         user_prompt: str,
-        output_schema: Optional[type] = None,
-        timeout_s: Optional[float] = None,
+        output_schema: type | None = None,
+        timeout_s: float | None = None,
     ) -> NodeExecutionResult:
         """Execute a base or react node using the native provider + ToolPool stack."""
         from concurrent.futures import ThreadPoolExecutor
-        from concurrent.futures import TimeoutError as FuturesTimeout
 
         from .node_runner import run_base_node, run_react_node
 
@@ -526,7 +520,7 @@ class GraphExecutor:
                 error=str(e),
             )
 
-    def _build_system_prompt(self, node: GraphNode, graph_inputs: Dict[str, Any]) -> str:
+    def _build_system_prompt(self, node: GraphNode, graph_inputs: dict[str, Any]) -> str:
         """
         Build the system prompt for a node, interpolating graph-level
         inputs into purpose/goal/expected_result using `{name}` syntax.
@@ -534,7 +528,7 @@ class GraphExecutor:
         Example:
             purpose: "Perform research on {company_title}."
         """
-        def tmpl(text: Optional[str]) -> str:
+        def tmpl(text: str | None) -> str:
             if not text:
                 return ""
             try:
@@ -557,7 +551,7 @@ class GraphExecutor:
             expected_result=expected,
         )
 
-    def _load_output_schema_if_needed(self, node: GraphNode) -> Optional[type[PydModel]]:
+    def _load_output_schema_if_needed(self, node: GraphNode) -> type[PydModel] | None:
         if not node.output_schema:
             return None
 
@@ -569,8 +563,8 @@ class GraphExecutor:
         return obj
 
     def _select_final_outputs(
-        self, results: Dict[str, NodeExecutionResult]
-    ) -> Dict[str, Any]:
+        self, results: dict[str, NodeExecutionResult]
+    ) -> dict[str, Any]:
         """
         Pick which node outputs are considered "final" for the graph.
 
@@ -590,7 +584,7 @@ class GraphExecutor:
             return {}
         return {last_nid: results[last_nid].raw_output}
 
-    def _log(self, message: str, tracer: Optional[TraceStepContext] = None, type: str = "info") -> None:
+    def _log(self, message: str, tracer: TraceStepContext | None = None, type: str = "info") -> None:
         if tracer:
             tracer.log(message=message, type=type)
         else:
@@ -599,7 +593,7 @@ class GraphExecutor:
 
 # ── Module-level helpers ────────────────────────────────────────────────────────
 
-def _topo_layers(nodes) -> List[List[str]]:
+def _topo_layers(nodes) -> list[list[str]]:
     """Group nodes into topological execution layers.
 
     All nodes in the same layer have their dependencies satisfied by earlier layers
@@ -615,10 +609,10 @@ def _topo_layers(nodes) -> List[List[str]]:
         return []
 
     node_ids = {n.id for n in nodes}
-    deps: Dict[str, Set[str]] = {n.id: set(n.depends_on) & node_ids for n in nodes}
+    deps: dict[str, set[str]] = {n.id: set(n.depends_on) & node_ids for n in nodes}
     remaining = dict(deps)
-    layers: List[List[str]] = []
-    completed: Set[str] = set()
+    layers: list[list[str]] = []
+    completed: set[str] = set()
 
     while remaining:
         # Nodes whose all deps are already in completed layers.

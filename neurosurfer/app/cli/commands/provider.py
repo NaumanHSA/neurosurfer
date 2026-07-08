@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import cast
 
 from neurosurfer.config.profiles import ProviderKind, ProviderProfile, ProviderStore
+
 from .. import theme
 from ..context import CLIContext
 from ..io import _ainput, select_menu

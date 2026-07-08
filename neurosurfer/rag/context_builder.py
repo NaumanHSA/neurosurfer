@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from typing import Callable, List
+from collections.abc import Callable
+
 from neurosurfer.vectorstores.base import Doc
 
 
@@ -21,8 +22,8 @@ class ContextBuilder:
         self.make_source = make_source or self._default_source
         self.clean_chunks = clean_chunks
 
-    def build(self, docs: List[Doc]) -> str:
-        parts: List[str] = []
+    def build(self, docs: list[Doc]) -> str:
+        parts: list[str] = []
         for d in docs:
             piece = d.text or ""
             if self.clean_chunks:

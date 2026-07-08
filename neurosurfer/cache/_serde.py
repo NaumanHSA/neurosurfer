@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Union
+from typing import Annotated
 
 from pydantic import Field, TypeAdapter
 

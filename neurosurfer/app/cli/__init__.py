@@ -13,11 +13,11 @@ import argparse
 import asyncio
 import sys
 
+import neurosurfer.app  # noqa: F401,E402
 from neurosurfer.config import Config, load_config
 from neurosurfer.observability.logging import configure_logging
-from .context import CLIContext
 
-import neurosurfer.app  # noqa: F401,E402
+from .context import CLIContext
 
 
 def build_parser() -> argparse.ArgumentParser:

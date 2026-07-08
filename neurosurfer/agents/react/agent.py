@@ -40,16 +40,22 @@ from .prompt import _build_react_system
 class ReactAgent(BaseAgent):
     """A bounded ReAct loop over text-parsed actions."""
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # "Observation:" is a hard stop sequence so the model halts before it can
+        # hallucinate its own tool output — the loop feeds back the real Observation
+        # instead (see the module docstring). Applied once, idempotently, so every
+        # _stream_model call (which reads self.gen_config) carries the stop.
+        if "Observation:" not in self.gen_config.stop_sequences:
+            self.gen_config = dataclasses.replace(
+                self.gen_config,
+                stop_sequences=[*self.gen_config.stop_sequences, "Observation:"],
+            )
+
     async def _run(self, user_input: str) -> AsyncIterator[events.Event]:
         self.history.add_user_text(user_input)
         # Build the ReAct system prompt once (base prompt + tool catalog + format).
         react_system = _build_react_system(self.system_prompt, self.tools)
-        # print(f"React system prompt:\n{react_system}\n{'─' * 60}")
-        # Stop before the model fabricates an Observation.
-        cfg = dataclasses.replace(
-            self.gen_config,
-            stop_sequences=[*self.gen_config.stop_sequences, "Observation:"],
-        )
 
         last_text = ""
         corrected = False  # whether we have already pushed a corrective observation

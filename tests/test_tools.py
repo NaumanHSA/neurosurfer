@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from neurosurfer.app.tools.present_plan import PresentPlanTool
 from neurosurfer.llm.providers.anthropic import to_anthropic_tools
 from neurosurfer.llm.providers.openai import to_openai_tools
 from neurosurfer.tools import all_tools, build_pool, default_pool
@@ -12,7 +13,6 @@ from neurosurfer.tools.builtin.apply_edit import ApplyEditTool
 from neurosurfer.tools.builtin.ask_user import AskUserTool
 from neurosurfer.tools.builtin.finish import FinishTool
 from neurosurfer.tools.builtin.list_dir import ListDirTool
-from neurosurfer.app.tools.present_plan import PresentPlanTool
 from neurosurfer.tools.builtin.read_file import ReadFileTool
 from neurosurfer.tools.builtin.run_command import RunCommandTool
 from neurosurfer.tools.builtin.search import SearchTool

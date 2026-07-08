@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -79,7 +79,7 @@ class ServerSettings(BaseSettings):
 
     # SSE / streaming
     sse_ping_interval_s: float = Field(default=15.0, ge=1.0, le=120.0)
-    sse_max_seconds: Optional[float] = Field(default=None, ge=1.0)
+    sse_max_seconds: float | None = Field(default=None, ge=1.0)
 
     # Request safety
     max_request_body_mb: int = Field(default=25, ge=1, le=1024)
@@ -89,7 +89,7 @@ class ServerSettings(BaseSettings):
     # HTTP client (gateway → upstream)
     upstream_timeout_s: float = Field(default=120.0, ge=1.0, le=3600.0)
     upstream_connect_timeout_s: float = Field(default=10.0, ge=1.0, le=120.0)
-    upstream_read_timeout_s: Optional[float] = Field(default=None)
+    upstream_read_timeout_s: float | None = Field(default=None)
     upstream_max_keepalive: int = Field(default=20, ge=1, le=500)
     upstream_max_connections: int = Field(default=200, ge=1, le=5000)
 
@@ -97,11 +97,11 @@ class ServerSettings(BaseSettings):
     strict_openai_compat: bool = Field(default=True)
     passthrough_unknown_fields: bool = Field(default=True)
     strip_reasoning: bool = Field(default=False)
-    default_model: Optional[str] = Field(default=None)
+    default_model: str | None = Field(default=None)
 
     # Upstream backend (optional shorthand — configure in code or via env)
-    upstream_base_url: Optional[str] = Field(default=None)
-    upstream_api_key: Optional[str] = Field(default=None)
+    upstream_base_url: str | None = Field(default=None)
+    upstream_api_key: str | None = Field(default=None)
     upstream_models_mode: Literal["proxy", "static"] = Field(default="proxy")
     upstream_static_models: list[str] = Field(default_factory=list)
 
@@ -118,7 +118,7 @@ class ServerSettings(BaseSettings):
         return _split_csv(v)
 
     @model_validator(mode="after")
-    def _validate_cors(self) -> "ServerSettings":
+    def _validate_cors(self) -> ServerSettings:
         if self.cors_allow_credentials and "*" in self.cors_origins:
             raise ValueError(
                 "Invalid CORS: cors_allow_credentials=true cannot be combined with "

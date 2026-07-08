@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -34,7 +34,7 @@ def mount_chat_routes(router: APIRouter, server) -> None:
         try:
             target = server.router.resolve(model)
         except KeyError:
-            raise OpenAIHTTPError(404, f"Model not found: {model!r}")
+            raise OpenAIHTTPError(404, f"Model not found: {model!r}") from None
 
         if target.upstream_model is not None and server._upstream_backend is not None:
             body["model"] = target.upstream_model

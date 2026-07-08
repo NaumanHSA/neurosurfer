@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal, Optional
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, Field
@@ -28,7 +28,7 @@ class WebSearchArgs(BaseModel):
         default=True,
         description="Fetch and extract the top result pages (off = snippets only).",
     )
-    engine: Optional[Literal["ddg", "serpapi"]] = Field(
+    engine: Literal["ddg", "serpapi"] | None = Field(
         default=None,
         description=(
             "Search engine to use. Defaults to WEB_SEARCH_ENGINE env var (default: 'ddg'). "

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from neurosurfer.tools.generated import GeneratedToolsConfig
 from neurosurfer.architect.tool_author import (
     ToolAuthor,
     ToolDraft,
     ToolGapSpec,
 )
+from neurosurfer.tools.generated import GeneratedToolsConfig
 
 # ── candidate sources ────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,18 +35,18 @@ class NeurosurferServer:
     def __init__(
         self,
         *,
-        app_name: Optional[str] = None,
-        api_keys: Optional[list[str]] = None,
-        enable_docs: Optional[bool] = None,
-        cors_origins: Optional[list[str]] = None,
-        cors_allow_credentials: Optional[bool] = None,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        reload: Optional[bool] = None,
-        log_level: Optional[str] = None,
-        workers: Optional[int] = None,
-        sse_ping_interval_s: Optional[float] = None,
-        logger: Optional[logging.Logger] = None,
+        app_name: str | None = None,
+        api_keys: list[str] | None = None,
+        enable_docs: bool | None = None,
+        cors_origins: list[str] | None = None,
+        cors_allow_credentials: bool | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        reload: bool | None = None,
+        log_level: str | None = None,
+        workers: int | None = None,
+        sse_ping_interval_s: float | None = None,
+        logger: logging.Logger | None = None,
     ):
         # Load from env/.env first, then apply explicit overrides.
         base = ServerSettings()
@@ -79,7 +79,7 @@ class NeurosurferServer:
 
         self.hooks: list[Hook] = []
         self.router = ModelRouter()
-        self._upstream_backend: Optional[UpstreamBackend] = None
+        self._upstream_backend: UpstreamBackend | None = None
 
         self.app = FastAPI(
             title=self.settings.app_name,
@@ -170,7 +170,7 @@ class NeurosurferServer:
         """Return the underlying FastAPI app (for ASGI deployment)."""
         return self.app
 
-    def run(self, host: Optional[str] = None, port: Optional[int] = None, **kwargs: Any) -> None:
+    def run(self, host: str | None = None, port: int | None = None, **kwargs: Any) -> None:
         """Start the uvicorn server (blocking)."""
         try:
             import uvicorn

@@ -4,36 +4,40 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, get_args, TYPE_CHECKING
-from functools import lru_cache
+from typing import TYPE_CHECKING, Any, get_args
 
-from neurosurfer.vectorstores import Doc, BaseVectorDB
-from neurosurfer.vectorstores.chroma import ChromaVectorStore
 from neurosurfer.embeddings import Embedder, _LocalEmbedder
 from neurosurfer.llm.base import Provider
-from neurosurfer.llm.types import CanonicalResponse, GenerationConfig, Message, TextBlock
+from neurosurfer.llm.types import CanonicalResponse, GenerationConfig, Message
 from neurosurfer.tracing import Tracer, TracerConfig
+from neurosurfer.vectorstores import BaseVectorDB, Doc
+from neurosurfer.vectorstores.chroma import ChromaVectorStore
 
+from .chunker import Chunker
 from .config import (
+    ANSWER_BREADTH_MULTIPLIER,
+    RETRIEVAL_SCOPE_BASE_K,
+    AnswerBreadth,
     RAGAgentConfig,
     RAGIngestorConfig,
+    RetrievalMode,
     RetrievalPlan,
     RetrievalScope,
-    RetrievalMode,
-    AnswerBreadth,
-    RETRIEVAL_SCOPE_BASE_K,
-    ANSWER_BREADTH_MULTIPLIER,
 )
-from .responses import RAGAgentResponse, RetrieveResult
-from .token_utils import TokenCounter
+from .constants import supported_file_types
 from .context_builder import ContextBuilder
 from .filereader import FileReader
-from .chunker import Chunker
 from .ingestor import RAGIngestor
-from .constants import supported_file_types
-from .templates import RAG_AGENT_SYSTEM_PROMPT, RAG_USER_PROMPT_TEMPLATE, RETRIEVAL_PLANNER_SYSTEM_PROMPT
+from .responses import RAGAgentResponse, RetrieveResult
+from .templates import (
+    RAG_AGENT_SYSTEM_PROMPT,
+    RAG_USER_PROMPT_TEMPLATE,
+    RETRIEVAL_PLANNER_SYSTEM_PROMPT,
+)
+from .token_utils import TokenCounter
 
 if TYPE_CHECKING:
     from neurosurfer.agents.oneshot import Agent
@@ -97,19 +101,19 @@ class RAGAgent:
     def __init__(
         self,
         id: str = "rag_agent",
-        llm: Optional[Provider] = None,
-        agent: Optional[Agent] = None,
-        vectorstore: Optional[BaseVectorDB] = None,
-        embedder: Optional[Union[Embedder, str]] = None,
-        file_reader: Optional[FileReader] = None,
-        chunker: Optional[Chunker] = None,
+        llm: Provider | None = None,
+        agent: Agent | None = None,
+        vectorstore: BaseVectorDB | None = None,
+        embedder: Embedder | str | None = None,
+        file_reader: FileReader | None = None,
+        chunker: Chunker | None = None,
         *,
-        config: Optional[RAGAgentConfig] = None,
-        ingestor_config: Optional[RAGIngestorConfig] = None,
+        config: RAGAgentConfig | None = None,
+        ingestor_config: RAGIngestorConfig | None = None,
         make_source=None,
-        router_llm: Optional[Provider] = None,
-        tracer: Optional[Tracer] = None,
-        logger: Optional[logging.Logger] = None,
+        router_llm: Provider | None = None,
+        tracer: Tracer | None = None,
+        logger: logging.Logger | None = None,
     ):
         self.id = id
         self.logger = logger or logging.getLogger(__name__)
@@ -134,6 +138,11 @@ class RAGAgent:
         )
 
         self.router_llm = router_llm or llm
+
+        # Per-instance memo of ChromaVectorStore by (collection, clear-on-init) so we
+        # don't rebuild a store for a collection we've already opened. Instance-scoped
+        # (not a method-level lru_cache) so it never pins the agent in a global cache.
+        self._vs_cache: dict[tuple[str, bool], ChromaVectorStore] = {}
 
         self.vectorstore = vectorstore
         if not self.vectorstore:
@@ -177,13 +186,17 @@ class RAGAgent:
             tmp_dir=self.ingestor_cfg.tmp_dir,
         )
 
-    @lru_cache(maxsize=512)
     def _vs(self, collection_name: str, clear_collection_on_init: bool = False) -> ChromaVectorStore:
-        return ChromaVectorStore(
-            collection_name=collection_name,
-            clear_collection=clear_collection_on_init,
-            persist_directory=self.cfg.persist_directory,
-        )
+        key = (collection_name, clear_collection_on_init)
+        vs = self._vs_cache.get(key)
+        if vs is None:
+            vs = ChromaVectorStore(
+                collection_name=collection_name,
+                clear_collection=clear_collection_on_init,
+                persist_directory=self.cfg.persist_directory,
+            )
+            self._vs_cache[key] = vs
+        return vs
 
     def _collection_has_docs(self) -> bool:
         try:
@@ -202,13 +215,13 @@ class RAGAgent:
 
     def ingest(
         self,
-        sources: Optional[Union[str, Path, Iterable[Union[str, Path, str]]]] = None,
+        sources: str | Path | Iterable[str | Path | str] | None = None,
         *,
         url_fetcher=None,
-        include_exts: Optional[set[str]] = supported_file_types,
-        extra_metadata: Optional[Dict[str, Any]] = None,
+        include_exts: set[str] | None = supported_file_types,
+        extra_metadata: dict[str, Any] | None = None,
         reset_state: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Unified high-level ingestion wrapper. See RAGIngestor.ingest() for full docs."""
         return self.ingestor.ingest(
             sources=sources,
@@ -222,13 +235,13 @@ class RAGAgent:
         self,
         user_query: str,
         *,
-        top_k: Optional[int] = None,
-        metadata_filter: Optional[Dict[str, Any]] = None,
-        similarity_threshold: Optional[float] = None,
+        top_k: int | None = None,
+        metadata_filter: dict[str, Any] | None = None,
+        similarity_threshold: float | None = None,
         retrieval_mode: RetrievalMode = "classic",
-        retrieval_scope: Optional[RetrievalScope] = None,
-        retrieval_plan: Optional[RetrievalPlan] = None,
-        answer_breadth: Optional[AnswerBreadth] = None,
+        retrieval_scope: RetrievalScope | None = None,
+        retrieval_plan: RetrievalPlan | None = None,
+        answer_breadth: AnswerBreadth | None = None,
     ) -> RetrieveResult:
         """Retrieve relevant documents from the vectorstore for a given query."""
         self.tracer.reset()
@@ -281,8 +294,8 @@ class RAGAgent:
                 generation_budget=self.cfg.max_new_tokens, docs=[], distances=[],
             )
 
-        docs: List[Any] = []
-        distances: List[float] = []
+        docs: list[Any] = []
+        distances: list[float] = []
         try:
             query_vec = self.embedder.embed([plan.optimized_query])[0]
             raw = self.vectorstore.similarity_search(
@@ -335,16 +348,16 @@ class RAGAgent:
     def run(
         self,
         user_prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        top_k: Optional[int] = None,
-        metadata_filter: Optional[Dict[str, Any]] = None,
-        similarity_threshold: Optional[float] = None,
-        temperature: Optional[float] = None,
+        top_k: int | None = None,
+        metadata_filter: dict[str, Any] | None = None,
+        similarity_threshold: float | None = None,
+        temperature: float | None = None,
         retrieval_mode: RetrievalMode = "classic",
-        retrieval_plan: Optional[RetrievalPlan] = None,
-        retrieval_scope: Optional[RetrievalScope] = None,
-        answer_breadth: Optional[AnswerBreadth] = None,
+        retrieval_plan: RetrievalPlan | None = None,
+        retrieval_scope: RetrievalScope | None = None,
+        answer_breadth: AnswerBreadth | None = None,
     ) -> RAGAgentResponse:
         """Retrieve context then generate an answer via the configured agent/provider."""
 
@@ -456,7 +469,7 @@ class RAGAgent:
         self,
         db_context: str,
         *,
-        reserved_prompt_tokens: Optional[int] = None,
+        reserved_prompt_tokens: int | None = None,
     ) -> _TrimResult:
         """Trim DB context to fit within the model's token budget."""
         provider_ctx = getattr(getattr(self.llm, "capabilities", None), "context_window", None)
@@ -500,7 +513,7 @@ class RAGAgent:
 
     @staticmethod
     def _calculate_final_max_new_tokens(
-        fixed_max_new_tokens: Optional[int],
+        fixed_max_new_tokens: int | None,
         min_output_tokens: int,
         base_tokens: int,
         context_tokens_used: int,
@@ -513,10 +526,10 @@ class RAGAgent:
 
     @staticmethod
     def _unpack_results(
-        raw: Union[List[Doc], List[Tuple[Doc, float]]]
-    ) -> Tuple[List[Doc], List[Optional[float]]]:
-        docs: List[Doc] = []
-        dists: List[Optional[float]] = []
+        raw: list[Doc] | list[tuple[Doc, float]]
+    ) -> tuple[list[Doc], list[float | None]]:
+        docs: list[Doc] = []
+        dists: list[float | None] = []
         if not raw:
             return docs, dists
         first = raw[0]

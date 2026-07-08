@@ -23,15 +23,15 @@ from pathlib import Path
 import pytest
 
 import neurosurfer.app.agents  # noqa: F401 — triggers built-in persona registrations
+from neurosurfer.agents.runtime.permissions import Guardrails
+from neurosurfer.agents.runtime.tasks_runtime import TaskHandle, TasksRuntime
 from neurosurfer.agents.subagents.defs import (
     SubAgentDefinition,
     all_agents,
     get_agent,
     register,
 )
-from neurosurfer.agents.runtime.permissions import Guardrails
 from neurosurfer.agents.subagents.runner import MAX_DEPTH, SubAgentRunner
-from neurosurfer.agents.runtime.tasks_runtime import TaskHandle, TasksRuntime
 from neurosurfer.tools.base import ToolPool
 from tests.fakes import ScriptedIO, ScriptedProvider
 

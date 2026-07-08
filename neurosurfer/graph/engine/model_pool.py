@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
 class ModelProfile:
-    name: str   
+    name: str
     device: str = "cpu"
     max_concurrency: int = 1
     supports_batching: bool = False
@@ -29,10 +29,10 @@ class ModelPool:
     - On OOM, we record timestamp and shrink allowed tokens for a while.
     """
     def __init__(self):
-        self._buckets: Dict[str, _Bucket] = {}
+        self._buckets: dict[str, _Bucket] = {}
 
     @classmethod
-    def from_llms(cls, llms: List[Any], default_concurrency: int = 1) -> "ModelPool":
+    def from_llms(cls, llms: list[Any], default_concurrency: int = 1) -> ModelPool:
         pool = cls()
         for llm in llms:
             name = getattr(llm, "model_name", "unknown")

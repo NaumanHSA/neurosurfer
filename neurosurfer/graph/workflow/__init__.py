@@ -13,8 +13,8 @@ __version__ = "0.1.1"
 from . import node_tool  # noqa: F401 — registers write_workflow_node into the tool registry
 from .package import WorkflowPackage, load_package, save_package
 from .registry import WorkflowNotFoundError, WorkflowRegistry
-from .schema import WorkflowManifest
 from .runner import WorkflowRunner, run_workflow
+from .schema import WorkflowManifest
 
 
 def __getattr__(name: str):

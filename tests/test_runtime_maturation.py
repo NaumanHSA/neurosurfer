@@ -23,21 +23,27 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── Tracer (D11) ─────────────────────────────────────────────────────────────
-from neurosurfer.tracing import Tracer, TracerConfig
-
 # ── Error hierarchy ───────────────────────────────────────────────────────────
+# ── GraphExecutor (D1, D5, D6) ───────────────────────────────────────────────
+# ── Graph schema ──────────────────────────────────────────────────────────────
 from neurosurfer.graph import (
     AgentError,
     CodeExecutionError,
+    Graph,
     GraphError,
     GraphExecutionError,
+    GraphExecutionResult,
+    GraphExecutor,
+    GraphInput,
+    GraphNode,
     InputValidationError,
     NeurosurferError,
     NodeError,
     # legacy aliases
     NodeExecutionError,
+    NodeExecutionResult,
     NodeFailedError,
+    NodeMode,
     NodeSkippedError,
     NodeTimeoutError,
     StructuredOutputError,
@@ -46,23 +52,14 @@ from neurosurfer.graph import (
     ToolInputError,
     ToolNotFoundError,
     ValidationError,
-)
-
-# ── GraphExecutor (D1, D5, D6) ───────────────────────────────────────────────
-from neurosurfer.graph import GraphExecutor, _topo_layers
-
-# ── Graph schema ──────────────────────────────────────────────────────────────
-from neurosurfer.graph import (
-    Graph,
-    GraphExecutionResult,
-    GraphInput,
-    GraphNode,
-    NodeExecutionResult,
-    NodeMode,
+    _topo_layers,
 )
 
 # ── WorkflowRunner (D12) ─────────────────────────────────────────────────────
 from neurosurfer.graph.workflow.runner import WorkflowRunner
+
+# ── Tracer (D11) ─────────────────────────────────────────────────────────────
+from neurosurfer.tracing import Tracer, TracerConfig
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Helpers / fakes

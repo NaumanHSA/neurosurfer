@@ -20,22 +20,22 @@ text reading.
 
 Example:
     >>> from neurosurfer.rag.filereader import FileReader
-    >>> 
+    >>>
     >>> reader = FileReader()
-    >>> 
+    >>>
     >>> # Read PDF
     >>> text = reader.read("document.pdf")
-    >>> 
+    >>>
     >>> # Read Excel
     >>> text = reader.read("data.xlsx")
-    >>> 
+    >>>
     >>> # Read Python code
     >>> text = reader.read("script.py")
 """
-import os
 from pathlib import Path
-import fitz  # for PDFs
+
 import docx  # for DOCX
+import fitz  # for PDFs
 import pandas as pd  # for Excel and CSV
 from bs4 import BeautifulSoup  # for HTML
 
@@ -54,27 +54,27 @@ try:
     import xml.etree.ElementTree as ET
 except ImportError:
     ET = None
-    
+
 
 class FileReader:
     """
     Unified file reader for multiple formats.
-    
+
     This class provides a single interface for reading various file types
     into plain text. It automatically detects the file type by extension
     and applies the appropriate reader method.
-    
+
     Attributes:
         supported_types (dict): Mapping of file extensions to reader functions
-    
+
     Example:
         >>> reader = FileReader()
-        >>> 
+        >>>
         >>> # Read different file types
         >>> pdf_text = reader.read("report.pdf")
         >>> excel_text = reader.read("data.xlsx")
         >>> code_text = reader.read("script.py")
-        >>> 
+        >>>
         >>> # Check supported types
         >>> print(reader.supported_types.keys())
     """
@@ -85,7 +85,7 @@ class FileReader:
             ".html": self._read_html,
             ".htm": self._read_html,
             ".docx": self._read_docx,
-            
+
             # Data
             ".csv": self._read_csv,
             ".tsv": self._read_csv,
@@ -100,8 +100,8 @@ class FileReader:
         }
         # Add Code files, Config, Misc etc which can be read as normal txt to the supported files
         read_as_txt_lits = [
-            ".txt", ".md", ".rtf", ".doc", ".odt", ".json", ".ppt", ".py", ".ipynb", ".java", ".js", ".ts", ".jsx", ".tsx", ".cpp", ".c", ".h", 
-            ".cs", ".go", ".rb", ".rs", ".php", ".swift", ".kt", ".sh", ".bat", ".ps1", ".scala", ".lua", ".r", ".env", ".ini", ".toml", ".cfg", 
+            ".txt", ".md", ".rtf", ".doc", ".odt", ".json", ".ppt", ".py", ".ipynb", ".java", ".js", ".ts", ".jsx", ".tsx", ".cpp", ".c", ".h",
+            ".cs", ".go", ".rb", ".rs", ".php", ".swift", ".kt", ".sh", ".bat", ".ps1", ".scala", ".lua", ".r", ".env", ".ini", ".toml", ".cfg",
             ".conf", ".properties", ".log", ".tex", ".srt", ".vtt",
         ]
         for ext in read_as_txt_lits:
@@ -124,14 +124,14 @@ class FileReader:
 
     def _read_txt(self, path: str) -> str:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 return f.read()
         except Exception as e:
             return f"Error reading TXT: {e}"
 
     def _read_html(self, path: str) -> str:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 soup = BeautifulSoup(f, "html.parser")
                 return soup.get_text()
         except Exception as e:
@@ -166,7 +166,7 @@ class FileReader:
         if not yaml:
             return "PyYAML not installed"
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 return str(data)
         except Exception as e:

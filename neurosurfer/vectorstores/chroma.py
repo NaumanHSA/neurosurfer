@@ -1,9 +1,11 @@
 import os
 import uuid
-import gc
+from typing import Any
+
 import chromadb
-from typing import List, Dict, Any, Optional, Tuple
+
 from .base import BaseVectorDB, Doc
+
 
 def DefaultEmbeddingFunction():
     return None  # Replace with your actual embedding function if needed
@@ -18,8 +20,8 @@ class ChromaVectorStore(BaseVectorDB):
             self.clear_collection()
         print(f"[Init] ChromaVectorStore initialized with collection: {collection_name}")
 
-    def add_documents(self, docs: List[Doc]):
-        if not docs: 
+    def add_documents(self, docs: list[Doc]):
+        if not docs:
             return
         ids, texts, embeddings, metadatas = [], [], [],  []
         for d in docs:
@@ -35,11 +37,11 @@ class ChromaVectorStore(BaseVectorDB):
 
     def similarity_search(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 20,
-        metadata_filter: Optional[Dict[str, Any]] = None,
-        similarity_threshold: Optional[float] = None,
-    ) -> List[Tuple[Doc, float]]:
+        metadata_filter: dict[str, Any] | None = None,
+        similarity_threshold: float | None = None,
+    ) -> list[tuple[Doc, float]]:
         where = {}
         if metadata_filter:
             for k, v in metadata_filter.items():
@@ -50,18 +52,19 @@ class ChromaVectorStore(BaseVectorDB):
             n_results=top_k * 2,  # fetch extra then dedupe
             include=["documents", "metadatas", "distances"],
         )
-        if where: args["where"] = where
+        if where:
+            args["where"] = where
 
         res = self.collection.query(**args)
         ids   = res.get("ids", [[]])[0]
         docs  = res.get("documents", [[]])[0]
         metas = res.get("metadatas", [[]])[0]
         dists = res.get("distances", [[]])[0]
-        
+
         max_dist = 1.0 - similarity_threshold if similarity_threshold else None  # distance = 1 - cosine_sim
-        out: List[Tuple[Doc, float]] = []
+        out: list[tuple[Doc, float]] = []
         seen = set()
-        for rid, txt, meta, dist in zip(ids, docs, metas, dists):
+        for rid, txt, meta, dist in zip(ids, docs, metas, dists, strict=False):
             if max_dist is not None and dist > max_dist:
                 continue
             if rid in seen:
@@ -80,7 +83,7 @@ class ChromaVectorStore(BaseVectorDB):
             embedding_function=DefaultEmbeddingFunction()
         )
 
-    def delete_documents(self, ids: List[str]):
+    def delete_documents(self, ids: list[str]):
         self.collection.delete(ids=ids)
 
     def delete_collection(self):
@@ -90,13 +93,13 @@ class ChromaVectorStore(BaseVectorDB):
     def count(self) -> int:
         return self.collection.count()
 
-    def list_all_documents(self, metadata_filter: Optional[Dict[str, Any]] = None) -> List[Doc]:
+    def list_all_documents(self, metadata_filter: dict[str, Any] | None = None) -> list[Doc]:
         results = self.collection.get(where=metadata_filter, include=["documents", "metadatas", "embeddings"])
         return [
             Doc(id=str(uuid.uuid4()), text=d, metadata=m, embedding=e)
             for d, m, e in zip(
                 results.get("documents", []),
                 results.get("metadatas", []),
-                results.get("embeddings", [])
+                results.get("embeddings", []), strict=False
             )
         ]

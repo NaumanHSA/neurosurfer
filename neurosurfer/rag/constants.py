@@ -1,6 +1,5 @@
-from typing import Set
 
-exclude_dirs_in_code: Set[str] = {
+exclude_dirs_in_code: set[str] = {
     # 🐍 Python
     '.venv', 'venv', '__pycache__', 'unsloth_compiled_cache',
     '.mypy_cache', '.pytest_cache', '.ipynb_checkpoints', '.cache', '.coverage',
@@ -18,8 +17,6 @@ exclude_dirs_in_code: Set[str] = {
     'bin', 'obj', '.vs', '.vscode',
 
     # 🦀 Rust
-    'target',
-
     # 🐹 Go
     'vendor',
 
@@ -27,13 +24,13 @@ exclude_dirs_in_code: Set[str] = {
     'build', 'cmake-build-debug', 'cmake-build-release', '.ccls-cache',
 
     # 🎨 Frontend frameworks
-    '.next', 'next', '.nuxt', 'nuxt', 'dist', 'build', 'public', 'static',
+    '.next', 'next', '.nuxt', 'nuxt', 'dist', 'public', 'static',
 
     # 🧪 DevOps & CI/CD
     '.circleci', '.github', '.gitlab', '.azure-pipelines', '.husky',
 
     # 🔄 Version control / IDEs / Configs
-    '.git', '.svn', '.hg', '.idea', '.vscode', '.editorconfig',
+    '.git', '.svn', '.hg', '.idea', '.editorconfig',
 
     # 📦 Containers & envs
     '.docker', '.devcontainer', '.kube', '.kubernetes', 'docker', 'containers', 'k8s',
@@ -42,7 +39,7 @@ exclude_dirs_in_code: Set[str] = {
     '.DS_Store', 'Thumbs.db', 'desktop.ini',
 
     # 📁 Other tooling caches
-    '.coverage', '.nyc_output', '.parcel-cache', '.svelte-kit', '.eslintcache', '.turbo',
+    '.nyc_output', '.parcel-cache', '.svelte-kit', '.eslintcache', '.turbo',
 
     # ⚠️ Deprecated or unused project folders
     'archive', 'old', 'legacy', 'deprecated', 'trash'
@@ -50,7 +47,7 @@ exclude_dirs_in_code: Set[str] = {
 
 
 
-supported_file_types: Set[str] = {
+supported_file_types: set[str] = {
     # ----------------------------------------------------
     # General text formats
     # ----------------------------------------------------

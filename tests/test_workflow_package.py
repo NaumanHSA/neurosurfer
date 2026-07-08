@@ -16,11 +16,6 @@ from typing import Any
 import pytest
 import yaml
 
-from neurosurfer.llm.base import Provider
-from neurosurfer.llm.capabilities import ProviderCapabilities
-from neurosurfer.llm.types import CanonicalResponse, Done, TextBlock, Usage
-from neurosurfer.tools.base import ToolContext, ToolPool
-from neurosurfer.tools.registry import all_tools
 from neurosurfer.graph import (
     Graph,
     GraphExecutor,
@@ -35,6 +30,11 @@ from neurosurfer.graph.workflow.package import (
 from neurosurfer.graph.workflow.registry import WorkflowNotFoundError, WorkflowRegistry
 from neurosurfer.graph.workflow.runner import WorkflowRunner
 from neurosurfer.graph.workflow.schema import WorkflowManifest
+from neurosurfer.llm.base import Provider
+from neurosurfer.llm.capabilities import ProviderCapabilities
+from neurosurfer.llm.types import CanonicalResponse, Done, TextBlock, Usage
+from neurosurfer.tools.base import ToolContext, ToolPool
+from neurosurfer.tools.registry import all_tools
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 

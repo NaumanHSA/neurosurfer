@@ -9,7 +9,7 @@ def sse_data(payload: Any) -> bytes:
         data = json.dumps(payload, ensure_ascii=False, default=str)
     else:
         data = str(payload)
-    return f"data: {data}\n\n".encode("utf-8")
+    return f"data: {data}\n\n".encode()
 
 
 def sse_done() -> bytes:

@@ -5,16 +5,16 @@ import inspect
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Tuple
+from typing import Any
 
 import anyio
 
-from .base import Backend
 from ..errors import OpenAIHTTPError
 from ..schemas.openai import ChatCompletionChoice, ChatCompletionResponse, ChatMessage
 from ..streaming.openai_chunks import chunk_end, chunk_role, chunk_text
+from .base import Backend
 
 
 def _default_result_to_text(result: Any) -> str:
@@ -50,7 +50,7 @@ class AgentSpec:
     owned_by: str = "neurosurfer"
     max_model_len: int = 8192
     # Custom invocation: run_fn(agent, user_query, chat_history) → text | Awaitable[text]
-    run_fn: Optional[Callable[[Any, str, list], Any]] = None
+    run_fn: Callable[[Any, str, list], Any] | None = None
     result_to_text: Callable[[Any], str] = _default_result_to_text
 
 
@@ -124,7 +124,7 @@ class AgentBackend(Backend):
         result = await anyio.to_thread.run_sync(_call)
         return self.spec.result_to_text(result)
 
-    async def chat_completions(self, req: dict, *, request_id: str) -> Tuple[bool, object]:
+    async def chat_completions(self, req: dict, *, request_id: str) -> tuple[bool, object]:
         model = req.get("model") or self.spec.model_id
         messages = req.get("messages") or []
         user_query = ""
@@ -199,7 +199,7 @@ class AgentBackend(Backend):
         model: str,
         completion_id: str,
         created: int,
-    ) -> Tuple[bool, object]:
+    ) -> tuple[bool, object]:
         if want_stream:
             async def gen() -> AsyncIterator[dict]:
                 yield chunk_role(id=completion_id, created=created, model=model)

@@ -11,12 +11,12 @@ import socket
 import tempfile
 import time
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
-from html.parser import HTMLParser
 
 
 def _sha256(s: str) -> str:
@@ -109,13 +109,13 @@ def _is_private_or_local_ip(ip_str: str) -> bool:
     )
 
 
-def _content_type_main(ct: Optional[str]) -> str:
+def _content_type_main(ct: str | None) -> str:
     if not ct:
         return ""
     return ct.split(";")[0].strip().lower()
 
 
-def _parse_content_disposition_filename(cd: Optional[str]) -> Optional[str]:
+def _parse_content_disposition_filename(cd: str | None) -> str | None:
     if not cd:
         return None
     # Very lightweight parsing for filename=
@@ -125,7 +125,7 @@ def _parse_content_disposition_filename(cd: Optional[str]) -> Optional[str]:
     return m.group(1).strip()
 
 
-def _guess_ext(url: str, content_type: Optional[str], content_disposition: Optional[str]) -> str:
+def _guess_ext(url: str, content_type: str | None, content_disposition: str | None) -> str:
     """
     Guess a file extension for saving downloads so FileReader can route properly.
     Priority:
@@ -187,13 +187,13 @@ class URLFetchResult:
     url: str
     final_url: str
     source_type: str  # "html" | "file" | "unknown"
-    content_type: Optional[str]
+    content_type: str | None
     bytes_downloaded: int
     cached: bool
-    text: Optional[str]
-    warning: Optional[str] = None
-    error: Optional[str] = None
-    meta: Optional[Dict[str, Any]] = None
+    text: str | None
+    warning: str | None = None
+    error: str | None = None
+    meta: dict[str, Any] | None = None
 
 
 class _FallbackHTMLTextExtractor(HTMLParser):
@@ -271,7 +271,7 @@ class URLFetcher:
         text = fetcher.fetch_text("https://example.com/page")
     """
 
-    def __init__(self, *, config: Optional[URLFetcherConfig] = None, file_reader=None, logger: Optional[logging.Logger] = None):
+    def __init__(self, *, config: URLFetcherConfig | None = None, file_reader=None, logger: logging.Logger | None = None):
         self.config = config or URLFetcherConfig()
         self.log = logger or logging.getLogger(__name__)
         self.file_reader = file_reader  # expects .read(Path) -> str
@@ -283,7 +283,7 @@ class URLFetcher:
     # ---------------------------
     # Public API
     # ---------------------------
-    def fetch_text(self, url: str) -> Optional[str]:
+    def fetch_text(self, url: str) -> str | None:
         r = self.fetch(url)
         return r.text if r and r.text else None
 
@@ -378,7 +378,7 @@ class URLFetcher:
     # ---------------------------
     # Validation (SSRF)
     # ---------------------------
-    def _validate_url(self, url: str) -> Tuple[bool, Optional[str]]:
+    def _validate_url(self, url: str) -> tuple[bool, str | None]:
         try:
             u = urlparse(url)
             if u.scheme not in ("http", "https"):
@@ -403,7 +403,7 @@ class URLFetcher:
     # ---------------------------
     # Probing
     # ---------------------------
-    def _probe(self, url: str) -> Dict[str, Any]:
+    def _probe(self, url: str) -> dict[str, Any]:
         headers = {"User-Agent": self.config.user_agent, "Accept": "*/*"}
         timeout = self.config.connect_timeout_s
 
@@ -462,7 +462,7 @@ class URLFetcher:
                 }
 
     @staticmethod
-    def _safe_int(x: Optional[str]) -> Optional[int]:
+    def _safe_int(x: str | None) -> int | None:
         if not x:
             return None
         try:
@@ -477,9 +477,9 @@ class URLFetcher:
         self,
         url_in: str,
         final_url: str,
-        content_type: Optional[str],
-        content_len: Optional[int],
-        probe_meta: Dict[str, Any],
+        content_type: str | None,
+        content_len: int | None,
+        probe_meta: dict[str, Any],
     ) -> URLFetchResult:
         # Size guard (if Content-Length known)
         if content_len is not None and content_len > self.config.max_html_bytes:
@@ -579,11 +579,11 @@ class URLFetcher:
         self,
         url_in: str,
         final_url: str,
-        content_type: Optional[str],
-        content_len: Optional[int],
-        content_disposition: Optional[str],
+        content_type: str | None,
+        content_len: int | None,
+        content_disposition: str | None,
         ext_guess: str,
-        probe_meta: Dict[str, Any],
+        probe_meta: dict[str, Any],
     ) -> URLFetchResult:
         if self.file_reader is None:
             return URLFetchResult(
@@ -698,13 +698,13 @@ class URLFetcher:
     def _cache_key(self, url: str) -> str:
         return _sha256(_normalize_url(url))
 
-    def _cache_paths(self, url: str, ext: str) -> Tuple[Path, Path]:
+    def _cache_paths(self, url: str, ext: str) -> tuple[Path, Path]:
         key = self._cache_key(url)
         data_path = self.cache_dir / f"{key}{ext}"
         meta_path = self.cache_dir / f"{key}.json"
         return data_path, meta_path
 
-    def _load_cache_meta(self, meta_path: Path) -> Dict[str, Any]:
+    def _load_cache_meta(self, meta_path: Path) -> dict[str, Any]:
         try:
             if meta_path.is_file():
                 return json.loads(meta_path.read_text(encoding="utf-8"))
@@ -712,7 +712,7 @@ class URLFetcher:
             pass
         return {}
 
-    def _save_cache_meta(self, meta_path: Path, meta: Dict[str, Any]) -> None:
+    def _save_cache_meta(self, meta_path: Path, meta: dict[str, Any]) -> None:
         try:
             meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
         except Exception as e:
@@ -725,8 +725,8 @@ class URLFetcher:
         max_bytes: int,
         use_cache: bool,
         cache_ext: str,
-        probe_meta: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Optional[bytes], bool, int, Optional[str]]:
+        probe_meta: dict[str, Any] | None = None,
+    ) -> tuple[bytes | None, bool, int, str | None]:
         """
         Download URL content (bytes) with optional local caching.
 
@@ -751,7 +751,6 @@ class URLFetcher:
         """
         from pathlib import Path
         from urllib.request import Request, urlopen
-        from urllib.error import HTTPError, URLError
 
         probe_meta = probe_meta or {}
 
@@ -759,7 +758,7 @@ class URLFetcher:
         # Cache paths & validators
         # ----------------------------
         cached = False
-        warning: Optional[str] = None
+        warning: str | None = None
         bytes_downloaded = 0
 
         cache_dir = Path(getattr(self.config, "cache_dir", "./.cache/url_fetcher")).resolve()
@@ -772,7 +771,7 @@ class URLFetcher:
         cache_path = cache_dir / f"{key}{cache_ext}"
         meta_path = cache_dir / f"{key}.meta.json"
 
-        def _read_cache_meta() -> Dict[str, Any]:
+        def _read_cache_meta() -> dict[str, Any]:
             if not meta_path.exists():
                 return {}
             try:
@@ -781,7 +780,7 @@ class URLFetcher:
             except Exception:
                 return {}
 
-        def _write_cache_meta(meta: Dict[str, Any]) -> None:
+        def _write_cache_meta(meta: dict[str, Any]) -> None:
             try:
                 import json
                 meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -811,13 +810,13 @@ class URLFetcher:
 
         timeout = getattr(self.config, "connect_timeout_s", 20)
 
-        def _safe_int(x: Optional[str]) -> Optional[int]:
+        def _safe_int(x: str | None) -> int | None:
             try:
                 return int(x) if x is not None else None
             except Exception:
                 return None
 
-        def _read_stream_to_bytes(resp) -> Tuple[Optional[bytes], int, Optional[str]]:
+        def _read_stream_to_bytes(resp) -> tuple[bytes | None, int, str | None]:
             total = 0
             buf = bytearray()
             while True:
@@ -830,7 +829,7 @@ class URLFetcher:
                     return None, total, f"Download exceeded max_bytes={max_bytes}. Aborted."
             return bytes(buf), total, None
 
-        def _read_cached_bytes() -> Tuple[Optional[bytes], int, Optional[str]]:
+        def _read_cached_bytes() -> tuple[bytes | None, int, str | None]:
             try:
                 b = cache_path.read_bytes()
                 if len(b) > max_bytes:
@@ -839,7 +838,7 @@ class URLFetcher:
             except Exception as e:
                 return None, 0, f"Failed to read cached file: {e}"
 
-        def _do_get(hdrs: Dict[str, str]) -> Tuple[Optional[bytes], bool, int, Optional[str]]:
+        def _do_get(hdrs: dict[str, str]) -> tuple[bytes | None, bool, int, str | None]:
             req = Request(url, headers=hdrs, method="GET")
             with urlopen(req, timeout=timeout) as resp:
                 final_url = resp.geturl()
@@ -960,10 +959,10 @@ class URLFetcher:
         return text
 
 
-def _looks_like_pdf(prefix: Optional[bytes]) -> bool:
+def _looks_like_pdf(prefix: bytes | None) -> bool:
     return bool(prefix) and prefix.lstrip().startswith(b"%PDF-")
 
-def _looks_like_html(prefix: Optional[bytes]) -> bool:
+def _looks_like_html(prefix: bytes | None) -> bool:
     if not prefix:
         return False
     p = prefix.lstrip().lower()

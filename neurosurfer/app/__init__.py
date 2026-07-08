@@ -12,7 +12,9 @@ from __future__ import annotations
 
 # Registers the coding-assistant personas (explore/analyzer/writer/verifier)
 # and product tools (present_plan self-registers into the tool registry).
-from . import agents  # noqa: F401
-from . import tools  # noqa: F401
+from . import (
+    agents,  # noqa: F401
+    tools,  # noqa: F401
+)
 
 __all__ = ["agents", "tools"]

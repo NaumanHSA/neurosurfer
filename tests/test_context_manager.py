@@ -22,14 +22,14 @@ from pathlib import Path
 
 import pytest
 
-from neurosurfer.agents.context.manager import ContextManager
 from neurosurfer.agents.context.durable_state import DurableState
-from neurosurfer.agents.conversation.messages import MessageHistory
+from neurosurfer.agents.context.manager import ContextManager
 from neurosurfer.agents.context.summary_prompt import (
     format_compact_summary,
     get_compact_prompt,
     get_compact_user_summary_message,
 )
+from neurosurfer.agents.conversation.messages import MessageHistory
 from neurosurfer.llm.capabilities import ProviderCapabilities
 from neurosurfer.llm.tokens import auto_compact_threshold, effective_window
 from neurosurfer.llm.types import (
@@ -550,8 +550,8 @@ async def test_todo_tool_writes_to_durable_state(tmp_path: Path):
 
 async def test_present_plan_tool_writes_to_durable_state(tmp_path: Path):
     """PresentPlanTool must save plan to DurableState when ctx.durable is set."""
-    from neurosurfer.tools.base import ToolContext
     from neurosurfer.app.tools.present_plan import PresentPlanTool
+    from neurosurfer.tools.base import ToolContext
 
     d = DurableState()
     io = ScriptedIO(approve_plan=True)
