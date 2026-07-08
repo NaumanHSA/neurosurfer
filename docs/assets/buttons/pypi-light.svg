@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="123" height="44" viewBox="0 0 123 44" role="img" aria-label="PyPI">
+  <rect x="1" y="1" width="121" height="42" rx="10" fill="#f5f5f5" stroke="#f5f5f5" stroke-width="1.4"/>
+  <g transform="translate(22,10.0)" fill="none" stroke="#0d0d0d" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3.5l7 3.9v7.2l-7 3.9-7-3.9V7.4zM5.3 7.6L12 11.4l6.7-3.8M12 11.4v7.6"/>
+  </g>
+  <text x="58" y="22.0" fill="#0d0d0d" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace" font-size="15" font-weight="600" letter-spacing="1.2" dominant-baseline="central">PyPI</text>
+</svg>

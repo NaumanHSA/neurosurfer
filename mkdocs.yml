@@ -56,7 +56,7 @@ theme:
     # so they expand/collapse there instead of showing on the right.
     - toc.integrate
 
-  logo: assets/logo/neurosurfer_logo_white_hollow.png
+  logo: assets/logo/neurosurfer-logo-light.png
 
   icon:
     repo: fontawesome/brands/github
