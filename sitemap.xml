@@ -29,6 +29,10 @@
          <lastmod>2026-07-09</lastmod>
     </url>
     <url>
+         <loc>https://NaumanHSA.github.io/neurosurfer/cli/</loc>
+         <lastmod>2026-07-09</lastmod>
+    </url>
+    <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/getting-started/installation/</loc>
          <lastmod>2026-07-09</lastmod>
     </url>
@@ -38,6 +42,10 @@
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/agents/</loc>
+         <lastmod>2026-07-09</lastmod>
+    </url>
+    <url>
+         <loc>https://NaumanHSA.github.io/neurosurfer/guides/configuration/</loc>
          <lastmod>2026-07-09</lastmod>
     </url>
     <url>
@@ -73,6 +81,10 @@
          <lastmod>2026-07-09</lastmod>
     </url>
     <url>
+         <loc>https://NaumanHSA.github.io/neurosurfer/guides/tools-catalog/</loc>
+         <lastmod>2026-07-09</lastmod>
+    </url>
+    <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/guides/tools/</loc>
          <lastmod>2026-07-09</lastmod>
     </url>
@@ -102,18 +114,6 @@
     </url>
     <url>
          <loc>https://NaumanHSA.github.io/neurosurfer/observability/opentelemetry/</loc>
-         <lastmod>2026-07-09</lastmod>
-    </url>
-    <url>
-         <loc>https://NaumanHSA.github.io/neurosurfer/reference/cli/</loc>
-         <lastmod>2026-07-09</lastmod>
-    </url>
-    <url>
-         <loc>https://NaumanHSA.github.io/neurosurfer/reference/configuration/</loc>
-         <lastmod>2026-07-09</lastmod>
-    </url>
-    <url>
-         <loc>https://NaumanHSA.github.io/neurosurfer/reference/tools-catalog/</loc>
          <lastmod>2026-07-09</lastmod>
     </url>
     <url>
