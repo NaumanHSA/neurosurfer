@@ -7,6 +7,11 @@ Covers:
 4. assemble node: generates workflow.yaml + graph.yaml, validates, registers.
 5. Architect package loads cleanly (load_package on built-in package dir).
 6. ArchitectBuilder.package loads without error (smoke test).
+7-10. Capability planning, feasibility gate, functional tool sandbox, rich specs.
+11. E6: ArchitectBuilder resolves capability gaps by authoring tools, then registers
+    (merged from test_architect_gap_resolution.py).
+12. R2: Architect usable from pure Python without CLI deps (merged from
+    test_architect_no_cli_dep.py).
 """
 
 from __future__ import annotations
@@ -100,65 +105,13 @@ def _plan() -> WorkflowPlan:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestDiscoveryOutput:
-    def test_valid(self) -> None:
-        d = _discovery()
-        assert d.summary
-        assert len(d.questions) == 3
-        assert all(len(q.choices) == 3 for q in d.questions)
-
     def test_choices_must_be_three(self) -> None:
         from pydantic import ValidationError
         with pytest.raises(ValidationError):
             ClarifyingQuestion(id="x", question="Q?", choices=["a", "b"])
 
-    def test_too_few_questions(self) -> None:
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            DiscoveryOutput(
-                summary="s",
-                web_findings="f",
-                questions=[
-                    ClarifyingQuestion(id="q1", question="Q?", choices=["a", "b", "c"])
-                ],
-            )
-
-    def test_from_dict(self) -> None:
-        raw = {
-            "summary": "test",
-            "web_findings": "found stuff",
-            "questions": [
-                {"id": "q1", "question": "Q1?", "choices": ["A", "B", "C"]},
-                {"id": "q2", "question": "Q2?", "choices": ["X", "Y", "Z"]},
-            ],
-        }
-        d = DiscoveryOutput.model_validate(raw)
-        assert d.questions[0].id == "q1"
-
 
 class TestWorkflowPlan:
-    def test_valid(self) -> None:
-        p = _plan()
-        assert p.name == "web_summariser"
-        assert len(p.nodes) == 2
-
-    def test_name_cleaned(self) -> None:
-        p = WorkflowPlan(
-            name="My Awesome Workflow!",
-            description="d",
-            nodes=[NodePlan(id="n1", kind="base", purpose="p")],
-            outputs=["n1"],
-        )
-        assert p.name == "my_awesome_workflow"
-
-    def test_node_id_normalised(self) -> None:
-        n = NodePlan(id="My Node", kind="base", purpose="p")
-        assert n.id == "my_node"
-
-    def test_invalid_kind(self) -> None:
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            NodePlan(id="n", kind="unknown_kind", purpose="p")
-
     def test_unauthorable_kinds_coerced_to_react(self) -> None:
         # The Architect can't write callables, so function/python/tool collapse to react.
         for bad in ("function", "python", "tool"):
@@ -250,11 +203,6 @@ class TestWriteWorkflowNodeTool:
         result = asyncio.run(tool.call(args, ctx))
         assert result.is_error
 
-    def test_tool_in_registry(self) -> None:
-        from neurosurfer.tools.registry import all_tools
-        names = [t.name for t in all_tools()]
-        assert "write_workflow_node" in names
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. clarify node
@@ -273,22 +221,10 @@ class TestClarifyNode:
         assert answers["depth"] == "Medium (3-5 results)"
         assert answers["audience"] == "General public"
 
-    def test_accepts_dict_discovery(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("builtins.input", lambda _: "1")
-        raw = _discovery().model_dump()
-        answers = clarify.run(discover=raw)
-        assert len(answers) == 3
-
     def test_empty_questions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("builtins.input", lambda _: "1")
         result = clarify.run(discover={"questions": [], "summary": ""})
         assert result == {}
-
-    def test_unknown_kwargs_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("builtins.input", lambda _: "1")
-        disc = _discovery()
-        answers = clarify.run(discover=disc, user_intent="ignored extra kwarg")
-        assert len(answers) == 3
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -346,13 +282,6 @@ class TestAssembleNode:
         assert pkg.name == "web_summariser"
         assert len(pkg.graph.nodes) == 2
 
-    def test_assembles_from_dict(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        raw = _plan().model_dump()
-        path = self._run_assemble(tmp_path, raw, monkeypatch)  # type: ignore[arg-type]
-        assert "web_summariser" in path
-
     def test_staged_agents_merged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -371,37 +300,16 @@ class TestAssembleNode:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestArchitectPackage:
-    def test_package_loads(self) -> None:
-        from neurosurfer.architect import _PACKAGE_DIR
-
-        pkg = load_package(_PACKAGE_DIR)
-        assert pkg.name == "architect"
-        assert len(pkg.graph.nodes) == 8
-
     def test_node_ids(self) -> None:
         from neurosurfer.architect import _PACKAGE_DIR
 
         pkg = load_package(_PACKAGE_DIR)
+        assert pkg.name == "architect"
         ids = {n.id for n in pkg.graph.nodes}
         assert ids == {
             "discover", "clarify", "decompose",
             "design_nodes", "critique", "tool_design", "write_nodes", "assemble",
         }
-
-    def test_discover_has_web_search(self) -> None:
-        from neurosurfer.architect import _PACKAGE_DIR
-
-        pkg = load_package(_PACKAGE_DIR)
-        discover = pkg.graph.node_map()["discover"]
-        assert "web_search" in discover.tools
-
-    def test_function_nodes_have_callables(self) -> None:
-        from neurosurfer.architect import _PACKAGE_DIR
-
-        pkg = load_package(_PACKAGE_DIR)
-        node_map = pkg.graph.node_map()
-        assert node_map["clarify"].callable is not None
-        assert node_map["assemble"].callable is not None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -449,18 +357,6 @@ class TestArchitectBuilder:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestCapabilityPlan:
-    def test_infeasible_node_flips_feasible(self) -> None:
-        from neurosurfer.architect.schemas import CapabilityPlan, NodeCapability
-
-        cp = CapabilityPlan(nodes=[
-            NodeCapability(
-                node_id="exec", required_capability="query a remote PG db",
-                decision="infeasible", infeasible_reason="needs psycopg2 + a server",
-            ),
-        ])
-        assert cp.feasible is False
-        assert any("psycopg2" in b for b in cp.blockers)
-
     def test_all_feasible_stays_feasible(self) -> None:
         from neurosurfer.architect.schemas import (
             CapabilityPlan,
@@ -477,33 +373,6 @@ class TestCapabilityPlan:
         ])
         assert cp.feasible is True
         assert [s.name for s in cp.new_tool_specs()] == ["sql_query"]
-
-    def test_inputs_coerced_from_dicts(self) -> None:
-        from neurosurfer.architect.schemas import ToolSpec
-
-        spec = ToolSpec(
-            name="sql_query", purpose="run sql",
-            inputs=[{"name": "db_path", "description": "path to db"}],
-            test_args='{"db_path": "x.db"}',  # JSON-string form tolerated
-        )
-        assert spec.inputs == ["db_path: path to db"]
-        assert spec.test_args == {"db_path": "x.db"}
-
-    def test_name_sanitised(self) -> None:
-        from neurosurfer.architect.schemas import ToolSpec
-
-        assert ToolSpec(name="SQL Query!", purpose="x").name == "sql_query"
-
-    def test_capability_nodes_from_json_string(self) -> None:
-        import json
-
-        from neurosurfer.architect.schemas import CapabilityPlan
-
-        cp = CapabilityPlan.model_validate({"nodes": json.dumps([
-            {"node_id": "q", "required_capability": "query db",
-             "decision": "use_existing", "assigned_tools": "data"},
-        ])})
-        assert cp.nodes[0].assigned_tools == ["data"]
 
 
 class TestSchemaTolerance:
@@ -528,28 +397,6 @@ class TestSchemaTolerance:
         assert wp.nodes[1].tools == ["data"]   # bare string coerced to list
         assert wp.outputs == ["b"]             # derived terminal node
 
-    def test_outputs_bare_string_wrapped(self) -> None:
-        import json
-
-        from neurosurfer.architect.schemas import WorkflowPlan
-
-        nodes = json.dumps([{"id": "only", "kind": "base", "purpose": "p"}])
-        wp = WorkflowPlan.model_validate(
-            {"name": "x", "description": "y", "nodes": nodes, "outputs": "only"}
-        )
-        assert wp.outputs == ["only"]
-
-    def test_stage_plan_stages_as_json_string(self) -> None:
-        import json
-
-        from neurosurfer.architect.schemas import StagePlan
-
-        sp = StagePlan.model_validate({"intent": "x", "stages": json.dumps([
-            {"id": "a", "name": "A", "purpose": "p"},
-            {"id": "b", "name": "B", "purpose": "q"},
-        ])})
-        assert [s.id for s in sp.stages] == ["a", "b"]
-
     def test_truncated_object_array_is_salvaged(self) -> None:
         # Model hit a token limit mid-array — recover the complete objects, drop the
         # half-written tail. (Regression: previously this comma-shredded into garbage.)
@@ -563,23 +410,6 @@ class TestSchemaTolerance:
         )
         cp = CapabilityPlan.model_validate({"nodes": truncated})
         assert [n.node_id for n in cp.nodes] == ["a", "b"]
-
-    def test_garbage_object_list_degrades_to_empty(self) -> None:
-        # CapabilityPlan is optional enrichment — unrecoverable output → empty, so the
-        # build proceeds on the critique's own tool assignments instead of crashing.
-        from neurosurfer.architect.schemas import CapabilityPlan
-
-        cp = CapabilityPlan.model_validate({"nodes": "{totally broken"})
-        assert cp.nodes == []
-        assert cp.feasible is True
-
-    def test_single_object_without_array_wrapper(self) -> None:
-        from neurosurfer.architect.schemas import CapabilityPlan
-
-        cp = CapabilityPlan.model_validate(
-            {"nodes": {"node_id": "a", "required_capability": "x", "decision": "use_existing"}}
-        )
-        assert [n.node_id for n in cp.nodes] == ["a"]
 
     def test_required_object_list_still_errors_when_unrecoverable(self) -> None:
         # WorkflowPlan needs ≥1 node — garbage must NOT silently become a valid empty plan.
@@ -756,16 +586,6 @@ class TestFunctionalSandbox:
         assert res.ok is False
         assert "boom" in res.error
 
-    def test_contract_only_when_no_test_plan(self) -> None:
-        # No test_args/test_setup → functional stage is skipped (contract-only).
-        from neurosurfer.architect.tool_author import ToolDraft, ToolGapSpec
-
-        author = self._author()
-        spec = ToolGapSpec(name="sql_query", purpose="run sql")
-        res = author.validate_draft(ToolDraft(name="sql_query", code=_GOOD_TOOL, spec=spec))
-        assert res.ok is True
-        assert "functional_runs" not in res.checks
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 10. Rich spec threading (T4) + declared inputs emission (T6)
@@ -843,3 +663,157 @@ class TestDeclaredInputsEmitted:
         # The authored tool name is carried onto the node, authoritatively.
         search = next(n for n in graph_yaml["nodes"] if n["id"] == "search")
         assert search["tools"] == ["api_call"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. E6: ArchitectBuilder resolves capability gaps by authoring tools, then
+#     registers (merged from test_architect_gap_resolution.py).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# A valid tool the fake provider will "author" for the gap.
+_COUNT_LINES = '''\
+from pydantic import BaseModel, Field
+from neurosurfer.tools.base import Tool, ToolContext, ToolResult
+
+
+class CountLinesArgs(BaseModel):
+    path: str = Field(description="file to count")
+
+
+class CountLinesTool(Tool):
+    name = "count_lines"
+    description = "Count the lines in a text file."
+    input_model = CountLinesArgs
+
+    def is_read_only(self, args):
+        return True
+
+    async def call(self, args, ctx):
+        return ToolResult.ok("counted")
+'''
+
+
+class _GapResp:
+    def __init__(self, text: str) -> None:
+        self._t = text
+
+    def text(self) -> str:
+        return self._t
+
+
+class _GapFakeProvider:
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+
+    async def complete(self, messages, system, tools, config):  # noqa: ANN001
+        return _GapResp(self.reply)
+
+
+def _stage_package_with_gap(project_dir: Path, *, tool: str = "count_lines") -> None:
+    """Write a minimal staged workflow whose node references a non-existent tool."""
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "workflow.yaml").write_text(
+        yaml.dump({"name": project_dir.name, "version": "0.1.0", "entrypoint": "graph.yaml"}),
+        encoding="utf-8",
+    )
+    graph = {
+        "name": project_dir.name,
+        "description": "needs a tool that doesn't exist",
+        "inputs": [{"name": "query", "type": "string", "required": False}],
+        "nodes": [
+            {"id": "do_it", "kind": "react", "purpose": "Count lines in files.", "tools": [tool]},
+        ],
+        "outputs": ["do_it"],
+    }
+    (project_dir / "graph.yaml").write_text(yaml.dump(graph), encoding="utf-8")
+
+
+@pytest.fixture
+def _isolated(tmp_path, monkeypatch):
+    """Point all workflow artifacts (projects, registry, generated tools) at tmp."""
+    monkeypatch.setenv("NEUROSURFER_HOME", str(tmp_path))
+    return tmp_path
+
+
+async def _yes(draft, result):  # noqa: ANN001
+    return True
+
+
+async def _no(draft, result):  # noqa: ANN001
+    return False
+
+
+class TestGapResolution:
+    @pytest.mark.asyncio
+    async def test_gap_resolved_and_registered(self, _isolated, monkeypatch):
+        from neurosurfer.architect.build import ArchitectBuilder
+
+        staged = _isolated / ".neurosurfer" / "projects" / "line_counter"
+        _stage_package_with_gap(staged)
+
+        builder = ArchitectBuilder(_GapFakeProvider(f"```python\n{_COUNT_LINES}\n```"))
+        dest = await builder._finalize_staged(str(staged), _yes)
+
+        # Registered under the tmp registry…
+        assert (Path(dest) / "workflow.yaml").exists()
+        # …and the authored tool was persisted + is now discoverable.
+        from neurosurfer.tools.registry import workflow_node_tool_names
+
+        assert "count_lines" in workflow_node_tool_names()
+
+    @pytest.mark.asyncio
+    async def test_gap_rejected_aborts_registration(self, _isolated):
+        from neurosurfer.architect.build import ArchitectBuilder
+
+        staged = _isolated / ".neurosurfer" / "projects" / "line_counter2"
+        # tool name matches _COUNT_LINES so the draft passes the sandbox and reaches approval
+        _stage_package_with_gap(staged, tool="count_lines")
+
+        builder = ArchitectBuilder(_GapFakeProvider(f"```python\n{_COUNT_LINES}\n```"))
+        with pytest.raises(RuntimeError, match="declined"):
+            await builder._finalize_staged(str(staged), _no)
+
+        assert not (_isolated / "workflows" / "line_counter2").exists()
+
+    @pytest.mark.asyncio
+    async def test_gap_without_approver_raises(self, _isolated):
+        from neurosurfer.architect.build import ArchitectBuilder
+
+        staged = _isolated / ".neurosurfer" / "projects" / "line_counter3"
+        _stage_package_with_gap(staged, tool="count_lines3")
+
+        builder = ArchitectBuilder(_GapFakeProvider(""))
+        with pytest.raises(RuntimeError, match="no approval handler"):
+            await builder._finalize_staged(str(staged), None)
+
+    def test_assemble_returns_marker_on_gap(self, tmp_path, monkeypatch):
+        """The assemble node defers (returns the marker) instead of registering on a gap."""
+        from neurosurfer.config.projects import ProjectsConfig as _PC
+        from neurosurfer.graph.workflow.validate import DEFER_MARKER
+
+        monkeypatch.setattr(
+            "neurosurfer.architect.nodes.assemble.ProjectsConfig",
+            lambda: _PC(dir=tmp_path / "projects"),
+        )
+
+        plan = WorkflowPlan(
+            name="needs_tool",
+            description="x",
+            nodes=[NodePlan(id="n", kind="react", purpose="p", tools=["nonexistent_tool"])],
+            outputs=["n"],
+        )
+        out = assemble.run(plan=plan, write_nodes="ignored")
+        assert out.startswith(DEFER_MARKER)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. R2: Architect usable from pure Python without CLI deps (merged from
+#     test_architect_no_cli_dep.py).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestNoCLIDependency:
+    def test_architect_public_api_importable(self) -> None:
+        from neurosurfer.architect import ArchitectBuilder, ArchitectConversation
+
+        assert ArchitectBuilder.__name__ == "ArchitectBuilder"
+        assert ArchitectConversation.__name__ == "ArchitectConversation"

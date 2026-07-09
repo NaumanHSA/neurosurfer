@@ -90,6 +90,13 @@ class AgentError:
     message: str
 
 
+@dataclass
+class Notice:
+    """A one-line informational message surfaced to the user (not to the model)."""
+
+    message: str
+
+
 Event = (
     TextDelta
     | ThinkingDelta
@@ -100,6 +107,7 @@ Event = (
     | Compacted
     | RunFinished
     | AgentError
+    | Notice
 )
 
 

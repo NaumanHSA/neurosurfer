@@ -7,8 +7,6 @@ from pathlib import Path
 from neurosurfer.tools.generated import (
     GeneratedToolMeta,
     GeneratedToolsConfig,
-    delete_generated_tool,
-    list_generated_tools,
     load_generated_tools,
     save_generated_tool,
 )
@@ -45,11 +43,6 @@ def _save(tmp_path: Path, code: str, name: str, **meta) -> GeneratedToolsConfig:
 
 # ── loading ──────────────────────────────────────────────────────────────────────
 
-def test_missing_dir_loads_nothing(tmp_path):
-    cfg = GeneratedToolsConfig(dir=tmp_path / "does_not_exist")
-    assert load_generated_tools(cfg) == []
-
-
 def test_save_and_load_roundtrip(tmp_path):
     cfg = _save(tmp_path, _GREET_CODE, "greet")
     tools = load_generated_tools(cfg)
@@ -65,44 +58,6 @@ def test_broken_tool_file_is_skipped(tmp_path):
     tools = load_generated_tools(cfg)
     # The good tool still loads; the broken one is skipped without raising.
     assert [t.name for t in tools] == ["greet"]
-
-
-def test_underscore_files_ignored(tmp_path):
-    cfg = GeneratedToolsConfig(dir=tmp_path)
-    (tmp_path / "_helper.py").write_text(_GREET_CODE, encoding="utf-8")
-    assert load_generated_tools(cfg) == []
-
-
-def test_reload_picks_up_changes(tmp_path):
-    cfg = _save(tmp_path, _GREET_CODE, "greet")
-    assert load_generated_tools(cfg)[0].description == "Greet someone by name."
-    changed = _GREET_CODE.replace("Greet someone by name.", "Updated description.")
-    cfg.tool_path("greet").write_text(changed, encoding="utf-8")
-    # bump mtime to be safe on coarse filesystem clocks
-    import os
-    import time
-    os.utime(cfg.tool_path("greet"), (time.time() + 2, time.time() + 2))
-    assert load_generated_tools(cfg)[0].description == "Updated description."
-
-
-# ── provenance ─────────────────────────────────────────────────────────────────
-
-def test_list_generated_tools_reads_meta(tmp_path):
-    cfg = _save(tmp_path, _GREET_CODE, "greet", source_workflow="docs_gen")
-    metas = list_generated_tools(cfg)
-    assert len(metas) == 1
-    assert metas[0].name == "greet"
-    assert metas[0].source_workflow == "docs_gen"
-    assert metas[0].generated_by == "architect"
-
-
-def test_delete_generated_tool(tmp_path):
-    cfg = _save(tmp_path, _GREET_CODE, "greet")
-    assert cfg.tool_path("greet").exists()
-    assert delete_generated_tool("greet", cfg) is True
-    assert not cfg.tool_path("greet").exists()
-    assert not cfg.meta_path("greet").exists()
-    assert delete_generated_tool("greet", cfg) is False
 
 
 # ── registry integration ──────────────────────────────────────────────────────

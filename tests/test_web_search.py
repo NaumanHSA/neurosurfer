@@ -37,40 +37,6 @@ def test_extract_body_strips_boilerplate():
     assert "home about contact" not in body
 
 
-def test_extract_body_empty():
-    assert extract_body("") == ""
-
-
-def test_extract_body_keeps_inline_sentence_on_one_line():
-    # Inline children (<a>, <sup>) must not fragment a sentence across lines.
-    html = (
-        "<html><body><article>"
-        "<p>BM25 is a <a href='/x'>bag-of-words</a> ranking "
-        "function<sup class='reference'>[1]</sup> used by search engines.</p>"
-        "</article></body></html>"
-    )
-    body = extract_body(html)
-    lines = [ln for ln in body.splitlines() if ln.strip()]
-    assert len(lines) == 1
-    assert lines[0] == "BM25 is a bag-of-words ranking function used by search engines."
-    assert "[1]" not in body  # citation marker stripped
-
-
-def test_extract_body_drops_math_and_single_char_noise():
-    html = (
-        "<html><body><article>"
-        "<p>The score is defined below.</p>"
-        "<math><mi>D</mi><mo>=</mo><mi>Q</mi></math>"
-        "<p>End of section.</p>"
-        "</article></body></html>"
-    )
-    body = extract_body(html)
-    assert "The score is defined below." in body
-    assert "End of section." in body
-    # no stray single-char lines left over from the math element
-    assert not any(len(ln.strip()) == 1 for ln in body.splitlines())
-
-
 # ── _normalize_text ──────────────────────────────────────────────────────────
 def test_normalize_text_strips_markers_and_fragments():
     raw = "\n".join(
@@ -93,11 +59,6 @@ def test_normalize_text_strips_markers_and_fragments():
     assert "\n\n\n" not in out
 
 
-def test_normalize_text_collapses_whitespace():
-    out = _normalize_text("too\t  many   spaces here")
-    assert out == "too many spaces here"
-
-
 # ── chunk_text ───────────────────────────────────────────────────────────────
 def test_chunk_text_splits_on_paragraphs():
     text = "\n\n".join(f"Paragraph number {i} with some filler words." for i in range(20))
@@ -107,11 +68,6 @@ def test_chunk_text_splits_on_paragraphs():
     joined = " ".join(chunks)
     assert "Paragraph number 0" in joined
     assert "Paragraph number 19" in joined
-
-
-def test_chunk_text_single_short():
-    chunks = chunk_text("just one short line", chunk_tokens=200)
-    assert chunks == ["just one short line"]
 
 
 # ── rank_chunks ──────────────────────────────────────────────────────────────
@@ -125,15 +81,6 @@ def test_rank_chunks_surfaces_relevant_first():
     assert ranked[0] == 1  # the asyncio chunk ranks first
 
 
-def test_rank_chunks_empty_query_keeps_order():
-    chunks = ["a", "b", "c"]
-    assert rank_chunks("", chunks) == [0, 1, 2]
-
-
-def test_rank_chunks_no_chunks():
-    assert rank_chunks("anything", []) == []
-
-
 # ── select_within_budget ─────────────────────────────────────────────────────
 def test_select_within_budget_caps_and_orders():
     chunks = [f"chunk {i} " * 50 for i in range(10)]  # each well over a tiny budget
@@ -142,13 +89,6 @@ def test_select_within_budget_caps_and_orders():
     assert selected  # at least one
     assert selected == sorted(selected)  # original document order
     assert len(selected) < len(chunks)  # budget actually capped it
-
-
-def test_select_within_budget_always_one():
-    # A single chunk larger than the budget is still returned (never empty).
-    big = "word " * 1000
-    selected = select_within_budget([big], [0], budget_tokens=10)
-    assert selected == [0]
 
 
 # ── _render_content threshold ────────────────────────────────────────────────

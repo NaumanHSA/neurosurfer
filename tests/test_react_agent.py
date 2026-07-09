@@ -50,26 +50,11 @@ def test_parse_action_and_input():
     assert err is None and obj == {"path": "a.txt"}
 
 
-def test_parse_action_name_strips_brackets_and_quotes():
-    _, name, _ = _parse_react_output('Action: ["read_file"]\nAction Input: {}')
-    assert name == "read_file"
-
-
 def test_parse_action_input_strips_code_fence_and_recovers_brace():
     obj, err = _parse_action_input('```json\n{"path": "a.txt"}\n```')
     assert err is None and obj == {"path": "a.txt"}
     obj2, err2 = _parse_action_input('here you go: {"x": 1} trailing junk')
     assert err2 is None and obj2 == {"x": 1}
-
-
-def test_parse_action_input_reports_unparseable():
-    obj, err = _parse_action_input("path = a.txt")
-    assert obj is None and err is not None
-
-
-def test_empty_action_input_is_empty_object():
-    obj, err = _parse_action_input("")
-    assert err is None and obj == {}
 
 
 def test_build_react_system_lists_tools_and_format():

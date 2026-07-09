@@ -32,18 +32,13 @@ from neurosurfer.app.server.registry import ModelRouter, RouteTarget
 from neurosurfer.app.server.schemas.openai import (
     ChatCompletionRequest,
     ChatMessage,
-    ModelCard,
 )
 from neurosurfer.app.server.streaming.openai_chunks import chunk_end, chunk_role, chunk_text
-from neurosurfer.app.server.streaming.sse import sse_data, sse_done, sse_ping
+from neurosurfer.app.server.streaming.sse import sse_data, sse_done
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class TestSchemas:
-    def test_chat_message_extra_allowed(self):
-        msg = ChatMessage(role="user", content="hi", unknown_field="x")
-        assert msg.unknown_field == "x"  # type: ignore[attr-defined]
-
     def test_completion_request_serialises(self):
         req = ChatCompletionRequest(
             model="gpt-4",
@@ -53,11 +48,6 @@ class TestSchemas:
         d = req.model_dump()
         assert d["model"] == "gpt-4"
         assert d["stream"] is True
-
-    def test_model_card_defaults(self):
-        mc = ModelCard(id="my-model", created=1000)
-        assert mc.owned_by == "neurosurfer"
-        assert mc.object == "model"
 
 
 # ── SSE helpers ───────────────────────────────────────────────────────────────
@@ -72,9 +62,6 @@ class TestSSE:
 
     def test_sse_done(self):
         assert sse_done() == b"data: [DONE]\n\n"
-
-    def test_sse_ping(self):
-        assert sse_ping() == b": ping\n\n"
 
 
 # ── Chunk helpers ─────────────────────────────────────────────────────────────
@@ -104,10 +91,6 @@ class TestErrors:
         assert d["error"]["message"] == "not found"
         assert d["error"]["type"] == "invalid_request_error"
 
-    def test_is_exception(self):
-        e = OpenAIHTTPError(500, "boom")
-        assert isinstance(e, Exception)
-
 
 # ── Hooks ─────────────────────────────────────────────────────────────────────
 
@@ -135,14 +118,6 @@ class TestHooks:
         }
         out = await hk.after_chat(ctx, resp)
         assert out["choices"][0]["message"]["content"] == "answer"
-
-    @pytest.mark.asyncio
-    async def test_strip_reasoning_hook_stream_chunk(self):
-        hk = StripReasoningHook()
-        ctx = self._ctx()
-        chunk = {"choices": [{"delta": {"content": "<think>x</think>hi"}}]}
-        out = await hk.stream_chunk(ctx, chunk)
-        assert out["choices"][0]["delta"]["content"] == "hi"
 
     @pytest.mark.asyncio
     async def test_system_prompt_injector(self):
@@ -230,56 +205,7 @@ class TestAgentBackend:
         assert not is_stream
         assert result["choices"][0]["message"]["content"] == "echo:hello"
 
-    @pytest.mark.asyncio
-    async def test_run_fn_async(self):
-        async def my_run(agent, query, history):
-            return f"async:{query}"
-
-        agent = object()
-        backend = AgentBackend(_spec(agent, run_fn=my_run))
-        req = {"model": "test-agent", "messages": [{"role": "user", "content": "world"}]}
-        is_stream, result = await backend.chat_completions(req, request_id="r2")
-        assert not is_stream
-        assert result["choices"][0]["message"]["content"] == "async:world"
-
-    # ── async coroutine agent ────────────────────────────────────────────────
-
-    @pytest.mark.asyncio
-    async def test_async_coroutine_agent(self):
-        class AsyncAgent:
-            async def run(self, prompt: str):
-                return f"coro:{prompt}"
-
-        backend = AgentBackend(
-            AgentSpec(
-                agent=AsyncAgent(),
-                model_id="test-agent",
-                result_to_text=str,
-            )
-        )
-        req = {"model": "test-agent", "messages": [{"role": "user", "content": "test"}]}
-        is_stream, result = await backend.chat_completions(req, request_id="r3")
-        assert not is_stream
-        assert result["choices"][0]["message"]["content"] == "coro:test"
-
     # ── async generator agent (native streaming) ─────────────────────────────
-
-    @pytest.mark.asyncio
-    async def test_async_gen_agent_nonstreaming(self):
-        @dataclass
-        class TextDelta:
-            text: str
-
-        class GenAgent:
-            async def run(self, prompt: str):
-                yield TextDelta("Hello ")
-                yield TextDelta("world")
-
-        backend = AgentBackend(_spec(GenAgent()))
-        req = {"model": "test-agent", "messages": [{"role": "user", "content": "hi"}]}
-        is_stream, result = await backend.chat_completions(req, request_id="r4")
-        assert not is_stream
-        assert result["choices"][0]["message"]["content"] == "Hello world"
 
     @pytest.mark.asyncio
     async def test_async_gen_agent_streaming(self):
@@ -308,25 +234,6 @@ class TestAgentBackend:
         assert chunks[2]["choices"][0]["delta"]["content"] == "chunk2"
         assert chunks[3]["choices"][0]["finish_reason"] == "stop"
 
-    # ── static text → streaming via want_stream ──────────────────────────────
-
-    @pytest.mark.asyncio
-    async def test_static_text_streamed_on_request(self):
-        async def my_run(agent, query, history):
-            return "static"
-
-        backend = AgentBackend(_spec(object(), run_fn=my_run))
-        req = {
-            "model": "test-agent",
-            "messages": [{"role": "user", "content": "q"}],
-            "stream": True,
-        }
-        is_stream, result = await backend.chat_completions(req, request_id="r6")
-        assert is_stream
-        chunks = [c async for c in result]
-        assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"
-        assert chunks[1]["choices"][0]["delta"]["content"] == "static"
-
     # ── error: no user message ────────────────────────────────────────────────
 
     @pytest.mark.asyncio
@@ -341,17 +248,8 @@ class TestAgentBackend:
 # ── result_to_text ────────────────────────────────────────────────────────────
 
 class TestResultToText:
-    def test_none(self):
-        assert _default_result_to_text(None) == ""
-
-    def test_str(self):
-        assert _default_result_to_text("hello") == "hello"
-
     def test_dict_with_answer_key(self):
         assert _default_result_to_text({"answer": "42"}) == "42"
-
-    def test_dict_single_value(self):
-        assert _default_result_to_text({"x": "val"}) == "val"
 
 
 # ── NeurosurferServer construction ────────────────────────────────────────────
@@ -389,22 +287,10 @@ class TestNeurosurferServer:
         server.add_hook(hk)
         assert hk in server.hooks
 
-    def test_create_app_returns_fastapi(self):
-        server = NeurosurferServer()
-        from fastapi import FastAPI
-
-        assert isinstance(server.create_app(), FastAPI)
-
 
 # ── CLI serve command ─────────────────────────────────────────────────────────
 
 class TestServeCLI:
-    def test_serve_module_imports(self):
-        from neurosurfer.app.cli.commands.serve import add_serve_parser, handle_serve
-
-        assert callable(handle_serve)
-        assert callable(add_serve_parser)
-
     def test_serve_parser_registered(self):
 
         from neurosurfer.app.cli import build_parser

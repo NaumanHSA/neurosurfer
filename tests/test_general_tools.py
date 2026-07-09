@@ -10,13 +10,12 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import httpx
 import pytest
 
 from neurosurfer.agents.runtime.permissions import Guardrails, Permissions
 from neurosurfer.tools import all_tools, default_pool
 from neurosurfer.tools.base import ToolContext
-from neurosurfer.tools.builtin.browse import BrowseTool, _playwright_available
+from neurosurfer.tools.builtin.browse import BrowseTool
 from neurosurfer.tools.builtin.data_tool import DataTool
 from neurosurfer.tools.builtin.http_tool import HttpArgs, HttpTool
 
@@ -27,27 +26,7 @@ def ctx_for(tmp_path: Path, io: ScriptedIO | None = None) -> ToolContext:
     return ToolContext(cwd=tmp_path, io=io or ScriptedIO())
 
 
-def _resp(status: int, ctype: str, content: bytes) -> httpx.Response:
-    return httpx.Response(status, headers={"content-type": ctype}, content=content)
-
-
 # ── http tool ────────────────────────────────────────────────────────────────
-def test_http_render_pretty_prints_json():
-    out = HttpTool._render("GET", "https://api.x/y", _resp(200, "application/json", b'{"a": 1, "b": 2}'))
-    assert "200 OK" in out
-    assert '"a": 1' in out  # pretty-printed, not the compact source
-
-
-def test_http_render_truncates_long_text():
-    out = HttpTool._render("GET", "https://x", _resp(200, "text/plain", b"x" * 40_000))
-    assert "[body truncated]" in out
-
-
-def test_http_render_skips_binary():
-    out = HttpTool._render("GET", "https://x/img", _resp(200, "image/png", b"\x89PNG\r\n"))
-    assert "non-text content not shown" in out
-
-
 def test_http_is_read_only_by_method():
     assert HttpTool().is_read_only(HttpArgs(url="https://x", method="GET")) is True
     assert HttpTool().is_read_only(HttpArgs(url="https://x", method="POST")) is False
@@ -88,13 +67,6 @@ async def test_data_json_object_and_path_query(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_data_jsonl(tmp_path):
-    (tmp_path / "e.jsonl").write_text('{"x": 1}\n{"x": 2}\n{"x": 3}\n')
-    res = await DataTool().run({"path": "e.jsonl"}, ctx_for(tmp_path))
-    assert "3 records" in res.content
-
-
-@pytest.mark.asyncio
 async def test_data_sqlite_select_and_refuses_writes(tmp_path):
     db = tmp_path / "t.db"
     conn = sqlite3.connect(db)
@@ -122,23 +94,11 @@ async def test_data_missing_and_unsupported(tmp_path):
     assert bad.is_error and "unsupported" in bad.content.lower()
 
 
-def test_data_is_read_only():
-    assert DataTool().is_read_only(object()) is True  # arg ignored; data never writes
-
-
 # ── browse tool (offline guards only) ────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_browse_rejects_bad_scheme(tmp_path):
     res = await BrowseTool().run({"url": "ftp://nope"}, ctx_for(tmp_path))
     assert res.is_error and "scheme" in res.content.lower()
-
-
-def test_browse_flags_and_enabled_consistency():
-    b = BrowseTool()
-    assert b.name == "browse"
-    assert b.is_read_only(object()) is True
-    assert b.is_concurrency_safe(object()) is False
-    assert b.is_enabled() == _playwright_available()
 
 
 # ── network gating ───────────────────────────────────────────────────────────

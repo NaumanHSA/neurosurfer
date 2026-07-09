@@ -6,10 +6,13 @@ Covers:
 3. GraphExecutor with function-kind nodes (no LLM).
 4. GraphExecutor with tool-kind nodes via native ToolPool.
 5. End-to-end 3-node package: agent + function + tool (using echo provider).
+6. R3+R4: native provider + ToolPool drive GraphExecutor directly (no adapter layer).
+7. WorkflowRunner writes a structured JSON trace when trace_path is set.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +23,7 @@ from neurosurfer.graph import (
     Graph,
     GraphExecutor,
     GraphNode,
+    NodeMode,
 )
 from neurosurfer.graph.workflow.package import (
     PackageLoadError,
@@ -78,6 +82,27 @@ class _StubIO:
 
     def notify(self, message):
         return None
+
+
+class _DummyProvider:
+    """No LLM nodes are exercised here, so the provider is never called."""
+
+    model = "dummy"
+    capabilities = type("Caps", (), {"context_window": 8192})()
+
+
+def _function_only_pkg(pkg_dir: Path) -> None:
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "workflow.yaml").write_text(
+        yaml.dump({"name": pkg_dir.name, "version": "0.1.0", "entrypoint": "graph.yaml"}),
+        encoding="utf-8",
+    )
+    graph = {
+        "name": pkg_dir.name,
+        "nodes": [{"id": "n", "kind": "function", "callable": "os:getcwd"}],
+        "outputs": ["n"],
+    }
+    (pkg_dir / "graph.yaml").write_text(yaml.dump(graph), encoding="utf-8")
 
 
 def _make_pkg_dir(tmp_path: Path, *, extra_nodes: list[dict] | None = None) -> Path:
@@ -440,3 +465,90 @@ def test_e2e_three_node_package(tmp_path):
     assert result.nodes["transform"].raw_output == "processed:graph workflows"
     # tool node result is non-empty
     assert result.nodes["list_files"].raw_output
+
+
+# ── R3+R4: native provider + ToolPool drive GraphExecutor (no adapter layer) ──
+# Replaces the old Phase-A tests that verified ProviderChatModel / MasterAgentToolAdapter.
+# Those adapter classes still exist for backward compat but are no longer the primary path.
+
+def test_native_provider_drives_graph_executor():
+    """Native provider (no ProviderChatModel wrapper) drives a 2-node base graph."""
+    provider = _EchoProvider()
+    graph = Graph(
+        name="native_smoke",
+        inputs=[{"name": "topic", "type": "string"}],
+        nodes=[
+            GraphNode(id="research", purpose="Research {topic}", mode=NodeMode.TEXT),
+            GraphNode(
+                id="summarize",
+                depends_on=["research"],
+                purpose="Summarize the research",
+                mode=NodeMode.TEXT,
+            ),
+        ],
+        outputs=["summarize"],
+    )
+    executor = GraphExecutor(graph, provider=provider, log_traces=False)
+    result = executor.run({"topic": "graph workflows"})
+
+    assert result.final, "final outputs should be populated"
+    assert "summarize" in result.final
+    assert all(node.error is None for node in result.nodes.values())
+    # Dependency output must reach the downstream node (echo nests the prior reply).
+    assert "REPLY[" in str(result.nodes["summarize"].raw_output)
+
+
+def test_native_tool_pool_drives_tool_node():
+    """Native ToolPool (no MasterAgentToolAdapter) executes a tool-kind node."""
+    list_dir_tool = {t.name: t for t in all_tools()}["list_dir"]
+    repo_root = Path(__file__).resolve().parent.parent
+    ctx = ToolContext(cwd=repo_root, io=_StubIO())
+    pool = ToolPool([list_dir_tool])
+
+    graph = Graph(
+        name="tool_node_smoke",
+        nodes=[
+            GraphNode(
+                id="list_files",
+                kind="tool",
+                tools=["list_dir"],
+                tool_args={"path": "."},
+            ),
+        ],
+        outputs=["list_files"],
+    )
+    executor = GraphExecutor(
+        graph, provider=_EchoProvider(), native_tools=pool, tool_ctx=ctx, log_traces=False
+    )
+    result = executor.run({})
+
+    assert result.nodes["list_files"].error is None
+    assert result.nodes["list_files"].raw_output  # non-empty listing
+
+
+# ── WorkflowRunner: trace export ──────────────────────────────────────────────
+
+def test_trace_written_and_valid(tmp_path):
+    pkg_dir = tmp_path / "wf"
+    _function_only_pkg(pkg_dir)
+    pkg = load_package(pkg_dir)
+
+    trace_path = tmp_path / "traces" / "run.json"
+    runner = WorkflowRunner(_DummyProvider())
+    runner.run(pkg, {}, trace_path=trace_path)
+
+    assert trace_path.exists()
+    data = json.loads(trace_path.read_text())
+    assert "meta" in data and "steps" in data
+    assert isinstance(data["steps"], list)
+    assert data["meta"].get("workflow") == "wf"
+
+
+def test_no_trace_when_path_omitted(tmp_path):
+    pkg_dir = tmp_path / "wf2"
+    _function_only_pkg(pkg_dir)
+    pkg = load_package(pkg_dir)
+
+    runner = WorkflowRunner(_DummyProvider())
+    runner.run(pkg, {})  # no trace_path → nothing written
+    assert not (tmp_path / "traces").exists()

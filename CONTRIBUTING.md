@@ -14,7 +14,6 @@ the process for submitting changes.
 - [Project structure](#project-structure)
 - [How to add a new Tool](#how-to-add-a-new-tool)
 - [How to add a new Provider adapter](#how-to-add-a-new-provider-adapter)
-- [How to add a built-in Task](#how-to-add-a-built-in-task)
 - [Pull request process](#pull-request-process)
 - [Reporting bugs](#reporting-bugs)
 
@@ -44,7 +43,7 @@ Verify everything works:
 
 ```bash
 neurosurfer doctor        # checks provider reachability
-pytest -q                  # 174 tests, should all pass
+pytest -q                  # should all pass
 ```
 
 ---
@@ -86,10 +85,10 @@ provider isn't configured:
 
 ```bash
 # Anthropic live smoke test
-ANTHROPIC_API_KEY=sk-ant-... pytest tests/test_providers.py::test_anthropic_live -s
+ANTHROPIC_API_KEY=sk-ant-... pytest tests/test_provider_parity.py -k live -s
 
 # OpenAI-compatible live smoke test (requires a running local server)
-OPENAI_BASE_URL=http://localhost:1234/v1 pytest tests/test_providers.py::test_openai_live -s
+OPENAI_BASE_URL=http://localhost:1234/v1 pytest tests/test_provider_parity.py -k live -s
 ```
 
 The CI suite runs only the mocked tests (no live provider required).
@@ -100,24 +99,33 @@ The CI suite runs only the mocked tests (no live provider required).
 
 ```
 neurosurfer/
-  cli/          interactive REPL, slash commands, non-interactive subcommands
-  llm/          canonical types + Provider protocol + Anthropic/OpenAI adapters
-  core/         agent loop, permissions, context management, durable state, rails
-  tools/        built-in tool library
-  agents/       built-in specialist sub-agents
-  tasks/        Task model, registry, runner, policy enforcement, built-in YAMLs
-  prompts/      system prompt assembly
-  observability/  run transcripts, structured logging
-tests/          unit + integration + e2e tests
-docs/           user-facing documentation
-fixtures/       sample repo used in e2e tests
+  llm/            canonical types + Provider protocol + Anthropic/OpenAI adapters
+  agents/         AgenticLoop, ReactAgent, Agent (one-shot), sub-agent runner,
+                  context management, permissions/guardrails
+  tools/          built-in tool library + tool-pool registry
+  rag/            ingest, chunk, embed, retrieve, context injection
+  vectorstores/   vector store backends (in-memory, Chroma)
+  embeddings/     embedding provider adapters
+  graph/          DAG engine (Graph, GraphExecutor) + persisted Workflow packages
+  architect/      natural-language-to-Workflow builder (schemas, nodes, tool-author)
+  mcp/            Model Context Protocol client (session, manager, tool bridging)
+  app/            interactive CLI, built-in sub-agents/tools, OpenAI-compatible
+                  gateway server
+  config/         .env/profile loading, provider/MCP/observability config
+  cache/          provider- and embedder-response caching (memory/disk backends)
+  observability/  run transcripts, structured logging, trace context
+  tracing/        span/tracer primitives + pluggable trace exporters
+  prompts/        system prompt assembly
+tests/            unit + integration tests
+docs/             user-facing documentation (mkdocs)
+tutorials/        Colab-ready notebooks
 ```
 
 ---
 
 ## How to add a new Tool
 
-1. Create `neurosurfer/tools/<your_tool>.py`. Subclass `Tool` from
+1. Create `neurosurfer/tools/builtin/<your_tool>.py`. Subclass `Tool` from
    `neurosurfer.tools.base`:
 
    ```python
@@ -144,14 +152,15 @@ fixtures/       sample repo used in e2e tests
                return ToolResult(content=str(e), is_error=True)
    ```
 
-2. Register it in `neurosurfer/tools/__init__.py` (add to `ALL_TOOLS`).
+2. Register it in `neurosurfer/tools/registry.py` (`all_tools()`), so it's
+   picked up by `default_pool()` / `build_pool()`.
 
-3. Add tests in `tests/test_tools.py` covering the happy path and at least one
+3. Add tests in `tests/test_tools.py` (or a subsystem-specific file, e.g.
+   `tests/test_general_tools.py`) covering the happy path and at least one
    error path (errors must surface as `ToolResult(is_error=True)`, not
    exceptions).
 
-4. Document it in `docs/TASKS.md` under the guardrails/tools section if it
-   introduces new guardrail surface.
+4. Document it in [docs/guides/tools.md](docs/guides/tools.md).
 
 ---
 
@@ -161,40 +170,31 @@ The engine depends only on the `Provider` protocol defined in
 `neurosurfer/llm/base.py`. A new adapter must implement:
 
 ```python
-class MyProvider:
-    async def stream(self, messages, system, tools, config) -> AsyncIterator[CanonicalEvent]: ...
-    async def complete(self, messages, system, tools, config) -> CanonicalResponse: ...
-    async def count_tokens(self, messages, system, tools) -> int: ...
-    @property
-    def capabilities(self) -> ProviderCapabilities: ...
+class MyProvider(Provider):
+    def stream(self, messages, system, tools, config) -> AsyncIterator[StreamEvent]: ...
+    async def count_tokens(self, messages, system=None, tools=None) -> int: ...
+    capabilities: ProviderCapabilities
+    model: str
 ```
 
+`complete()` is provided by the base class (it drains `stream()` and returns
+the final `CanonicalResponse` carried by the terminal `Done` event) — you
+don't need to override it.
+
 Steps:
-1. Create `neurosurfer/llm/<provider>_provider.py`.
+1. Create `neurosurfer/llm/providers/<provider>.py`.
 2. Map your provider's wire format to/from the canonical types in
    `neurosurfer/llm/types.py` (canonical content blocks: `text`, `thinking`,
-   `tool_use`, `tool_result`; canonical events: `text_delta`, `tool_use`,
-   `thinking_delta`, `usage`, `stop`).
-3. Register it in `neurosurfer/llm/registry.py`.
-4. Add a provider-parity test: run the same multi-turn, tool-calling scripted
-   conversation through both your adapter and the existing Anthropic adapter
-   (using the fake transport) and assert identical canonical events.
-5. Update `docs/PROVIDERS.md` with setup instructions.
-
----
-
-## How to add a built-in Task
-
-Built-in Tasks are YAML files in `neurosurfer/tasks/builtin/`. They are
-discovered automatically on startup and appear in `neurosurfer task list`.
-
-1. Create `neurosurfer/tasks/builtin/<name>.yaml` following the Task YAML
-   schema in [docs/TASKS.md](docs/TASKS.md).
-2. Validate it passes the policy ceiling: `neurosurfer task show <name>`.
-3. Add an e2e test in `tests/test_e2e.py` that runs the task against the
-   `fixtures/sample_repo/` using a scripted provider.
-4. Document the task in [docs/TASKS.md](docs/TASKS.md) and list it in the
-   README's Built-in Tasks section.
+   `tool_use`, `tool_result`; canonical stream events: `TextDelta`,
+   `ThinkingDelta`, `ToolUseStart`, `ToolUseArgsDelta`, `Done`).
+3. Wire it into `build_provider()` / `build_provider_from_profile()` in
+   `neurosurfer/llm/registry.py`.
+4. Add a provider-parity test in `tests/test_provider_parity.py`: run the same
+   multi-turn, tool-calling scripted conversation through both your adapter
+   and the existing Anthropic adapter (using a fake transport) and assert
+   equivalent canonical events.
+5. Update [docs/guides/providers.md](docs/guides/providers.md) with setup
+   instructions.
 
 ---
 
@@ -206,7 +206,7 @@ discovered automatically on startup and appear in `neurosurfer task list`.
 4. **Update docs** if you add or change user-visible behavior (README, relevant
    `docs/` file).
 5. **Fill in the PR template** — summary, test plan, and checklist.
-6. **CI must pass** — ruff, pytest, and the package build (twine check).
+6. **CI must pass** — ruff, mypy, pytest, and the package build (twine check).
 7. A maintainer will review and merge. Squash merges are used to keep `main`
    history clean.
 

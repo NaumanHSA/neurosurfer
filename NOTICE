@@ -1,5 +1,7 @@
 Neurosurfer
-Copyright (c) 2025–present Neurosurfer contributors
+Copyright (c) 2025-present Neurosurfer contributors
 
-This product includes software developed by the <project or org> and
-other open source projects. See THIRD_PARTY_NOTICES for attributions.
+This product is licensed under the Apache License, Version 2.0. See LICENSE
+for the full license text. Neurosurfer does not bundle or redistribute any
+third-party source code; its dependencies are installed separately via pip
+and are each licensed under their own respective terms.

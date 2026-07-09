@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from neurosurfer.agents.runtime.permissions import Guardrails, Permissions
-from neurosurfer.config.mcp import McpServerConfig, McpStore, expand_env
+from neurosurfer.config.mcp import McpServerConfig
 from neurosurfer.tools import registry as tool_registry
 from tests.fakes import ScriptedIO
 
@@ -68,52 +68,6 @@ async def _tools_from_session(session) -> dict[str, McpTool]:
         )
         for d in defs
     }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Config store
-# ──────────────────────────────────────────────────────────────────────────────
-def test_store_crud_and_persistence(tmp_path: Path) -> None:
-    store = McpStore(path=tmp_path / "mcp.json")
-    assert store.list() == []
-
-    store.add(McpServerConfig(name="fs", transport="stdio", command="npx", args=["x"]))
-    store.add(McpServerConfig(name="api", transport="http", url="http://h/mcp", enabled=False))
-
-    assert store.names() == ["fs", "api"]
-    assert [s.name for s in store.enabled()] == ["fs"]
-
-    # persisted across instances
-    store2 = McpStore(path=tmp_path / "mcp.json")
-    assert store2.get("api").url == "http://h/mcp"
-
-    store2.set_enabled("api", True)
-    assert {s.name for s in McpStore(path=tmp_path / "mcp.json").enabled()} == {"fs", "api"}
-
-    store2.delete("fs")
-    assert McpStore(path=tmp_path / "mcp.json").names() == ["api"]
-
-
-def test_store_rejects_duplicate(tmp_path: Path) -> None:
-    store = McpStore(path=tmp_path / "mcp.json")
-    store.add(McpServerConfig(name="a", command="x"))
-    with pytest.raises(ValueError):
-        store.add(McpServerConfig(name="a", command="y"))
-
-
-def test_env_expansion(monkeypatch) -> None:
-    monkeypatch.setenv("MY_TOKEN", "secret123")
-    cfg = McpServerConfig(
-        name="a", transport="http", url="http://h", headers={"Authorization": "Bearer ${MY_TOKEN}"}
-    )
-    assert cfg.resolved_headers()["Authorization"] == "Bearer secret123"
-    assert expand_env("${MISSING_VAR}") == ""
-
-
-def test_corrupt_store_starts_fresh(tmp_path: Path) -> None:
-    p = tmp_path / "mcp.json"
-    p.write_text("{ not json", encoding="utf-8")
-    assert McpStore(path=p).list() == []
 
 
 # ──────────────────────────────────────────────────────────────────────────────

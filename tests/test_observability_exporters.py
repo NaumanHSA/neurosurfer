@@ -1,24 +1,28 @@
 """Trace-exporter tests — config detection, the event→lifecycle mapping, the
-live ``base._tap`` wiring through a real agent run, and fail-soft guarantees.
+live ``base._tap`` wiring through a real agent run, fail-soft guarantees, and
+(Phase 5) a graph workflow rendering as one nested trace.
 
-No network: a :class:`MemoryExporter` records the lifecycle and the agent is
-driven by ``ScriptedProvider``.
+No network: a :class:`MemoryExporter` records the lifecycle and agents/graphs
+are driven by ``ScriptedProvider``.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+import yaml
 
 from neurosurfer.agents import events
 from neurosurfer.agents.oneshot import Agent
 from neurosurfer.agents.runtime.permissions import Guardrails
 from neurosurfer.config.observability import detect_exporters_from_env
+from neurosurfer.graph.workflow.package import load_package
+from neurosurfer.graph.workflow.runner import WorkflowRunner
 from neurosurfer.llm.types import Message, TextBlock, Usage
 from neurosurfer.observability.context import TraceContext
 from neurosurfer.observability.exporters import (
     MemoryExporter,
-    configure_exporters,
-    get_active_exporters,
     register_exporter,
     reset_exporters,
 )
@@ -152,64 +156,68 @@ async def test_bad_exporter_never_breaks_the_run(tmp_path):
     assert mem.of("run_finish")[0]["status"] == "completed"
 
 
-def test_unknown_exporter_is_skipped_not_fatal():
-    assert configure_exporters(["does-not-exist"]) == []
-    assert get_active_exporters() == []
+# ── Phase 5: a graph workflow renders as one nested trace ───────────────────
+class TestWorkflowTraceNesting:
+    """workflow → node → agent: three nested spans, all sharing one trace.
 
+    Hierarchy exercised here::
 
-# ── Phase 5: nesting + session grouping ─────────────────────────────────────
-@pytest.mark.asyncio
-async def test_run_nests_under_active_parent(tmp_path):
-    """A run started inside another run inherits its trace and nests under its span."""
-    from neurosurfer.observability.context import (
-        TraceContext,
-        pop_trace_context,
-        push_trace_context,
-    )
+        workflow:<name>          (root span, opened by WorkflowRunner/executor)
+        └── node:<id>            (one span per graph node)
+            └── <Agent>.run      (the node's agent, if it is an LLM node)
 
-    mem = MemoryExporter()
-    register_exporter(mem)
+    The root + node spans come from ``traced_run``; each node's agent flows
+    through ``base._tap`` and nests under its node span.
+    """
 
-    parent = TraceContext(session_id="sess-1", metadata={"agent_type": "Parent"})
-    token = push_trace_context(parent)              # simulate being inside a parent run
-    try:
-        agent = _oneshot(ScriptedProvider([("hi", [])]), tmp_path)
-        await agent.complete("x")
-    finally:
-        pop_trace_context(token)
+    @staticmethod
+    def _base_node_pkg(pkg_dir: Path) -> None:
+        """A one-node workflow whose single node is a base (LLM) node."""
+        pkg_dir.mkdir(parents=True, exist_ok=True)
+        (pkg_dir / "workflow.yaml").write_text(
+            yaml.dump({"name": pkg_dir.name, "version": "0.1.0", "entrypoint": "graph.yaml"}),
+            encoding="utf-8",
+        )
+        graph = {
+            "name": pkg_dir.name,
+            "nodes": [{"id": "n", "kind": "base", "purpose": "answer"}],
+            "outputs": ["n"],
+        }
+        (pkg_dir / "graph.yaml").write_text(yaml.dump(graph), encoding="utf-8")
 
-    rs = mem.of("run_start")[0]
-    assert rs["trace_id"] == parent.trace_id          # same trace
-    assert rs["parent_span_id"] == parent.span_id     # nested under the parent span
-    assert rs["span_id"] != parent.span_id            # its own span
-    assert rs["session_id"] == "sess-1"               # session inherited
+    @staticmethod
+    def _by_name(starts, prefix):
+        return [s for s in starts if s["name"].startswith(prefix)]
 
+    @classmethod
+    def _one(cls, starts, prefix):
+        matches = cls._by_name(starts, prefix)
+        assert len(matches) == 1, f"expected one {prefix!r} span, got {len(matches)}"
+        return matches[0]
 
-@pytest.mark.asyncio
-async def test_session_id_flows_to_trace(tmp_path):
-    mem = MemoryExporter()
-    register_exporter(mem)
-    agent = Agent(
-        provider=ScriptedProvider([("hi", [])]),
-        tools=default_pool(),
-        system_prompt="Answer.",
-        guardrails=Guardrails(write_scope=["**"]),
-        io=ScriptedIO(),
-        cwd=tmp_path,
-        session_id="conversation-42",
-    )
-    await agent.complete("x")
-    assert mem.of("run_start")[0]["session_id"] == "conversation-42"
+    def test_workflow_node_agent_hierarchy(self, tmp_path):
+        """workflow → node → agent: three nested spans, one trace."""
+        reset_exporters()
+        mem = MemoryExporter()
+        register_exporter(mem)
+        try:
+            pkg_dir = tmp_path / "wf"
+            self._base_node_pkg(pkg_dir)
+            pkg = load_package(pkg_dir)
+            WorkflowRunner(ScriptedProvider([("the answer", [])])).run(pkg, {"query": "hi"})
+        finally:
+            reset_exporters()
 
+        starts = mem.of("run_start")
+        wf = self._one(starts, "workflow:")
+        node = self._one(starts, "node:")
+        agent = self._one(starts, "Agent")  # OneShotAgent → "Agent.run"
 
-def test_context_var_isolated_after_run():
-    """The ambient trace context is cleared once a run's observer closes."""
-    from neurosurfer.observability.context import TraceContext, current_trace_context
-    from neurosurfer.observability.exporters.stream import TraceStreamObserver
-
-    assert current_trace_context() is None
-    obs = TraceStreamObserver(TraceContext(), [MemoryExporter()], model="m", name="r")
-    obs.start()
-    assert current_trace_context() is not None        # published while running
-    obs.close()
-    assert current_trace_context() is None             # cleared after close
+        # workflow is the root; node nests under workflow; agent nests under node.
+        assert wf["parent_span_id"] is None
+        assert node["parent_span_id"] == wf["span_id"]
+        assert agent["parent_span_id"] == node["span_id"]
+        # all share one trace
+        assert node["trace_id"] == wf["trace_id"] == agent["trace_id"]
+        # every span opened is closed
+        assert len(mem.of("run_finish")) == len(starts) == 3

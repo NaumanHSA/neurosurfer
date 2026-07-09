@@ -161,6 +161,51 @@ async def test_tool_images_land_in_history(tmp_path: Path) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Prompt auto-attach: an image path named in the user's message is attached
+# directly, so a vision model sees it without routing through read_file first.
+# ──────────────────────────────────────────────────────────────────────────────
+def test_find_image_paths_handles_spaces(tmp_path: Path) -> None:
+    from neurosurfer.tools.images import find_image_paths
+
+    img = tmp_path / "WhatsApp Image 2026-06-30 at 12.26.46 PM.jpeg"
+    img.write_bytes(_PNG_BYTES)
+    found = find_image_paths(f"Can you explain {img} for me?", tmp_path)
+    assert len(found) == 1
+    assert found[0][1] == img
+
+
+def test_find_image_paths_ignores_missing_and_nonimages(tmp_path: Path) -> None:
+    from neurosurfer.tools.images import find_image_paths
+
+    (tmp_path / "notes.txt").write_text("hi")
+    assert find_image_paths("read notes.txt and /nope/gone.png", tmp_path) == []
+
+
+async def test_prompt_image_is_auto_attached(tmp_path: Path) -> None:
+    from neurosurfer.tools.builtin import FinishTool
+
+    img = tmp_path / "pic.png"
+    img.write_bytes(_PNG_BYTES)
+    provider = ScriptedProvider(
+        [("Done.", [("finish", {"summary": "ok", "status": "success"})])]
+    )
+    agent = AgenticLoop(
+        provider=provider,
+        tools=ToolPool([FinishTool()]),
+        system_prompt="x",
+        guardrails=Guardrails(),
+        io=ScriptedIO(),
+        cwd=tmp_path,
+    )
+    async for _ in agent.run(f"describe {img}"):
+        pass
+
+    first = agent.history.messages[0]
+    assert first.role == "user"
+    assert any(isinstance(b, ImageBlock) for b in first.content), "image not attached"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Vision capability override (local / OpenAI-compatible models)
 # ──────────────────────────────────────────────────────────────────────────────
 def test_openai_capabilities_vision_override() -> None:

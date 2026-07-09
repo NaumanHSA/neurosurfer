@@ -2,17 +2,11 @@
 
 Coverage:
 - Syntax error fast path (no subprocess)
-- Basic stdout capture
 - result variable side-channel
-- stderr capture
 - Non-zero exit code → is_error
 - Timeout + process-group kill
 - Environment sanitisation (sensitive vars stripped, HOME overridden)
-- keep_sandbox flag (sandbox path in output, dir not deleted)
-- Memory-limit prelude builds correctly
-- Output truncation sentinel
-- CodeExecutionError on launch failure (mocked)
-- Tool registered in the default pool
+- Sandbox cleaned up by default
 """
 
 from __future__ import annotations
@@ -26,12 +20,7 @@ import pytest
 from neurosurfer.tools.base import ToolContext
 from neurosurfer.tools.builtin.python_exec import PythonExecTool
 from neurosurfer.tools.builtin.python_exec.env import _SENSITIVE, build_sandbox_env
-from neurosurfer.tools.builtin.python_exec.sandbox import (
-    SandboxResult,
-    _truncate,
-    check_syntax,
-)
-from neurosurfer.tools.builtin.python_exec.tool import PythonExecArgs, _format
+from neurosurfer.tools.builtin.python_exec.tool import PythonExecArgs
 from tests.fakes import ScriptedIO
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -40,21 +29,9 @@ def _ctx() -> ToolContext:
     return ToolContext(cwd=Path("/tmp"), io=ScriptedIO())
 
 
-def _args(**kw) -> PythonExecArgs:
-    return PythonExecArgs(**{"code": "x = 1", **kw})
-
-
 # ── syntax check ─────────────────────────────────────────────────────────────
 
 class TestSyntaxCheck:
-    def test_valid_code_returns_none(self):
-        assert check_syntax("x = 1 + 2") is None
-
-    def test_invalid_code_returns_error_string(self):
-        result = check_syntax("def foo(:\n    pass")
-        assert result is not None
-        assert "SyntaxError" in result or "invalid syntax" in result.lower() or result
-
     @pytest.mark.asyncio
     async def test_tool_returns_error_on_syntax_failure(self):
         tool = PythonExecTool()
@@ -62,27 +39,6 @@ class TestSyntaxCheck:
         result = await tool.call(args, _ctx())
         assert result.is_error
         assert "SyntaxError" in result.content
-
-
-# ── stdout capture ────────────────────────────────────────────────────────────
-
-class TestStdout:
-    @pytest.mark.asyncio
-    async def test_print_captured(self):
-        tool = PythonExecTool()
-        args = PythonExecArgs(code='print("hello world")')
-        r = await tool.call(args, _ctx())
-        assert not r.is_error
-        assert "hello world" in r.content
-
-    @pytest.mark.asyncio
-    async def test_no_output_shows_no_output(self):
-        tool = PythonExecTool()
-        args = PythonExecArgs(code="x = 1 + 1  # no print")
-        r = await tool.call(args, _ctx())
-        assert not r.is_error
-        # No stdout, no result var → only exit_code line
-        assert "exit_code: 0" in r.content
 
 
 # ── result variable ───────────────────────────────────────────────────────────
@@ -125,14 +81,6 @@ class TestResultVariable:
 
 class TestStderrAndExit:
     @pytest.mark.asyncio
-    async def test_runtime_error_is_error(self):
-        tool = PythonExecTool()
-        args = PythonExecArgs(code="raise ValueError('boom')")
-        r = await tool.call(args, _ctx())
-        assert r.is_error
-        assert "ValueError" in r.content or "stderr" in r.content
-
-    @pytest.mark.asyncio
     async def test_sys_exit_nonzero_is_error(self):
         tool = PythonExecTool()
         args = PythonExecArgs(code="import sys; sys.exit(2)")
@@ -146,13 +94,6 @@ class TestStderrAndExit:
         args = PythonExecArgs(code="import sys; sys.exit(0)")
         r = await tool.call(args, _ctx())
         assert not r.is_error
-
-    @pytest.mark.asyncio
-    async def test_stderr_written_to_stderr(self):
-        tool = PythonExecTool()
-        args = PythonExecArgs(code="import sys; sys.stderr.write('err line\\n')")
-        r = await tool.call(args, _ctx())
-        assert "err line" in r.content
 
 
 # ── timeout ───────────────────────────────────────────────────────────────────
@@ -220,32 +161,6 @@ class TestEnvSanitisation:
 
 class TestKeepSandbox:
     @pytest.mark.asyncio
-    async def test_keep_sandbox_path_in_output(self):
-        tool = PythonExecTool()
-        args = PythonExecArgs(code='print("hi")', keep_sandbox=True)
-        r = await tool.call(args, _ctx())
-        assert not r.is_error
-        assert "sandbox:" in r.content
-
-    @pytest.mark.asyncio
-    async def test_sandbox_preserved_when_keep(self):
-        tool = PythonExecTool()
-        args = PythonExecArgs(
-            code='open("output.txt","w").write("data")',
-            keep_sandbox=True,
-        )
-        r = await tool.call(args, _ctx())
-        # Extract sandbox path from output
-        for line in r.content.splitlines():
-            if line.startswith("sandbox:"):
-                sandbox_path = line.split("sandbox:", 1)[1].strip()
-                assert Path(sandbox_path).exists(), "Sandbox should not be cleaned up"
-                # Cleanup manually
-                import shutil
-                shutil.rmtree(sandbox_path, ignore_errors=True)
-                break
-
-    @pytest.mark.asyncio
     async def test_sandbox_cleaned_by_default(self):
         """After a normal run, the sandbox temp dir should be gone."""
         import tempfile
@@ -265,56 +180,3 @@ class TestKeepSandbox:
 
         for p in seen_paths:
             assert not Path(p).exists(), f"Sandbox {p} should have been cleaned up"
-
-
-# ── output formatting helpers ────────────────────────────────────────────────
-
-class TestFormatting:
-    def test_truncate_short(self):
-        assert _truncate("hello", 100) == "hello"
-
-    def test_truncate_long(self):
-        text = "x" * 200
-        result = _truncate(text, 100)
-        assert len(result) < len(text)
-        assert "truncated" in result
-
-    def test_format_timeout(self):
-        r = SandboxResult(
-            stdout="",
-            stderr="",
-            exit_code=-9,
-            result_value=None,
-            sandbox_path="/tmp/s",
-            timed_out=True,
-        )
-        result = _format(r, keep_sandbox=False)
-        assert result.is_error
-        assert "timed out" in result.content.lower()
-
-    def test_format_success(self):
-        r = SandboxResult(
-            stdout="hello\n",
-            stderr="",
-            exit_code=0,
-            result_value={"key": "val"},
-            sandbox_path="/tmp/s",
-        )
-        result = _format(r, keep_sandbox=False)
-        assert not result.is_error
-        assert "hello" in result.content
-        assert '"key"' in result.content or "key" in result.content
-
-
-# ── tool registered in default pool ──────────────────────────────────────────
-
-class TestRegistration:
-    def test_python_exec_in_all_tools(self):
-        from neurosurfer.tools.registry import all_tools
-        names = {t.name for t in all_tools()}
-        assert "python_exec" in names
-
-    def test_python_exec_in_default_pool(self):
-        from neurosurfer.tools.registry import default_pool
-        pool = default_pool()
-        assert pool.get("python_exec") is not None

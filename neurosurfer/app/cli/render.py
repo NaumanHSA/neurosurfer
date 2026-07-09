@@ -418,6 +418,10 @@ async def stream_events(
                 _stop_live()
                 console.print(f"\n[{theme.OK_DIM}]  ✓ mode: {ev.mode}[/{theme.OK_DIM}]")
 
+            elif isinstance(ev, events.Notice):
+                _stop_live()
+                console.print(f"\n[{theme.DIM}]  📎 {escape(ev.message)}[/{theme.DIM}]")
+
             elif isinstance(ev, events.Compacted):
                 _stop_live()
                 console.print(

@@ -19,11 +19,24 @@ from neurosurfer.agents.base import BaseAgent
 from neurosurfer.agents.conversation import events
 from neurosurfer.agents.runtime.loop import execute_tool_uses
 from neurosurfer.llm import types as lt
+from neurosurfer.tools.images import find_image_paths, load_image_block
 
 
 class AgenticLoop(BaseAgent):
     async def _run(self, user_input: str) -> AsyncIterator[events.Event]:
-        self.history.add_user_text(user_input)
+        # Attach any image files the user named directly in the prompt, so a request
+        # like "explain /path/pic.jpeg" reaches a vision model without depending on the
+        # model choosing read_file first. Non-vision models drop the block downstream.
+        images = []
+        for display, path in find_image_paths(user_input, self.cwd):
+            block, note = load_image_block(path, display)
+            if block is not None:
+                images.append(block)
+                yield events.Notice(note)
+        if images:
+            self.history.add_user_images(user_input, images)
+        else:
+            self.history.add_user_text(user_input)
         async for ev in self._loop():
             yield ev
 

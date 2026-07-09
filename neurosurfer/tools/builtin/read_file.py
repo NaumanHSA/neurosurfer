@@ -1,26 +1,13 @@
 from __future__ import annotations
 
-import base64
-
 from pydantic import BaseModel, Field
 
-from ...llm.types import ImageBlock
 from ..base import FileState, Tool, ToolContext, ToolResult
+from ..images import IMAGE_MEDIA_TYPES, load_image_block
 from ..utils import is_probably_binary, resolve_path, with_line_numbers
 
 MAX_LINES = 2000
 MAX_LINE_LEN = 2000
-
-# Image files are returned as an ImageBlock (for vision models) rather than text.
-_IMAGE_MEDIA_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
-# Guard against blowing up history with a huge base64 payload.
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 class ReadFileArgs(BaseModel):
@@ -32,8 +19,10 @@ class ReadFileArgs(BaseModel):
 class ReadFileTool(Tool):
     name = "read_file"
     description = (
-        "Read a text file and return its contents with line numbers. "
-        "Use offset/limit for large files. Records the file for staleness checks."
+        "Read a file and return its contents. Text files come back with line numbers "
+        "(use offset/limit for large files). Image files (png, jpg/jpeg, gif, webp) are "
+        "returned as an actual image for you to look at — use this to see and describe "
+        "image contents, not shell tools. Records the file for staleness checks."
     )
     input_model = ReadFileArgs
 
@@ -50,9 +39,11 @@ class ReadFileTool(Tool):
             return ToolResult.error(f"File not found: {args.path}")
         if path.is_dir():
             return ToolResult.error(f"{args.path} is a directory; use list_dir.")
-        media_type = _IMAGE_MEDIA_TYPES.get(path.suffix.lower())
-        if media_type is not None:
-            return self._read_image(path, args.path, media_type)
+        if path.suffix.lower() in IMAGE_MEDIA_TYPES:
+            block, note = load_image_block(path, args.path)
+            if block is None:
+                return ToolResult.error(note)
+            return ToolResult.with_images(note, [block])
         if is_probably_binary(path):
             return ToolResult.error(f"{args.path} appears to be a binary file.")
         try:
@@ -80,22 +71,3 @@ class ReadFileTool(Tool):
         if not body:
             return ToolResult.ok("(empty file)")
         return ToolResult.ok(body + suffix)
-
-    def _read_image(self, path, display: str, media_type: str) -> ToolResult:
-        """Return an image file as an ImageBlock for vision-capable models.
-
-        Non-vision models drop the image at the provider boundary, falling back to the
-        text note in ``content``.
-        """
-        try:
-            raw = path.read_bytes()
-        except OSError as e:
-            return ToolResult.error(f"Could not read {display}: {e}")
-        if len(raw) > MAX_IMAGE_BYTES:
-            return ToolResult.error(
-                f"{display} is {len(raw) // 1024} KB; images over "
-                f"{MAX_IMAGE_BYTES // (1024 * 1024)} MB are not supported."
-            )
-        data = base64.b64encode(raw).decode("ascii")
-        note = f"Loaded image {display} ({media_type}, {len(raw) // 1024} KB)."
-        return ToolResult.with_images(note, [ImageBlock.from_base64(data, media_type)])

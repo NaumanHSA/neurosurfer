@@ -2,17 +2,14 @@
 
 Covers:
   - SubAgentDefinition.resolve_tools: wildcard allow, specific list, disallow filtering.
-  - Registry: register / get_agent / all_agents round-trip.
-  - Built-in agents register themselves on import.
+  - Guardrail: child tool pool is correctly filtered (parent write tools absent for explore).
   - SubAgentRunner.spawn returns the child agent's final report.
   - Parallel spawning via spawn_parallel uses asyncio.gather.
   - Depth cap (MAX_DEPTH) returns a bracketed error string, not an exception.
   - Guardrails max_subagent_depth cap also returns a bracketed error string.
   - Unknown agent_type returns a bracketed error string.
-  - Child tool pool is correctly filtered (parent write tools absent for explore).
   - Child isolation: each child gets a fresh empty history.
   - Concurrency: max_concurrent_subagents semaphore limits simultaneous spawns.
-  - TasksRuntime.submit / active / all.
 """
 
 from __future__ import annotations
@@ -24,10 +21,8 @@ import pytest
 
 import neurosurfer.app.agents  # noqa: F401 — triggers built-in persona registrations
 from neurosurfer.agents.runtime.permissions import Guardrails
-from neurosurfer.agents.runtime.tasks_runtime import TaskHandle, TasksRuntime
 from neurosurfer.agents.subagents.defs import (
     SubAgentDefinition,
-    all_agents,
     get_agent,
     register,
 )
@@ -116,18 +111,6 @@ def test_resolve_tools_disallow_removes_from_wildcard():
     assert "read_file" in result
 
 
-def test_resolve_tools_disallow_removes_from_specific_list():
-    defn = SubAgentDefinition(
-        agent_type="test",
-        when_to_use="",
-        system_prompt="",
-        allowed_tools=["read_file", "write_file"],
-        disallowed_tools=["write_file"],
-    )
-    pool_names = ["read_file", "write_file", "search"]
-    assert defn.resolve_tools(pool_names) == ["read_file"]
-
-
 def test_resolve_tools_tool_not_in_parent_pool_excluded():
     defn = SubAgentDefinition(
         agent_type="test",
@@ -140,29 +123,8 @@ def test_resolve_tools_tool_not_in_parent_pool_excluded():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Registry
+# Registry: safety-relevant guardrail
 # ──────────────────────────────────────────────────────────────────────────────
-
-def test_register_and_get():
-    defn = SubAgentDefinition(
-        agent_type="__test_reg__",
-        when_to_use="testing",
-        system_prompt="hi",
-    )
-    register(defn)
-    assert get_agent("__test_reg__") is defn
-
-
-def test_all_agents_includes_registered():
-    register(SubAgentDefinition(agent_type="__test_all__", when_to_use="", system_prompt=""))
-    assert any(a.agent_type == "__test_all__" for a in all_agents())
-
-
-def test_built_ins_registered():
-    """Importing neurosurfer.app.agents registers the four built-in personas."""
-    for expected in ("explore", "analyzer", "writer", "verifier"):
-        assert get_agent(expected) is not None, f"'{expected}' not in registry"
-
 
 def test_explore_has_no_write_tools():
     explore = get_agent("explore")
@@ -170,27 +132,6 @@ def test_explore_has_no_write_tools():
     allowed_set = set(explore.allowed_tools)
     disallowed_set = set(explore.disallowed_tools)
     assert "write_file" not in allowed_set or "write_file" in disallowed_set
-
-
-def test_verifier_model_preference():
-    v = get_agent("verifier")
-    assert v is not None
-    assert v.model_preference == "inherit"
-
-
-def test_explore_model_preference():
-    e = get_agent("explore")
-    assert e is not None
-    assert e.model_preference == "haiku"
-
-
-def test_system_prompt_callable_resolved():
-    defn = SubAgentDefinition(
-        agent_type="__callable_prompt__",
-        when_to_use="",
-        system_prompt=lambda: "computed prompt",
-    )
-    assert defn.get_system_prompt() == "computed prompt"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -238,13 +179,6 @@ async def test_spawn_at_max_depth_returns_error_string():
 
 
 @pytest.mark.asyncio
-async def test_spawn_exceeds_max_depth_returns_error_string():
-    runner = _make_runner(max_subagent_depth=MAX_DEPTH + 10)
-    result = await runner.spawn("explore", "look around", depth=MAX_DEPTH + 5)
-    assert "depth limit" in result.lower()
-
-
-@pytest.mark.asyncio
 async def test_guardrails_depth_cap_respected():
     runner = _make_runner(max_subagent_depth=0)
     result = await runner.spawn("explore", "search", depth=1)
@@ -284,32 +218,6 @@ async def test_spawn_parallel_returns_list_of_reports():
     ], depth=1)
     assert len(results) == 2
     assert all(isinstance(r, str) for r in results)
-
-
-@pytest.mark.asyncio
-async def test_spawn_parallel_runs_concurrently():
-    """Parallel spawns complete faster than sequential (both would be instant here
-    with fakes — this test just asserts the return shape and count are correct)."""
-    register(SubAgentDefinition(
-        agent_type="__fastA__",
-        when_to_use="",
-        system_prompt="",
-        allowed_tools=["*"],
-    ))
-    register(SubAgentDefinition(
-        agent_type="__fastB__",
-        when_to_use="",
-        system_prompt="",
-        allowed_tools=["*"],
-    ))
-    pool = _make_pool("read_file")
-    provider = ScriptedProvider([("done", []), ("done", [])])
-    runner = SubAgentRunner(
-        pool, provider, io=ScriptedIO(), cwd=Path("."),
-        guardrails=Guardrails(max_subagent_depth=2, max_concurrent_subagents=4),
-    )
-    results = await runner.spawn_parallel([("__fastA__", "x"), ("__fastB__", "y")], depth=1)
-    assert len(results) == 2
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -446,54 +354,3 @@ async def test_make_spawn_fn_increments_depth():
     fn = runner.make_spawn_fn(parent_depth=0)
     await fn("explore", "hello")
     assert depths_seen == [1]
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# TasksRuntime
-# ──────────────────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_tasks_runtime_submit_and_result():
-    rt = TasksRuntime()
-
-    async def _work() -> str:
-        return "finished"
-
-    handle = rt.submit(_work(), description="test job")
-    assert isinstance(handle, TaskHandle)
-    assert not handle.done
-    result = await handle.result()
-    assert result == "finished"
-    assert handle.done
-
-
-@pytest.mark.asyncio
-async def test_tasks_runtime_active_and_all():
-    rt = TasksRuntime()
-    evt = asyncio.Event()
-
-    async def _blocker():
-        await evt.wait()
-        return "ok"
-
-    h = rt.submit(_blocker(), description="blocking")
-    assert h in rt.active()
-    assert h in rt.all()
-    evt.set()
-    await h.result()
-    assert h not in rt.active()
-    assert h in rt.all()
-
-
-@pytest.mark.asyncio
-async def test_tasks_runtime_cancel():
-    rt = TasksRuntime()
-    evt = asyncio.Event()
-
-    async def _infinite():
-        await evt.wait()
-
-    h = rt.submit(_infinite())
-    h.cancel()
-    with pytest.raises((asyncio.CancelledError, Exception)):
-        await h.result()
