@@ -8,11 +8,13 @@ from .browse import BrowseTool
 from .data_tool import DataTool
 from .finish import FinishTool
 from .http_tool import HttpTool
+from .install_package import InstallPythonPackageTool
 from .list_dir import ListDirTool
 from .python_exec import CodeExecutionError, PythonExecTool  # submodule
 from .read_file import ReadFileTool
 from .run_command import RunCommandTool
 from .search import SearchTool
+from .set_python_env import SetPythonEnvTool
 from .spawn_agent import SpawnAgentTool
 from .todo import TodoTool
 from .web_search import WebSearchTool
@@ -28,10 +30,12 @@ __all__ = [
     "DataTool",
     "FinishTool",
     "HttpTool",
+    "InstallPythonPackageTool",
     "ListDirTool",
     "ReadFileTool",
     "RunCommandTool",
     "SearchTool",
+    "SetPythonEnvTool",
     "SpawnAgentTool",
     "TodoTool",
     "WebSearchTool",

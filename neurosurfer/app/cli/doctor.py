@@ -78,6 +78,31 @@ async def check_mcp(ctx: CLIContext) -> list[tuple[bool, str]]:
     ]
 
 
+def _report_managed_env(ctx: CLIContext) -> None:
+    """Report the managed python_exec venv's status (read-only; never provisions)."""
+    from neurosurfer.tools.builtin.python_exec.managed_env import (
+        installed_packages,
+        is_provisioned,
+        managed_python,
+        managed_venv_dir,
+    )
+
+    console = ctx.console
+    venv_dir = managed_venv_dir()
+    if is_provisioned():
+        interp = managed_python()
+        pkgs = installed_packages(interp) if interp else []
+        console.print(
+            f"[{theme.OK}]✓[/{theme.OK}] Managed Python env ready at {venv_dir} "
+            f"({len(pkgs)} packages)"
+        )
+    else:
+        console.print(
+            f"[{theme.WARN}]![/{theme.WARN}] Managed Python env not provisioned "
+            f"(will provision on first python_exec use, or run `neurosurfer setup`)"
+        )
+
+
 def cmd_doctor(ctx: CLIContext) -> int:
     import asyncio
 
@@ -104,4 +129,21 @@ def cmd_doctor(ctx: CLIContext) -> int:
         glyph = f"[{theme.OK}]✓[/{theme.OK}]" if mcp_ok else f"[{theme.WARN}]![/{theme.WARN}]"
         console.print(f"{glyph} {mcp_msg}")
 
+    _report_managed_env(ctx)
+
     return 0 if ok else 1
+
+
+def cmd_setup(ctx: CLIContext) -> int:
+    """Provision the managed python_exec venv up front (curated packages)."""
+    from neurosurfer.tools.builtin.python_exec.managed_env import ensure_managed_venv
+
+    console = ctx.console
+    console.print("[bold]neurosurfer setup[/bold]\n")
+    try:
+        interpreter = ensure_managed_venv(notify=console.print)
+    except RuntimeError as e:
+        console.print(f"[{theme.ERR}]✗[/{theme.ERR}] {e}")
+        return 1
+    console.print(f"[{theme.OK}]✓[/{theme.OK}] Managed interpreter: {interpreter}")
+    return 0

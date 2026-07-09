@@ -8,12 +8,15 @@ dispatch.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 
 from pydantic import BaseModel, Field
 
 from ...base import Tool, ToolContext, ToolResult
 from .errors import CodeExecutionError
+from .interpreter import resolve_interpreter
 from .sandbox import SandboxResult, check_syntax, run_in_sandbox
 
 DEFAULT_TIMEOUT = 30
@@ -47,40 +50,49 @@ class PythonExecArgs(BaseModel):
 
 
 class PythonExecTool(Tool):
-    """Subprocess-sandboxed Python code execution.
+    """Python code execution in a managed environment.
 
-    **Security model:**
+    **Execution model:**
 
-    * Runs in a dedicated temp directory (the only cwd the child sees).
-    * ``HOME``, ``TMPDIR``, ``TEMP`` point at the sandbox so libraries write there by default.
+    * Runs via a resolved interpreter: a session-pinned env (``set_python_env``) >
+      ``NEUROSURFER_PYENV`` > the neurosurfer-managed venv (``~/.neurosurfer/venv``,
+      auto-provisioned with common data/PDF/image libraries) > the host interpreter.
+    * The process **cwd is the current working directory** — relative file writes
+      (e.g. an exported PDF or chart) land in the project, not a throwaway sandbox.
+    * ``HOME``/``TMPDIR`` still point at a scratch directory used only for the code's
+      side-channel result file; that scratch directory is deleted afterwards
+      (unless ``keep_sandbox=True``) but never contains your output files.
     * Sensitive env vars (API keys, tokens, credentials, …) are stripped.
     * The process group is killed on timeout — no orphan grandchildren.
     * Memory is capped via ``resource.setrlimit`` on Linux.
     * Code is syntax-checked before spawning (fast failure).
     * The optional ``result`` variable is captured via a side-channel file,
       not stdout parsing.
-    * Sandbox directory is cleaned up after each run (unless ``keep_sandbox=True``).
 
     **What is NOT sandboxed:**
 
     * Network access.
-    * Filesystem reads outside the sandbox directory (``open('/etc/passwd')`` works).
+    * Filesystem access — the child sees the real working directory.
       For true filesystem isolation, wrap this tool in a container.
 
     **Usage tip:**
 
     Assign ``result = <value>`` in your code to return a structured Python value
-    (list, dict, number, string) that the agent can inspect directly.
+    (list, dict, number, string) that the agent can inspect directly. If a run fails
+    with ``ModuleNotFoundError``, call ``install_python_package`` to add it (gated by
+    user approval), then re-run.
     """
 
     name = "python_exec"
     description = (
-        "Execute a Python code snippet in an isolated subprocess sandbox. "
-        "Captures stdout, stderr, and exit code. "
+        "Execute a Python code snippet using the managed Python environment. "
+        "Captures stdout, stderr, and exit code. Runs with the current working "
+        "directory as cwd, so relative file writes (charts, PDFs, exports) land "
+        "where the user expects. "
         "Assign ``result = <value>`` in the code to return structured data "
         "(list, dict, number, string) the agent can reason about. "
         "Sensitive env vars are stripped; the process group is killed on timeout. "
-        "All installed packages are available. "
+        "If a package is missing, use install_python_package to add it. "
         "Use for computation, data analysis, file operations, or any Python-specific task."
     )
     input_model = PythonExecArgs
@@ -98,12 +110,18 @@ class PythonExecTool(Tool):
             )
 
         # ── 2. Run in sandbox ────────────────────────────────────────────────
+        # Resolving the interpreter can block on first-run venv provisioning
+        # (installing numpy/pandas/matplotlib takes real time) — keep that off
+        # the event loop so the CLI doesn't appear to hang.
+        interpreter = await asyncio.to_thread(resolve_interpreter, ctx)
         try:
             result: SandboxResult = await run_in_sandbox(
                 args.code,
                 timeout=args.timeout,
                 memory_mb=args.memory_mb,
                 keep_sandbox=args.keep_sandbox,
+                interpreter=interpreter,
+                workdir=ctx.cwd,
             )
         except CodeExecutionError as exc:
             return ToolResult(
@@ -119,6 +137,19 @@ class PythonExecTool(Tool):
 # Output formatting
 # ---------------------------------------------------------------------------
 
+_MODULE_NOT_FOUND_RE = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
+
+
+def _missing_module_hint(stderr: str) -> str | None:
+    match = _MODULE_NOT_FOUND_RE.search(stderr)
+    if match is None:
+        return None
+    module = match.group(1).split(".")[0]
+    return (
+        f"Hint: '{module}' is not installed. Call "
+        f"install_python_package(packages=['{module}'], reason=...) then re-run this code."
+    )
+
 
 def _format(r: SandboxResult, *, keep_sandbox: bool) -> ToolResult:
     parts: list[str] = []
@@ -131,6 +162,9 @@ def _format(r: SandboxResult, *, keep_sandbox: bool) -> ToolResult:
 
     if r.stderr.strip():
         parts.append(f"stderr:\n{r.stderr.rstrip()}")
+        hint = _missing_module_hint(r.stderr)
+        if hint:
+            parts.append(hint)
 
     if r.result_value is not None:
         try:

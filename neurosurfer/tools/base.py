@@ -203,6 +203,11 @@ class ToolContext:
     # Optional callback to persist a newly-approved write folder onto the active
     # Task's write_scope (wired by the runner/REPL; None ⇒ run-only widening).
     persist_scope: Callable[[str], None] | None = None
+    # Session-scoped side-channel for cross-tool state that doesn't warrant a
+    # dedicated field. Known keys:
+    #   "python_interpreter" (str) — interpreter path pinned by set_python_env,
+    #   read by python_exec / install_python_package's interpreter resolver
+    #   (see tools/builtin/python_exec/interpreter.py).
     extra: dict[str, Any] = field(default_factory=dict)
 
 

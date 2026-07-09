@@ -112,16 +112,28 @@ async def run_in_sandbox(
     timeout: int,
     memory_mb: int,
     keep_sandbox: bool,
+    interpreter: str = sys.executable,
+    workdir: Path | None = None,
 ) -> SandboxResult:
-    """Execute ``code`` inside a fresh sandbox directory.
+    """Execute ``code`` with ``interpreter``, using ``workdir`` as the process cwd.
 
-    Creates a temp directory, writes the wrapper script, launches the child
-    process, waits up to ``timeout`` seconds, then cleans up (unless
-    ``keep_sandbox`` is True).
+    A scratch temp directory holds only the wrapper script and the ``result``
+    side-channel file — it is cleaned up afterwards (unless ``keep_sandbox`` is
+    True) and is *not* where the child process runs. The child's cwd is
+    ``workdir`` (the caller's project directory by default), so relative file
+    writes — e.g. an exported PDF — land where the user expects and survive
+    scratch cleanup.
     """
     sandbox = Path(tempfile.mkdtemp(prefix="ns_pyexec_"))
     try:
-        return await _execute(code, sandbox=sandbox, timeout=timeout, memory_mb=memory_mb)
+        return await _execute(
+            code,
+            sandbox=sandbox,
+            timeout=timeout,
+            memory_mb=memory_mb,
+            interpreter=interpreter,
+            workdir=workdir if workdir is not None else Path.cwd(),
+        )
     finally:
         if not keep_sandbox:
             shutil.rmtree(sandbox, ignore_errors=True)
@@ -138,6 +150,8 @@ async def _execute(
     sandbox: Path,
     timeout: int,
     memory_mb: int,
+    interpreter: str,
+    workdir: Path,
 ) -> SandboxResult:
     result_file = sandbox / "_result.json"
     script_file = sandbox / "_script.py"
@@ -153,8 +167,10 @@ async def _execute(
     # Build child command: prelude sets resource limits then runs the script
     limit_bytes = memory_mb * 1024 * 1024
     prelude = _RESOURCE_PRELUDE.format(limit_bytes=limit_bytes)
-    cmd = [sys.executable, "-c", prelude, str(script_file)]
+    cmd = [interpreter, "-c", prelude, str(script_file)]
 
+    # HOME/TMPDIR still point at the scratch sandbox (matplotlib config, etc.);
+    # the process cwd is the caller's working directory, not the scratch dir.
     env = build_sandbox_env(sandbox)
 
     try:
@@ -162,7 +178,7 @@ async def _execute(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=str(sandbox),
+            cwd=str(workdir),
             env=env,
             # New session = new process group; lets us SIGKILL the whole tree.
             start_new_session=True,

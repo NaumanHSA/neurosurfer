@@ -29,6 +29,10 @@ class DurableState:
     manifest: str | None = None
     todos: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[str] = field(default_factory=list)
+    # User-selected Python interpreter for python_exec / install_python_package
+    # (set via the set_python_env tool / /pyenv command). Kept durable so an
+    # explicit "use conda env ABC" survives context compaction.
+    python_env: str | None = None
 
     # ── mutators (called by tools) ────────────────────────────────────────────
 
@@ -45,8 +49,13 @@ class DurableState:
     def add_decision(self, text: str) -> None:
         self.decisions.append(text)
 
+    def set_python_env(self, interpreter: str) -> None:
+        self.python_env = interpreter
+
     def is_empty(self) -> bool:
-        return not any([self.plan_text, self.manifest, self.todos, self.decisions])
+        return not any(
+            [self.plan_text, self.manifest, self.todos, self.decisions, self.python_env]
+        )
 
     # ── context injection ─────────────────────────────────────────────────────
 
@@ -78,6 +87,9 @@ class DurableState:
         if self.decisions:
             dec_lines = "\n".join(f"- {d}" for d in self.decisions)
             lines.append(f"\n## Decisions\n{dec_lines}")
+
+        if self.python_env:
+            lines.append(f"\n## Python Environment\npython_exec is pinned to: {self.python_env}")
 
         lines.append("\n</durable_state>")
         return "\n".join(lines)

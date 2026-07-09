@@ -81,6 +81,7 @@ class BaseAgent:
         verbose: bool = True,
         session_id: str | None = None,
         trace_name: str | None = None,
+        show_environment: bool = True,
     ):
         self.provider = provider
         self.tools = tools
@@ -108,6 +109,11 @@ class BaseAgent:
         # still sees the agent working. Front-ends with their own renderer (the CLI,
         # nested sub-agents) pass ``verbose=False``.
         self.verbose = verbose
+        # Append an <environment> section (cwd, OS, git, active python_exec
+        # interpreter) as a system-prompt suffix. On by default; narrowly-scoped
+        # callers (workflow nodes, structured-output oneshots) that don't want the
+        # extra context or its small per-turn subprocess cost can pass False.
+        self.show_environment = show_environment
 
         self.history = MessageHistory()
         self.file_state: dict = {}
@@ -126,11 +132,30 @@ class BaseAgent:
             persist_scope=persist_scope,
         )
 
+    @property
+    def tool_context(self) -> ToolContext:
+        """The ``ToolContext`` tool calls run with. Exposed so front-ends (the CLI's
+        ``/pyenv`` command) can inspect or pin session state — e.g. the active
+        python_exec interpreter — without reaching into a private attribute."""
+        return self._ctx
+
     # ── system prompt (dynamic suffix injected by context manager) ────────────
     def _effective_system(self) -> str:
+        base = self.system_prompt
         if self.context_manager is not None:
-            return self.context_manager.system_with_durable(self.system_prompt)
-        return self.system_prompt
+            base = self.context_manager.system_with_durable(base)
+        if self.show_environment:
+            base = f"{base}\n\n{self._environment_block()}"
+        return base
+
+    def _environment_block(self) -> str:
+        """Best-effort <environment> suffix; never raises into the streaming path."""
+        try:
+            from neurosurfer.prompts.environment import environment_section
+
+            return environment_section(self._ctx)
+        except Exception:
+            return "# Environment\n(unavailable)"
 
     async def _stream_model(
         self, *, tool_schemas: list | None = None, system: str | None = None

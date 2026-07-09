@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
@@ -34,7 +35,7 @@ class ListDirTool(Tool):
     name = "list_dir"
     description = (
         "List directory entries, or glob a pattern under a directory "
-        "(e.g. pattern='**/*.py'). Skips VCS/build noise."
+        "(e.g. pattern='**/*.py'). Skips VCS/build noise and .gitignore'd paths."
     )
     input_model = ListDirArgs
 
@@ -57,16 +58,21 @@ class ListDirTool(Tool):
         if not base.is_dir():
             return ToolResult.error(f"{args.path} is not a directory.")
 
+        patterns = _load_gitignore_patterns(ctx.cwd)
+
+        def skip(p: Path) -> bool:
+            return _ignored(p) or _gitignored(p, ctx.cwd, patterns)
+
         if args.pattern:
             matches = sorted(base.glob(args.pattern))
-            matches = [m for m in matches if not _ignored(m)]
+            matches = [m for m in matches if not skip(m)]
             if not matches:
                 return ToolResult.ok(f"No matches for '{args.pattern}' under {args.path}")
             rendered = "\n".join(self._render(m, ctx.cwd) for m in matches[:MAX_ENTRIES])
             return ToolResult.ok(_cap(rendered, len(matches)))
 
         entries = sorted(base.iterdir(), key=lambda p: (p.is_file(), p.name))
-        entries = [e for e in entries if not _ignored(e)]
+        entries = [e for e in entries if not skip(e)]
         rendered = "\n".join(self._render(e, ctx.cwd) for e in entries[:MAX_ENTRIES])
         return ToolResult.ok(_cap(rendered or "(empty directory)", len(entries)))
 
@@ -81,6 +87,43 @@ class ListDirTool(Tool):
 
 def _ignored(p: Path) -> bool:
     return any(part in _IGNORE for part in p.parts)
+
+
+def _load_gitignore_patterns(root: Path) -> list[str]:
+    """Best-effort top-level ``.gitignore`` reader: plain glob patterns, no negation.
+
+    A leading ``**/`` (by far the most common form — "match at any depth") is
+    stripped so the pattern compares directly against a candidate's basename.
+    """
+    gitignore = root / ".gitignore"
+    if not gitignore.is_file():
+        return []
+    try:
+        lines = gitignore.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return []
+    patterns = []
+    for line in lines:
+        line = line.strip().rstrip("/")
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        if line.startswith("**/"):
+            line = line[3:]
+        patterns.append(line)
+    return patterns
+
+
+def _gitignored(p: Path, cwd: Path, patterns: list[str]) -> bool:
+    if not patterns:
+        return False
+    try:
+        rel = p.relative_to(cwd).as_posix()
+    except ValueError:
+        return False
+    return any(
+        fnmatch.fnmatch(p.name, pat) or fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel, f"*/{pat}")
+        for pat in patterns
+    )
 
 
 def _cap(rendered: str, total: int) -> str:

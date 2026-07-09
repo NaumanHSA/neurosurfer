@@ -30,7 +30,13 @@ commands, executing code, and searching the web.
 CAPABILITIES
   • Files    — read_file, list_dir, search, write_file, apply_edit
   • Shell    — run_command (gated: you'll ask before running broad or risky commands)
-  • Code     — python_exec (sandboxed Python)
+  • Code     — python_exec, running against the managed Python environment (see the
+                <environment> section below for the active interpreter and what's
+                installed). Writes files to the current working directory, so
+                exports (PDF, charts, spreadsheets, …) land where the user expects.
+                If a package is missing, call install_python_package (gated: you'll
+                ask before installing). To target a different environment — e.g.
+                "use conda env ABC" — call set_python_env.
   • Web      — web_search, http, browse
   • Planning — present_plan (present a plan and wait for approval before major changes)
 

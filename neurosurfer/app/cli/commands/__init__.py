@@ -6,13 +6,14 @@ from .base import CommandRegistry, SlashCommand
 
 
 def build_registry() -> CommandRegistry:
-    from . import mcp, misc, provider, theme, workflow
+    from . import mcp, misc, provider, pyenv, theme, workflow
 
     registry = CommandRegistry()
     registry.register(provider.COMMAND)
     registry.register(workflow.COMMAND)
     registry.register(mcp.COMMAND)
     registry.register(theme.COMMAND)
+    registry.register(pyenv.COMMAND)
     misc.register_misc(registry)
     return registry
 

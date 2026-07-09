@@ -3,6 +3,7 @@
 No subcommand  → interactive REPL (banner, slash commands, workflow building).
 Subcommands (scriptable):
   doctor                       config + active-connection reachability
+  setup                        provision the managed Python env for python_exec
   provider list | use <name> | add | delete <name>
   serve [--host] [--port] ...  start the OpenAI-compatible gateway
 """
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
 
     sub.add_parser("doctor", help="Check configuration and the active connection")
+    sub.add_parser("setup", help="Provision the managed Python environment for python_exec")
 
     prov_p = sub.add_parser("provider", help="Manage provider profiles")
     prov_sub = prov_p.add_subparsers(dest="provider_command")
@@ -67,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
         from .doctor import cmd_doctor
 
         return cmd_doctor(ctx)
+
+    if args.command == "setup":
+        from .doctor import cmd_setup
+
+        return cmd_setup(ctx)
 
     if args.command == "provider":
         from .commands.provider import handle as provider_handle

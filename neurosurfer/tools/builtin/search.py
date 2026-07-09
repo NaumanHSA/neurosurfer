@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import re
+import shutil
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +13,7 @@ from ..utils import is_probably_binary, resolve_path
 _IGNORE_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache"}
 MAX_RESULTS = 200
 MAX_FILE_BYTES = 1_500_000
+RIPGREP_TIMEOUT = 30
 
 
 class SearchArgs(BaseModel):
@@ -47,6 +51,12 @@ class SearchTool(Tool):
         if not base.exists():
             return ToolResult.error(f"Path not found: {args.path}")
 
+        if shutil.which("rg") is not None:
+            rg_result = await _search_ripgrep(args, base, ctx.cwd)
+            if rg_result is not None:
+                return rg_result
+            # rg errored (bad glob, etc.) — fall through to the pure-Python scan.
+
         files = [base] if base.is_file() else sorted(base.glob(args.glob))
         results: list[str] = []
         scanned = 0
@@ -73,3 +83,53 @@ class SearchTool(Tool):
         if not results:
             return ToolResult.ok(f"No matches for /{args.pattern}/ in {scanned} files.")
         return ToolResult.ok("\n".join(results))
+
+
+async def _search_ripgrep(args: SearchArgs, base: Path, cwd: Path) -> ToolResult | None:
+    """Shell out to ``rg`` for context-aware, gitignore-respecting search.
+
+    Returns ``None`` (never an error result) on any failure so the caller falls
+    back to the pure-Python scan — ripgrep is a speed/quality upgrade, not a
+    dependency.
+    """
+    try:
+        target = base.relative_to(cwd)
+    except ValueError:
+        target = base
+
+    cmd = ["rg", "--line-number", "--no-heading", "--color=never"]
+    if args.ignore_case:
+        cmd.append("-i")
+    if not base.is_file():
+        if args.glob and args.glob != "**/*":
+            cmd += ["--glob", args.glob]
+        for d in _IGNORE_DIRS:
+            cmd += ["--glob", f"!{d}/**"]
+    cmd += ["--", args.pattern, str(target)]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd),
+        )
+        out, _err = await asyncio.wait_for(proc.communicate(), timeout=RIPGREP_TIMEOUT)
+    except (OSError, TimeoutError):
+        return None
+
+    if proc.returncode == 1:  # no matches — a valid, non-error outcome
+        return ToolResult.ok(f"No matches for /{args.pattern}/.")
+    if proc.returncode != 0:
+        return None  # bad glob / regex syntax rg rejected — let the fallback try
+
+    lines = [ln for ln in out.decode("utf-8", errors="replace").splitlines() if ln]
+    if not lines:
+        return ToolResult.ok(f"No matches for /{args.pattern}/.")
+
+    truncated = len(lines) > args.max_results
+    lines = lines[: args.max_results]
+    body = "\n".join(f"{ln[:400]}" for ln in lines)
+    if truncated:
+        body += "\n… [result limit reached]"
+    return ToolResult.ok(body)

@@ -190,7 +190,13 @@ class Permissions:
         policy = self.guardrails.shell_policy
         if policy == "denied":
             return Decision(False, "Shell commands are disabled for this task.")
-        command = getattr(args, "command", "")
+        # run_command's action='status'/'kill' calls carry no `command` — fall back to
+        # a job_id-based label so the approval prompt isn't blank for those.
+        action = getattr(args, "action", "run")
+        if action != "run" and getattr(args, "job_id", None):
+            command = f"{action} background job {args.job_id}"
+        else:
+            command = getattr(args, "command", "")
         description = getattr(args, "description", "") or "run a shell command"
         if policy == "readonly":
             return Decision(True)
