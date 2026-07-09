@@ -38,4 +38,4 @@ fastest way to catch a missing key or a wrong base URL before your first run.
 ## Next
 
 - [Quickstart](quickstart.md) — your first agent, the REPL, and the gateway in a few minutes.
-- [Configuration](../reference/configuration.md) — every environment variable Neurosurfer reads.
+- [Configuration](../guides/configuration.md) — every environment variable Neurosurfer reads.

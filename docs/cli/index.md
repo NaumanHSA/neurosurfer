@@ -1,7 +1,8 @@
-# CLI
+# CLI Agent
 
-Installing Neurosurfer puts a `neurosurfer` command on your PATH. With **no subcommand** it opens an
-interactive REPL; with a subcommand it runs a scriptable action.
+Neurosurfer's interactive CLI agent is the fastest way to start using the framework — no Python
+required. Installing Neurosurfer puts a `neurosurfer` command on your PATH. With **no subcommand**
+it opens an interactive REPL; with a subcommand it runs a scriptable action.
 
 ```bash
 neurosurfer            # interactive REPL

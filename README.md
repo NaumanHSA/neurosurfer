@@ -5,7 +5,6 @@
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-dark.png">
   <img alt="Neurosurfer — AI Agent Framework" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-dark.png" width="62%">
 </picture>
-
 <br/>
 <br/>
 
@@ -25,7 +24,7 @@
 
 </div>
 
-**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval**, with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go, on CPU or GPU.
+**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval**, with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go.
 
 ---
 

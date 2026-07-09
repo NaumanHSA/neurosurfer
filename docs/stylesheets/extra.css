@@ -59,8 +59,8 @@
 }
 
 .md-header__button.md-logo img, .md-header__button.md-logo svg {
-    height: 2.4rem;
-    width: 2.4rem;
+    height: 3.2rem;
+    width: 3.2rem;
 }
 
 /* ============================================================================
@@ -164,5 +164,35 @@ html {
 
 /* Slightly shorter header. */
 .md-header__title {
+  font-size: 1.40rem;
+}
+
+/* Push tabs to the right side */
+.md-header__inner {
+  margin-left: "auto";
+}
+
+/* Swap search and repo button positions */
+.md-search {
+  margin-right: 0rem;
+  order: 1;
+}
+.md-header__source {
+  order: 2;
+}
+
+/* Move theme toggle to the left (before logo) */
+.md-header__option[data-md-component="palette"] {
+  order: 3;
+}
+
+
+.md-tabs__list {
+  margin-bottom: 0.5rem;
+  gap: 0.5rem;
+}
+
+/* Font size of tab labels */
+.md-tabs__link {
   font-size: 0.85rem;
 }

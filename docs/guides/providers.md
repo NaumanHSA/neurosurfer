@@ -73,7 +73,7 @@ from neurosurfer.llm import build_provider
 provider = build_provider(Config())
 ```
 
-This is the same mechanism the [CLI](../reference/cli.md) uses for its provider profiles.
+This is the same mechanism the [CLI](../cli/index.md) uses for its provider profiles.
 
 ## Capabilities
 

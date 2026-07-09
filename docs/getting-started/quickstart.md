@@ -5,9 +5,9 @@ This page takes you from an empty environment to a running agent and gateway.
 ## Prerequisites
 
 - **Python `>= 3.11`** and **pip** (or `uv` / `pipx` / `poetry`).
-- An LLM provider — either an API key (Anthropic / OpenAI) or a local
-  OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp).
-- **GPU is optional.** CPU-only works fine for cloud providers and small local models.
+- An LLM provider — either an API key (Anthropic / OpenAI) or a local OpenAI-compatible server
+  (Ollama, LM Studio, vLLM, llama.cpp). Neurosurfer only talks to providers over an API; it never
+  loads model weights itself, so there's nothing device-specific to worry about.
 
 ## Install
 
@@ -51,7 +51,23 @@ export OPENAI_API_KEY=sk-...
 See the [Providers guide](../guides/providers.md) for local servers (Ollama, LM Studio, vLLM,
 llama.cpp) and the full `Provider` API.
 
-## Your first agent (Python)
+## The CLI agent
+
+The fastest way to start using Neurosurfer is the interactive CLI — no Python required:
+
+```bash
+neurosurfer              # interactive chat REPL
+neurosurfer doctor       # check your provider configuration
+neurosurfer serve        # start the OpenAI-compatible gateway
+```
+
+`neurosurfer` with no subcommand drops you into a REPL with persistent history, provider profiles,
+MCP server management, and workflow building via slash commands. See the
+[CLI Agent guide](../cli/index.md) for the full command and slash-command reference.
+
+## The Python API
+
+### Your first agent
 
 An agent needs a `provider`, a tool pool, a `system_prompt`, `guardrails`, an `io` handler (how it
 asks for approvals), and a working directory. For scripts, supply a small **auto-approving** `io`:
@@ -97,7 +113,7 @@ answer as it streams.
     `AutoIO` approves every action without prompting — only use it in trusted, sandboxed contexts,
     and constrain tools with [`Guardrails`](../guides/agents.md#permissions-and-guardrails).
 
-## Structured output (one-shot)
+### Structured output (one-shot)
 
 When you want a validated object instead of free text, use the one-shot `Agent` with a Pydantic
 `output_schema` and call `complete()`:
@@ -126,20 +142,9 @@ result = asyncio.run(agent.complete("Summarise Neurosurfer in three bullet point
 print(result.title, result.points)  # result is a validated Summary instance
 ```
 
-## The CLI
-
-Neurosurfer ships an interactive REPL and a gateway command:
-
-```bash
-neurosurfer              # interactive chat REPL
-neurosurfer doctor       # check your provider configuration
-neurosurfer serve        # start the OpenAI-compatible gateway
-```
-
-See the [CLI guide](../reference/cli.md) for provider profiles, slash commands, and `serve` flags.
-
 ## Where to next
 
+- [CLI Agent](../cli/index.md) — full REPL reference, provider profiles, and slash commands.
 - [Providers](../guides/providers.md) — cloud and local models behind one protocol.
 - [Agents](../guides/agents.md) — the agent family, events, permissions, and sub-agents.
 - [Tools](../guides/tools.md) — built-in tools and writing your own.

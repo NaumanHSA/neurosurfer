@@ -71,7 +71,7 @@ For ASGI deployment (Gunicorn/Uvicorn workers, containers), grab the FastAPI app
 
 ## From the CLI
 
-You don't need Python to start a gateway — the [CLI](../reference/cli.md) wraps it:
+You don't need Python to start a gateway — the [CLI](../cli/index.md) wraps it:
 
 ```bash
 neurosurfer serve --host 0.0.0.0 --port 8000

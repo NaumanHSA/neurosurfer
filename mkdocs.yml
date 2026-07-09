@@ -126,6 +126,7 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
+  - CLI Agent: cli/index.md
   - Learn:
     - Architecture: learn/architecture.md
     - Core Concepts: learn/concepts.md
@@ -141,10 +142,8 @@ nav:
     - RAG: guides/rag.md
     - Graph & Workflows: guides/graph-workflows.md
     - MCP: guides/mcp.md
-  - Architect:
-    - Overview: architect/index.md
-    - How It Works: architect/how-it-works.md
-    - Building Workflows: architect/building.md
+    - Configuration: guides/configuration.md
+    - Tools Catalog: guides/tools-catalog.md
   - Observability:
     - Overview: observability/index.md
     - Langfuse: observability/langfuse.md
@@ -156,10 +155,10 @@ nav:
     - Backends: server/backends.md
     - Hooks: server/hooks.md
     - Deployment: server/deployment.md
-  - Reference:
-    - CLI: reference/cli.md
-    - Configuration: reference/configuration.md
-    - Tools Catalog: reference/tools-catalog.md
+  - Architect:
+    - Overview: architect/index.md
+    - How It Works: architect/how-it-works.md
+    - Building Workflows: architect/building.md
   - Tutorials:
     - Overview: tutorials/index.md
     - Installation: tutorials/installation.md

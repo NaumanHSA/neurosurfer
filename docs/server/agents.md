@@ -59,4 +59,4 @@ interactive-only IO; requests would hang on the first gated action.
 One server can host several models at once — multiple agents under different `model_id`s, plus
 proxied upstream models. See [Backends](backends.md) for upstream proxying and
 [Hooks](hooks.md) for rewriting requests/responses. To run without writing Python, use the
-[`neurosurfer serve`](../reference/cli.md) command — see [Deployment](deployment.md).
+[`neurosurfer serve`](../cli/index.md) command — see [Deployment](deployment.md).

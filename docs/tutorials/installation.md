@@ -34,4 +34,4 @@ The [Colab notebook](https://colab.research.google.com/github/NaumanHSA/neurosur
 walks through every extra and both cloud (Anthropic/OpenAI) and local setups.
 
 **Next:** [Installation reference](../getting-started/installation.md) ·
-[Configuration](../reference/configuration.md) · [Tutorial 1 →](providers-and-agents.md)
+[Configuration](../guides/configuration.md) · [Tutorial 1 →](providers-and-agents.md)

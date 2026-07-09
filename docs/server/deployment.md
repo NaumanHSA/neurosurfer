@@ -23,7 +23,7 @@ neurosurfer serve --host 0.0.0.0 --port 8000
 | `--upstream-api-key` | — | API key for that upstream. |
 
 Server settings also read from the environment with the **`NS_`** prefix — `NS_PORT`, `NS_API_KEYS`,
-`NS_CORS_ORIGINS`, `NS_ENABLE_DOCS`, etc. (see [Configuration](../reference/configuration.md)). CLI
+`NS_CORS_ORIGINS`, `NS_ENABLE_DOCS`, etc. (see [Configuration](../guides/configuration.md)). CLI
 flags override env.
 
 ## Programmatic app (ASGI)
@@ -73,7 +73,7 @@ services:
 
 The gateway reaches Langfuse over the internal Docker network (`langfuse-web:3000`), so tracing works
 without exposing Langfuse publicly. See [Observability](../observability/index.md) for the full
-tracing setup, and the [Configuration reference](../reference/configuration.md) for every env var.
+tracing setup, and the [Configuration reference](../guides/configuration.md) for every env var.
 
 ## Production checklist
 

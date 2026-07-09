@@ -86,7 +86,7 @@ each remote tool carries read-only/destructive flags from its MCP annotations â€
 
 ## Persisting server configs
 
-`McpStore` saves server configs to disk so the [CLI](../reference/cli.md) (`/mcp` commands) and your apps can
+`McpStore` saves server configs to disk so the [CLI](../cli/index.md) (`/mcp` commands) and your apps can
 share them:
 
 ```python

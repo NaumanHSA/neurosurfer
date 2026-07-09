@@ -45,5 +45,5 @@ The model can now call `weather` like any built-in tool.
 The [Colab notebook](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/02_custom_tools.ipynb)
 covers schemas, returning images/data, gating, and the tool registry.
 
-**Next:** [Tools guide](../guides/tools.md) · [Tools catalog](../reference/tools-catalog.md) ·
+**Next:** [Tools guide](../guides/tools.md) · [Tools catalog](../guides/tools-catalog.md) ·
 [Tutorial 3 →](graph-agents.md)

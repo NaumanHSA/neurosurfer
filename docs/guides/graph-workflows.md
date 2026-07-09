@@ -106,7 +106,7 @@ result = WorkflowRunner(provider, cwd=repo_root).run(
 ```
 
 Use `save_package` / `load_package` to move packages between the filesystem and the registry. The
-registry is also what the [gateway](../server/index.md) and [CLI](../reference/cli.md) use to run registered
+registry is also what the [gateway](../server/index.md) and [CLI](../cli/index.md) use to run registered
 workflows on any provider.
 
 !!! tip "Don't want to hand-build graphs?"

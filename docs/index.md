@@ -2,7 +2,7 @@
 
 **Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and
 **retrieval** — with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as
-you go, on CPU or GPU.
+you go.
 
 <div class="grid cards" markdown>
 
@@ -13,6 +13,15 @@ you go, on CPU or GPU.
     Install the package and run your first agent in a few minutes.
 
     [:octicons-arrow-right-24: Getting Started](getting-started/quickstart.md)
+
+-   :material-console:{ .lg .middle } **Interactive CLI Agent**
+
+    ---
+
+    Chat with an agent, manage provider profiles, wire up MCP servers, and build workflows — all
+    from one REPL, no Python required.
+
+    [:octicons-arrow-right-24: CLI Agent guide](cli/index.md)
 
 -   :material-robot:{ .lg .middle } **Agents**
 
@@ -54,7 +63,8 @@ you go, on CPU or GPU.
 - **MCP client** — connect external Model Context Protocol servers and expose their tools to agents.
 - **OpenAI-compatible gateway** — `/v1/models` + `/v1/chat/completions` with SSE streaming, upstream
   proxying, native-agent backends, and request/response hooks.
-- **Interactive CLI** — a REPL for chat and a `serve` command for the gateway.
+- **Interactive CLI agent** — a full REPL for chat, provider profiles, MCP servers, and workflow
+  building, plus a `serve` command for the gateway.
 
 ## Install
 

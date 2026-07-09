@@ -52,7 +52,7 @@ intent, answers = await convo.run("I want a workflow that reviews pull requests"
 pkg_path = await ArchitectBuilder(provider).run(intent, answers=answers)
 ```
 
-This is exactly how the [CLI](../reference/cli.md) drives its workflow builder — the REPL's
+This is exactly how the [CLI](../cli/index.md) drives its workflow builder — the REPL's
 `/workflow` command supplies `ask` (an arrow-key menu with a free-text escape), then builds the
 designed workflow.
 
