@@ -1,11 +1,17 @@
 <div align="center">
 
 <picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-V2.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-V2.png">
+  <img alt="Neurosurfer — AI Agent Framework" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-V2.png" width="100%">
+</picture>
+
+<!-- <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-light.png">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-dark.png">
   <img alt="Neurosurfer — AI Agent Framework" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-dark.png" width="62%">
-</picture>
-<br/>
+</picture> -->
+
 <br/>
 
 <a href="https://naumanhsa.github.io/neurosurfer/getting-started/quickstart/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/quick-start-light.png"><img height="42" alt="Quick Start" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/quick-start-dark.png"></picture></a>
@@ -13,8 +19,6 @@
 <a href="https://naumanhsa.github.io/neurosurfer/tutorials/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/examples-light.png"><img height="42" alt="Examples" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/examples-dark.png"></picture></a>
 <a href="https://pypi.org/project/neurosurfer/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/pypi-light.png"><img height="42" alt="PyPI" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/pypi-dark.png"></picture></a>
 
-<br/>
-<br/>
 
 <a href="https://pypi.org/project/neurosurfer/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/neurosurfer?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&labelColor=111111&color=111111"></a>
 <a href="https://pypi.org/project/neurosurfer/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/neurosurfer?style=for-the-badge&logo=python&logoColor=white&label=Python&labelColor=111111&color=111111"></a>
