@@ -12,9 +12,31 @@ from typing import Any
 import anyio
 
 from ..errors import OpenAIHTTPError
-from ..schemas.openai import ChatCompletionChoice, ChatCompletionResponse, ChatMessage
-from ..streaming.openai_chunks import chunk_end, chunk_role, chunk_text
+from ..schemas.openai import (
+    ChatCompletionChoice,
+    ChatCompletionResponse,
+    ChatMessage,
+    CompletionUsage,
+)
+from ..streaming.openai_chunks import chunk_end, chunk_role, chunk_text, chunk_usage
 from .base import Backend
+
+
+def _obj_usage(obj: Any) -> tuple[int, int] | None:
+    """(input_tokens, output_tokens) from anything carrying a neurosurfer ``Usage``
+    (an agent or a RunResult), or ``None`` if it exposes no usage."""
+    u = getattr(obj, "usage", None)
+    if u is None:
+        return None
+    it, ot = getattr(u, "input_tokens", None), getattr(u, "output_tokens", None)
+    if it is None and ot is None:
+        return None
+    return int(it or 0), int(ot or 0)
+
+
+def _completion_usage(input_tokens: int, output_tokens: int) -> CompletionUsage:
+    it, ot = max(0, int(input_tokens)), max(0, int(output_tokens))
+    return CompletionUsage(prompt_tokens=it, completion_tokens=ot, total_tokens=it + ot)
 
 
 def _default_result_to_text(result: Any) -> str:
@@ -146,8 +168,13 @@ class AgentBackend(Backend):
             raise OpenAIHTTPError(400, "No user message found")
 
         want_stream = bool(req.get("stream"))
+        # OpenAI emits the usage chunk on a stream only when asked; match that.
+        include_usage = bool((req.get("stream_options") or {}).get("include_usage"))
         created = int(time.time())
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+        # Snapshot the agent's cumulative token counters so we can report *this*
+        # request's usage as the delta (a long-lived agent accumulates across calls).
+        usage_before = _obj_usage(self.spec.agent)
 
         # ── 1. Custom run_fn ──────────────────────────────────────────────────
         if self.spec.run_fn is not None:
@@ -155,7 +182,11 @@ class AgentBackend(Backend):
             if asyncio.iscoroutine(result) or inspect.isawaitable(result):
                 result = await result
             text = self.spec.result_to_text(result)
-            return self._static_response(text, want_stream, model, completion_id, created)
+            usage = self._run_usage(usage_before, result)
+            return self._static_response(
+                text, want_stream, model, completion_id, created,
+                usage=usage, include_usage=include_usage,
+            )
 
         run = getattr(self.spec.agent, "run", None)
         if run is None:
@@ -165,12 +196,17 @@ class AgentBackend(Backend):
         if inspect.isasyncgenfunction(run):
             if want_stream:
                 async def gen_stream() -> AsyncIterator[dict]:
+                    before = _obj_usage(self.spec.agent)
                     yield chunk_role(id=completion_id, created=created, model=model)
                     async for text_frag in self._invoke_streaming(user_query, chat_history):
                         yield chunk_text(
                             id=completion_id, created=created, model=model, text=text_frag
                         )
                     yield chunk_end(id=completion_id, created=created, model=model)
+                    if include_usage and (usage := self._run_usage(before, None)):
+                        yield chunk_usage(
+                            id=completion_id, created=created, model=model, usage=usage
+                        )
 
                 return True, gen_stream()
 
@@ -179,18 +215,41 @@ class AgentBackend(Backend):
             async for frag in self._invoke_streaming(user_query, chat_history):
                 parts.append(frag)
             return self._static_response(
-                "".join(parts), False, model, completion_id, created
+                "".join(parts), False, model, completion_id, created,
+                usage=self._run_usage(usage_before, None), include_usage=include_usage,
             )
 
         # ── 3. Async coroutine ────────────────────────────────────────────────
         if asyncio.iscoroutinefunction(run):
             result = await run(user_query)
             text = self.spec.result_to_text(result)
-            return self._static_response(text, want_stream, model, completion_id, created)
+            return self._static_response(
+                text, want_stream, model, completion_id, created,
+                usage=self._run_usage(usage_before, result), include_usage=include_usage,
+            )
 
         # ── 4. Sync fallback ──────────────────────────────────────────────────
         text = await self._invoke_blocking(user_query, chat_history)
-        return self._static_response(text, want_stream, model, completion_id, created)
+        return self._static_response(
+            text, want_stream, model, completion_id, created,
+            usage=self._run_usage(usage_before, None), include_usage=include_usage,
+        )
+
+    def _run_usage(
+        self, before: tuple[int, int] | None, result: Any
+    ) -> CompletionUsage | None:
+        """This request's usage: a result's own ``usage`` if it has one, else the
+        agent's cumulative-counter delta since ``before``. ``None`` when neither the
+        result nor the agent reports tokens."""
+        ru = _obj_usage(result) if result is not None else None
+        if ru is not None:
+            return _completion_usage(*ru)
+        au = _obj_usage(self.spec.agent)
+        if au is None:
+            return None
+        if before is not None:
+            return _completion_usage(au[0] - before[0], au[1] - before[1])
+        return _completion_usage(*au)
 
     def _static_response(
         self,
@@ -199,6 +258,9 @@ class AgentBackend(Backend):
         model: str,
         completion_id: str,
         created: int,
+        *,
+        usage: CompletionUsage | None = None,
+        include_usage: bool = False,
     ) -> tuple[bool, object]:
         if want_stream:
             async def gen() -> AsyncIterator[dict]:
@@ -206,6 +268,10 @@ class AgentBackend(Backend):
                 if text:
                     yield chunk_text(id=completion_id, created=created, model=model, text=text)
                 yield chunk_end(id=completion_id, created=created, model=model)
+                if include_usage and usage is not None:
+                    yield chunk_usage(
+                        id=completion_id, created=created, model=model, usage=usage
+                    )
 
             return True, gen()
 
@@ -220,5 +286,6 @@ class AgentBackend(Backend):
                     finish_reason="stop",
                 )
             ],
+            usage=usage,
         ).model_dump()
         return False, resp

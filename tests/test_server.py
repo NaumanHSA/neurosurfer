@@ -234,6 +234,60 @@ class TestAgentBackend:
         assert chunks[2]["choices"][0]["delta"]["content"] == "chunk2"
         assert chunks[3]["choices"][0]["finish_reason"] == "stop"
 
+    # ── token usage in the response ──────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_usage_in_blocking_response(self):
+        from neurosurfer.llm.types import Usage
+
+        class Result:
+            usage = Usage(input_tokens=7, output_tokens=3)
+
+        backend = AgentBackend(
+            _spec(object(), run_fn=lambda a, q, h: Result(), result_to_text=lambda r: "ok")
+        )
+        req = {"model": "test-agent", "messages": [{"role": "user", "content": "hi"}]}
+        _, result = await backend.chat_completions(req, request_id="u1")
+        assert result["usage"] == {
+            "prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10
+        }
+
+    @pytest.mark.asyncio
+    async def test_usage_chunk_when_stream_options_include_usage(self):
+        from neurosurfer.llm.types import Usage
+
+        @dataclass
+        class TextDelta:
+            text: str
+
+        class UsageGenAgent:
+            def __init__(self):
+                self.usage = Usage()
+
+            async def run(self, prompt: str):
+                yield TextDelta("hi")
+                self.usage = Usage(input_tokens=10, output_tokens=5)  # accrues during run
+
+        backend = AgentBackend(_spec(UsageGenAgent()))
+        req = {
+            "model": "test-agent",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        _, result = await backend.chat_completions(req, request_id="u2")
+        chunks = [c async for c in result]
+        # role + text + end + usage
+        assert chunks[-1]["usage"] == {
+            "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15
+        }
+        assert chunks[-1]["choices"] == []
+        # without include_usage, no usage chunk is emitted
+        req2 = {**req, "stream_options": {}}
+        _, result2 = await backend.chat_completions(req2, request_id="u3")
+        chunks2 = [c async for c in result2]
+        assert all(c.get("usage") is None for c in chunks2)
+
     # ── error: no user message ────────────────────────────────────────────────
 
     @pytest.mark.asyncio

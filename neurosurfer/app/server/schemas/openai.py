@@ -74,12 +74,23 @@ class ChatCompletionChoice(OpenAIBase):
     finish_reason: str | None = None
 
 
+class CompletionUsage(OpenAIBase):
+    """OpenAI-compatible token accounting. Tokens only — cost is a monitoring
+    backend's concern, never the gateway's. Real counts when the provider reports
+    them; estimated (tiktoken/char heuristic) for servers that don't."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
 class ChatCompletionResponse(OpenAIBase):
     id: str
     object: Literal["chat.completion"] = "chat.completion"
     created: int
     model: str
     choices: list[ChatCompletionChoice]
+    usage: CompletionUsage | None = None
 
 
 class ChatCompletionChunkDelta(OpenAIBase):
@@ -100,3 +111,6 @@ class ChatCompletionChunk(OpenAIBase):
     created: int
     model: str
     choices: list[ChatCompletionChunkChoice]
+    # Present only on the final usage chunk (OpenAI sends it when the request set
+    # `stream_options.include_usage`); that chunk carries an empty `choices` list.
+    usage: CompletionUsage | None = None
