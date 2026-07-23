@@ -405,3 +405,90 @@ real-LLM suite 4/4 (incl. the branching-design test).
 - Full-build real-model eval that authors a NEW tool mid-branching build.
 - Loop/map design evals on the real model (suite intents exist).
 - Judging extra branch cases (clean-run-checked only today).
+
+---
+
+## Fix — trace I/O propagation to node/workflow spans ✅
+
+**Found while testing the Phase 1 tutorial in Langfuse:** clicking a `node:*` or
+`workflow:*` span showed Input `null` / Output `undefined` — only the nested
+`Agent.run` generation carried real I/O. The `traced_run` plumbing supported
+input/output all along; the executor and runner simply never supplied them.
+
+- `graph/engine/executor.py` — each `node:*` span now opens with
+  `input={graph_inputs, dependencies}` and closes with `output=<raw_output>`
+  (or `error(...)` on failure), JSON-safe via the state serializer.
+- `graph/workflow/runner.py` — the `workflow:*` root span opens with the run's
+  inputs and closes with the final outputs (or the joined node errors).
+- `observability/exporters/base.py` — MemoryExporter's `run_finish` now records
+  `span_id` so tests can match finishes to spans.
+- Test: `test_workflow_node_agent_hierarchy` extended to assert workflow + node
+  spans carry real I/O. Verified live: `workflow:trace_fix_demo` in Langfuse
+  shows populated Input/Output at every level.
+
+---
+
+## Redesign — `routes` router: the router IS the classifier ✅
+
+**User feedback while testing the tutorial:** the `cases` router read as binary
+(if/else), the expression mini-language (`contains(lower(...))`) is
+programmer-facing plumbing, and a separate classify node + router was redundant
+for the common case.
+
+**New primary form** (the classify node disappears entirely):
+```yaml
+- id: route
+  kind: router
+  goal: "Route this support ticket by its content: {ticket}"
+  routes: {urgent: escalate, billing: finance, routine: reply}   # N-way, one node
+  repair: true      # invalid model answer → one corrective retry, then default
+  default: reply
+```
+- The router itself classifies via ONE LLM call (instructed by purpose/goal,
+  interpolated with graph inputs; upstream outputs included as evidence when it
+  has parents), picks a label, prunes every other target.
+- `repair` (default on) retries an unmappable answer with explicit corrective
+  feedback; then `default`; no default → honest error (previously the LLM-router
+  fell back **silently**).
+- `cases` ([{when, to}]) remains as the deterministic variant (no LLM call,
+  reproducible — for routing on structured/function-node state). `routes` and
+  `cases` are mutually exclusive (validated); same targets-must-depend rule.
+
+**Touched:** engine schema/executor/loader, `GraphBuilder.router(routes=…)`,
+knowledge guidance, agent cookbook (routes-first), tutorial §10/§12 rewritten
+(3-way triage: escalate/finance/reply). 7 new tests (N-way, prose-tolerant match,
+repair retry, default fallback, no-default error, mutual exclusion, target
+wiring) — full suite **484 passed**, ruff clean.
+
+---
+
+## Redesign — `until` loops: plain-English stop condition + feedback ✅
+
+**User feedback (same instinct as the routes router):** `break_when` expressions
+over raw LLM text are brittle and programmer-facing; the review node shouldn't
+need an output contract; the loop should decide stop/continue itself.
+
+**New primary form:**
+```yaml
+- id: refine
+  kind: loop
+  max_iterations: 3          # ceiling stays mandatory
+  until: "the review approves the slogan"    # ← plain English
+  body: [...]
+```
+- After each iteration a **hidden exit judge** (one small LLM call) reads the
+  body's outputs and answers STOP or CONTINUE with a reason.
+- **CONTINUE reasons become the next iteration's `{feedback}`** (template var +
+  expression scope) — directed refinement instead of blind retry.
+- Unparseable judge answers get one corrective retry (reuses the router's
+  `repair` flag), then fail SAFE to continue — `max_iterations` always bounds.
+- Judge verdicts recorded in `structured_output["judge"]`; a `routing`-style log
+  line per iteration.
+- `break_when` remains the deterministic sibling (budgets, cursors, index
+  checks — no LLM call). `until`/`break_when` mutually exclusive (validated).
+
+**Touched:** engine schema/executor/loader, `GraphBuilder.loop(until=…)`,
+knowledge guidance + agent cookbook (until-first), tutorial §11 (judge feedback
+visibly steering redrafts). 5 new tests (stop+feedback threading, repair retry,
+judge-failure fail-safe, mutual exclusion, empty-until) — full suite
+**489 passed**, ruff clean.
