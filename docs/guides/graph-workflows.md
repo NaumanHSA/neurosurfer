@@ -55,6 +55,67 @@ GraphNode(
 )
 ```
 
+### Control flow
+
+Beyond linear `depends_on` pipelines, a graph can **branch**, **loop**, **fan out**, and **recover
+from errors**. These are the constructs the [Architect](../architect/index.md) reaches for
+automatically — and you can author them directly in Python or YAML.
+
+**Router — take one branch of many.** A `router` node *is* the classifier: it makes one LLM call,
+picks a labelled route, and prunes the branches not taken (they are *skipped*, not errored). Every
+target must `depends_on` the router.
+
+```python
+GraphNode(
+    id="triage",
+    kind="router",
+    goal="Route this support ticket by urgency: {ticket}",
+    routes={"urgent": "escalate", "routine": "reply"},   # N-way, one LLM call
+    default="reply",          # used if the model's answer maps to no route
+)
+```
+
+For deterministic routing on a prior node's output (no LLM call), use `cases` instead:
+`cases=[{"when": "contains(lower(nodes.check), 'yes')", "to": "approve"}]`.
+
+**Loop — iterate until good.** State the stop condition in plain English via `until`; a hidden
+judge decides STOP/CONTINUE after each iteration, and its reason reaches the next pass as
+`{feedback}`. `max_iterations` is a mandatory ceiling.
+
+```python
+GraphNode(
+    id="refine",
+    kind="loop",
+    max_iterations=3,
+    until="the review approves the draft",
+    body=[...],               # nested nodes, run once per iteration
+)
+```
+
+For deterministic loops (budgets, cursors, index checks) use `break_when="<expression>"` instead of
+`until`.
+
+**Map — fan out over a list.** Runs `body` once per item of `over` (bound to `item_var`, default
+`item`), up to `concurrency` in parallel; the node's output is the ordered per-item results.
+
+```python
+GraphNode(id="per_item", kind="map", over="inputs.items", item_var="item", concurrency=4,
+          body=[GraphNode(id="handle", kind="base", goal="Process one item: {item}")])
+```
+
+**Conditional & resilient edges** (available on any node):
+
+| Field | Effect |
+|---|---|
+| `when: "<expr>"` | The node runs only if the expression is truthy; at a merge, pruned branches use OR-join (the join still runs if *any* incoming branch is live). |
+| `on_error: "<node_id>"` | On failure, reroute to a fallback node instead of failing the branch (the error text is exposed as `vars.<id>__error`). |
+| `writes: "<name>"` | Store the node's output as `{name}` for downstream templates and expressions. |
+| `policy.retries: N` | Re-run a flaky node up to N times before it counts as failed. |
+
+Expressions (in `when`, `cases`, `break_when`, `over`) use a **safe evaluator** — no `eval`, no
+imports, no attribute access. Read state as `inputs.x`, `nodes.<id>`, `vars.<name>`; prefer
+`contains(lower(nodes.x), 'label')` over exact equality against raw LLM text.
+
 ## Run a graph
 
 `GraphExecutor` runs the DAG on a provider, resolving dependencies and passing outputs downstream:

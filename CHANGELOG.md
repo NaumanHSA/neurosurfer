@@ -11,6 +11,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Graph engine: control flow.** Workflows are no longer linear-only. New node kinds —
+  `router` (the router *is* the classifier: one LLM call picks a labelled route, others are
+  pruned; or deterministic `cases`), `loop` (iterate a nested `body` until a plain-English
+  `until` judge says stop, with the reason threaded back as `{feedback}`; or deterministic
+  `break_when`), `map` (fan out a `body` over a collection with a `concurrency` cap),
+  `subgraph`, and `input` (human-in-the-loop). Any node can also carry a `when:` guard
+  (conditional edge, OR-join at merges), `on_error:` fallback, `writes:` (name an output for
+  downstream `{templates}` and expressions), and `policy.retries`. Predicates run through a
+  **safe expression evaluator** (no `eval`/imports/attribute access). Authorable in YAML or via
+  the fluent **`GraphBuilder`**, and JSON round-trippable. Fully backward compatible. See the
+  [Graph & Workflows guide](guides/graph-workflows.md).
+- **Workflow execution API + live streaming.** Drive and observe workflows over HTTP on the
+  FastAPI gateway: list/inspect workflows, start runs (`POST /v1/workflows/{name}/runs`), tail
+  them node-by-node over **SSE** (`GET /v1/runs/{id}/events`, replays from seq 1 then live-tails),
+  fetch per-node detail, resume human-in-the-loop `input` nodes, and cancel. Runs persist to disk
+  for replay.
+- **The Architect (ReAct agent).** `ArchitectAgent(provider).build(intent)` turns plain English
+  into a runnable, validated, registered workflow package via an 11-tool belt on one staged
+  session — never registering an invalid graph. It **knows neurosurfer from live code** (a
+  versioned capability manifest — node kinds, tools, expressions, MCP — that a freshness test
+  keeps from drifting), reaches for control flow only when the intent warrants it, and can author
+  new tools (sandboxed + approved) mid-build. MCP servers are first-class workflow citizens.
+- **Closed-loop self-verification.** The Architect proves its own work: `derive_acceptance`
+  turns an intent into testable criteria + concrete inputs, `verify_workflow` **actually runs**
+  the staged workflow (incl. one case per branch for coverage) and LLM-judges each criterion
+  (fail-closed), feeding failures back into design revision. Gate it with
+  `ArchitectAgent(verify="required")`.
 - **Observability: pluggable trace exporters.** Agent runs can now be shipped to an
   external monitoring backend — **Langfuse** (traces, token cost, sessions) and
   **OpenTelemetry** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog /

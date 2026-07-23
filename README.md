@@ -34,7 +34,8 @@
 
 ## 📰 What's new
 
-- **Observability: pluggable trace exporters** *(latest)*: ship **every agent run** to a real monitoring backend with **no code changes**. Ships with **[Langfuse](https://naumanhsa.github.io/neurosurfer/observability/langfuse/)** (traces, token cost, sessions) and **[OpenTelemetry](https://naumanhsa.github.io/neurosurfer/observability/opentelemetry/)** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog). Auto-on from the environment; runs → traces, LLM turns → generations, tool calls → spans, sub-agents & workflow nodes nest automatically. `pip install "neurosurfer[observability]"`; see [Observability](#-observability).
+- **Control-flow engine & a smarter Architect** *(latest)*: workflows now **branch, loop, and fan out** — `router` (classify-and-branch), `loop` (iterate until a plain-English condition, with judge feedback threaded back), `map` (per-item fan-out), plus `when:` guards, `on_error:` fallbacks, and `writes:` — authorable in YAML or the fluent `GraphBuilder`. The **[Architect](https://naumanhsa.github.io/neurosurfer/architect/)** now designs with these constructs, **runs and LLM-judges its own builds** (closed-loop self-verification), and drives workflows over an HTTP + **SSE** execution API. See [Graph & Workflows](https://naumanhsa.github.io/neurosurfer/guides/graph-workflows/).
+- **Observability: pluggable trace exporters**: ship **every agent run** to a real monitoring backend with **no code changes**. Ships with **[Langfuse](https://naumanhsa.github.io/neurosurfer/observability/langfuse/)** (traces, token cost, sessions) and **[OpenTelemetry](https://naumanhsa.github.io/neurosurfer/observability/opentelemetry/)** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog). Auto-on from the environment; runs → traces, LLM turns → generations, tool calls → spans, sub-agents & workflow nodes nest automatically. `pip install "neurosurfer[observability]"`; see [Observability](#-observability).
 - **Trace nesting & sessions**: a run spawned inside another run nests under it in the same trace (propagated across `await` and `asyncio.gather`); agents accept a `session_id` so a whole conversation groups into one session.
 - **v1.0.0: first stable release** *(2026-07-01)*: the public API (`neurosurfer.agents`, `.llm`, `.tools`, `.rag`, `.graph`, `.architect`, `.mcp`, `.app.server`) is now stable under semantic versioning.
 
@@ -48,8 +49,8 @@
 - 🧠 **LLM providers:** Anthropic Claude, OpenAI, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp) behind one `Provider` protocol.
 - 🔧 **Rich tool ecosystem:** 15+ built-in tools: web search (DuckDuckGo/SerpAPI), sandboxed Python execution, file ops, HTTP, headless browser, and memory, plus a simple framework for your own.
 - 📚 **RAG pipeline:** ingest → chunk → embed → retrieve → token-aware context injection.
-- 🕸️ **Graph & Workflows:** a standalone DAG engine and persisted, runnable Workflow packages.
-- 🏗️ **Architect:** describe a workflow in plain English; it designs and builds the graph for you.
+- 🕸️ **Graph & Workflows:** a standalone DAG engine with **control flow** (router / loop / map / conditional & error edges) and persisted, runnable Workflow packages — plus an HTTP + SSE execution API.
+- 🏗️ **Architect:** describe a workflow in plain English; it designs, builds, **runs, and self-verifies** the graph for you — reaching for control flow only when the intent needs it.
 - 🔌 **MCP client:** connect external Model Context Protocol servers and expose their tools to agents.
 - ⚙️ **OpenAI-compatible gateway:** `/v1/models` + `/v1/chat/completions` with SSE streaming; proxy upstream backends or route to your own agents; request/response hooks.
 - 🔭 **Observability:** pluggable trace exporters (Langfuse, OpenTelemetry) with zero-overhead-when-off tracing.

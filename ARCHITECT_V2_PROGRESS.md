@@ -495,7 +495,7 @@ judge-failure fail-safe, mutual exclusion, empty-until) — full suite
 
 ---
 
-## Session 2026-07-23 — Tutorial 06 (Architect) + provider-owned sampling + toolbelt fixes 🔶 (in progress)
+## Session 2026-07-23 — Tutorial 06 (Architect) + provider-owned sampling + toolbelt fixes ✅
 
 **Shipped this session:**
 
@@ -536,16 +536,136 @@ judge-failure fail-safe, mutual exclusion, empty-until) — full suite
 `qwen/qwen3.5-9b` are excluded — that model crashes on load on this box).
 
 **TODO — left for the next machine:**
-- [ ] **Run `tutorials/06_architect.ipynb` end-to-end** to embed live outputs (gpt-5-mini,
-      ~5 min, 2 builds). Needs a real `OPENAI_API_KEY` in `.env` and `MODEL=gpt-5-mini`.
-- [ ] **Over-engineering steer** (agent prompt): on a failed `test_workflow`, fix node
-      prompts/wiring *before* adding new control-flow constructs. The trace showed a
-      correct 3-node router rebuilt into an unnecessary 6-node `loop` design.
-- [ ] **Verification cost** (biggest cost lever): branch-coverage re-runs the *entire*
-      graph once per branch, per `test_workflow` call (~half the 37 LLM calls in the
-      trace). Cap `extra_cases` / skip unchanged branches / judge on a single run.
-- [ ] Real-LLM architect tests (`tests/test_architect_agent_llm.py`,
-      `tests/test_graph_llm_integration.py`) are hardcoded to `qwen/qwen3.5-9b`; consider
-      parametrizing the model (add a gpt-5-mini / hosted path).
-- [ ] Carried from earlier phases: README / `docs/` "What's New in the Engine" + example
-      gallery; drop the "experimental" framing.
+- [x] **Run `tutorials/06_architect.ipynb` end-to-end** to embed live outputs — done on
+      `gpt-4o-mini` (see next section).
+- [x] **Over-engineering steer** (agent prompt) — done + a structural orphan-node warning.
+- [x] **Verification cost** — done (stop extra-case re-runs at full node coverage + dedup).
+- [x] Real-LLM architect tests — parametrized via `NEUROSURFER_TEST_*` (hosted path added).
+- [x] README / `docs/` "What's New in the Engine" + drop "experimental" framing — done
+      (example gallery deferred: redundant with tutorial 06 + the new control-flow guide).
+
+---
+
+## Session 2026-07-23 (continued) — trace-driven hardening + close-out of the above ✅
+
+Machine had OpenAI `gpt-4o-mini` + a local Langfuse (docker) wired via `.env`. Every
+workflow run below was traced to Langfuse and the traces were inspected for issues — the
+approach that has repeatedly surfaced silent bugs.
+
+**Bug fixes (trace/warning-driven):**
+
+1. **Node templates now interpolate upstream `writes` vars + dep outputs** (`graph/engine/
+   executor.py`). A node whose `goal`/`purpose` referenced an upstream output by name
+   (`"…based on the summary: {summary}"`) silently failed — `_build_system_prompt`
+   interpolated over **graph inputs only**, logged a warning, and leaked the literal
+   `{summary}` into the prompt (the node only worked because deps are *also* dumped in the
+   user prompt). Now interpolates over `{**graph_inputs, **dependency_results, **state.vars}`,
+   consistent with loop `{feedback}`. Found via the per-run WARNING; confirmed the warning
+   is gone and `{summary}` resolves.
+
+2. **Over-engineering steer + orphan-node validation warning.** The depth-floor validation
+   warning literally told the agent to *"add intermediate steps (validation, transformation,
+   output formatting)"* whenever a graph had <3 LLM nodes — the mechanical cause of bloat (a
+   traced branching build came out **6 nodes with an orphan `validate_ticket`**). Removed that
+   warning; added an **orphan-node warning** (a node whose output is neither in `outputs` nor
+   any `depends_on`, accounting for `nodes.*`/`vars.*` expression refs). Agent prompt gained
+   minimalism ("fewest nodes, 2–4"), a NO-ORPHAN rule, and a "fix the smallest thing first"
+   steer for failed `test_workflow`. Re-ran the same branching intent traced → **4 nodes,
+   router, no orphan, zero warnings** (was 6 + orphan).
+
+3. **Verification cost lever** (`architect/agent/verify.py`). Branch-coverage extra cases
+   re-run the whole graph; now they **stop as soon as every node has been exercised** and
+   **skip input sets that duplicate an already-run case** — no coverage loss.
+
+**Tests + tooling:**
+
+4. **Real-LLM tests parametrized** via `NEUROSURFER_TEST_MODEL` / `_BASE_URL` / `_API_KEY`
+   (shared `tests/_llm_test_provider.py`; `.env` fallback). Default is unchanged (LM Studio
+   qwen, auto-skip); a hosted path runs the same suites on OpenAI. Verified: **11/11 real-LLM
+   tests pass on `gpt-4o-mini`** (7 graph control-flow + 4 architect builds).
+
+5. **Tutorial 06 run end-to-end on `gpt-4o-mini`**, outputs embedded. Made the notebook
+   **model-agnostic** (reads `MODEL` from `.env`, no longer hard-pins `gpt-5-mini`) and fixed
+   a **tracing bug**: the Langfuse cell didn't strip quotes from `.env` values, so
+   `LANGFUSE_HOST` kept its quotes and tracing silently read "disabled". Now **Tracing:
+   ENABLED**, 12/12 cells clean, §4 verification PASSED, §5 produced a real router; all
+   `tutorial:*` + `ArchitectAgent.build` traces landed in Langfuse.
+
+**Docs:** README "What's new" + "in the box" now cover the control-flow engine / self-verifying
+Architect; `CHANGELOG.md [Unreleased]` gained engine/API/architect/verification entries; the
+[Graph & Workflows guide](../docs/guides/graph-workflows.md) gained a **Control flow** reference
+(router / loop / map / `when` / `on_error` / `writes` / expressions); the "experimental" framing
+on the architect docs was softened to "maturing — quality tracks the model" with a pointer to the
+ReAct `ArchitectAgent`.
+
+**Verification:** full hermetic suite **489 passed / 11 skipped**, ruff clean, real-LLM **11/11**
+on `gpt-4o-mini`.
+
+**Token/cost surfacing (done in a follow-up):**
+
+6. **Gateway returns token usage.** The OpenAI-compatible `/v1/chat/completions` response now
+   carries a spec-standard `usage {prompt_tokens, completion_tokens, total_tokens}`, and the
+   streaming path emits a final usage-only chunk when the request sets
+   `stream_options.include_usage` (matching OpenAI). Tokens come from the agent's `Usage`
+   (real when the provider reports them, tiktoken/char-estimated for local servers), computed
+   as a per-request delta on the possibly-shared agent. *Tokens only — the gateway never emits
+   dollars.* (`schemas/openai.py`, `streaming/openai_chunks.py`, `backends/agent.py`; +2 tests.)
+
+7. **Trace fidelity — system prompt captured** (fix ②). Langfuse generations now prepend the
+   agent/node system prompt to the traced `input` (`input[0].role == "system"`), so
+   prompt-templating issues (like fix #1) are visible in the trace, not just stdout. (`observability/
+   exporters/stream.py`, `agents/base.py`.)
+
+8. **Langfuse token→cost handoff** (fix ③). Root cause was **not** ours: the Langfuse instance's
+   *managed* model rows ship with an empty `prices: {}` map (only the legacy scalar
+   `inputPrice`/`outputPrice` are seeded, which the v3 cost calc ignores) — so cost stayed $0 for
+   any usage format. Fixed by (a) modernising the exporter to send **both** `usage` (v2 compat)
+   and `usage_details` (v3-native; verified no double-count), and (b) adding a properly-priced
+   `gpt-4o-mini` model to the local Langfuse via `POST /api/public/models`
+   (`inputPrice`/`outputPrice`). Verified end-to-end: `usageDetails` + `costDetails` now populate
+   (`calculatedTotalCost` non-zero). Neurosurfer still computes **no dollars** — cost is the
+   backend's job; we only ship tokens. *Other models need the same one-time Langfuse price entry.*
+
+**Verification (follow-up):** full suite **491 passed / 11 skipped**, ruff clean; fixes ②/③
+confirmed against live Langfuse; gateway usage covered by 2 new tests.
+
+- Env note: dev runs use conda env **LLMs** (`langfuse<3`, `nbclient`/`nbconvert`/`ipykernel`
+  installed there); `.env` `OPENAI_BASE_URL` was commented out to use real OpenAI.
+
+---
+
+## Remaining TODO — assessment after trace-driven hardening
+
+The build → validate → verify core is solid and fast; closed-loop verification is the standout
+(it caught a real "4 sentences, not 3" defect live). The recurring weakness is **model strength**:
+on `gpt-4o-mini` the same branching intent variously came out as a clean 4-node router, a 6-node
+bag-with-orphan (pre-steer), and a fully linear graph — nondeterministic. Ranked next steps:
+
+1. **[High] Validate template-var resolution at build time.** The `{summary}` bug was silent
+   until a stdout WARNING. `validate_package` checks tools/edges/outputs/orphans but NOT whether
+   `{vars}` in a node's `purpose`/`goal`/`expected_result` resolve to a known graph input /
+   upstream `writes` / dependency output. Add that check → catches a whole class of silent
+   failures *before* a run and hands the agent an error to fix. Best-bounded robustness win (the
+   resolution scope already exists in `executor._run_node`: `{**graph_inputs, **dependency_results,
+   **state.vars}`).
+2. **[High] Verification cost.** Even with the early-exit + dedup, a build calling `test_workflow`
+   several times re-runs the whole graph many times (~half the LLM calls in a traced build). Next
+   levers: judge on a single run, cache verdicts across unchanged edits, or a cheap "smoke" tier
+   before the full judged run.
+3. **[Med] Collapse the classify→router redundancy.** Even good branching builds add a separate
+   `classify_ticket` base node feeding a router that re-classifies the same input (4 nodes where 3
+   suffice). Tighten the cookbook, or detect structurally (a base node whose only consumer is a
+   router re-classifying its input) and warn.
+4. **[Med] Model-tier strategy.** Since quality tracks model strength, adapt automatically:
+   `verify="encouraged"` + structured-output parsing on weaker models, `verify="required"` on
+   strong ones — instead of the user having to know.
+5. **[Low] Langfuse model prices are per-instance.** Only `gpt-4o-mini` was priced on the local
+   Langfuse; other models (gpt-4o, claude, …) need the same one-time `POST /api/public/models`
+   entry, or a small idempotent `scripts/` seeder. (Not a neurosurfer code concern.)
+6. **[Low] Deferred observability polish (by request):** none outstanding — ②/③ done.
+7. **[Docs] Architect pages still describe the legacy `ArchitectBuilder` pipeline**, not the ReAct
+   `ArchitectAgent`. A full V2 rewrite of `docs/architect/*` (+ an example gallery) was deferred as
+   larger than this pass; the pages now carry a pointer to the agent + tutorial 06.
+
+**Not exercised this session** (confidence caveats): requirement-gathering `ArchitectConversation`,
+mid-build `author_tool`, `verify="required"` on a *strong* model, and the A/B `run_harness`.

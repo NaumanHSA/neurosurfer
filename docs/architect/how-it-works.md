@@ -59,9 +59,10 @@ Two distinct "not built" outcomes:
 
 Because every stage is LLM-driven, the output tracks the **model** you pass to `ArchitectBuilder`.
 A stronger model plans better graphs and writes better nodes; a weaker one produces plans that may
-validate but underperform. This is the main reason the module is still marked
-[experimental](index.md) — the scaffolding is solid, but the generated content is only as good as the
-model behind it, and complex intents still stress it. Treat the output as a first draft to refine.
+validate but underperform. This is why [output quality tracks the model](index.md) — the scaffolding
+is solid (and the ReAct `ArchitectAgent` now self-verifies its builds), but the generated content is
+only as good as the model behind it, and complex intents still stress it. Treat the output as a first
+draft to refine.
 
 ## Next
 
