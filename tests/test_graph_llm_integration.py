@@ -1,16 +1,16 @@
 """Real-LLM integration tests for the Phase 1 control-flow engine + Phase 2 API.
 
-Runs against a local LM Studio server (``qwen/qwen3.5-9b``) and exercises the
-paths where a REAL model's output drives control flow — the part unit tests with
-scripted providers cannot prove:
+Runs against a REAL model and exercises the paths where a real model's output
+drives control flow — the part unit tests with scripted providers cannot prove:
 
 - a `when` guard evaluating real (whitespace-y, free-text) LLM output
 - the LLM router choosing a branch semantically
 - map/loop bodies containing real `base` nodes
 - the execution API end-to-end (REST + SSE) with a real provider
 
-The whole module auto-skips when LM Studio isn't reachable or the model isn't
-loaded, so the normal test suite stays hermetic. Run explicitly with:
+Defaults to LM Studio (qwen/qwen3.5-9b) and auto-skips when it is down, so the
+normal suite stays hermetic; override the model/endpoint via NEUROSURFER_TEST_*
+(see ``tests/_llm_test_provider.py``) to run against a hosted model. Run with:
 
     conda run -n LLMs python -m pytest tests/test_graph_llm_integration.py -v
 """
@@ -19,41 +19,19 @@ from __future__ import annotations
 
 import json
 import time
-import warnings
 from pathlib import Path
 
 import pytest
 import yaml
 
-BASE_URL = "http://localhost:1234/v1"
-MODEL = "qwen/qwen3.5-9b"
+from ._llm_test_provider import make_provider, provider_ready, skip_reason
 
-
-def _lmstudio_ready() -> bool:
-    try:
-        import httpx
-
-        resp = httpx.get(f"{BASE_URL}/models", timeout=3.0)
-        ids = [m.get("id") for m in resp.json().get("data", [])]
-        return MODEL in ids
-    except Exception:  # noqa: BLE001
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _lmstudio_ready(), reason=f"LM Studio with {MODEL} not reachable at {BASE_URL}"
-)
+pytestmark = pytest.mark.skipif(not provider_ready(), reason=skip_reason())
 
 
 @pytest.fixture(scope="module")
 def provider():
-    from neurosurfer.llm.providers.openai import OpenAICompatProvider
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return OpenAICompatProvider(
-            base_url=BASE_URL, api_key="not-needed", model=MODEL, context_window=32768
-        )
+    return make_provider()
 
 
 def _mark(**kwargs):

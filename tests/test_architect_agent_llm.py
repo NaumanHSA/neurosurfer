@@ -1,48 +1,32 @@
-"""Real-LLM integration: the ReAct Architect agent driven by a local model.
+"""Real-LLM integration: the ReAct Architect agent driven by a real model.
 
-The decisive Phase 4 check — a real model (LM Studio, qwen/qwen3.5-9b) must drive
-the toolbelt end-to-end: set_workflow → add_node(s) → validate → register — and
-must declare_blocked on an impossible request. Auto-skips when LM Studio is down.
+The decisive Phase 4 check — a real model must drive the toolbelt end-to-end:
+set_workflow → add_node(s) → validate → register — and must declare_blocked on an
+impossible request. Defaults to LM Studio (qwen/qwen3.5-9b) and auto-skips when it
+is down; override the model/endpoint via NEUROSURFER_TEST_* (see
+``tests/_llm_test_provider.py``) to run against a hosted model.
 
 Run explicitly:
     conda run -n LLMs python -m pytest tests/test_architect_agent_llm.py -v
+    # or against a hosted model:
+    NEUROSURFER_TEST_BASE_URL=openai NEUROSURFER_TEST_MODEL=gpt-4o-mini \\
+        conda run -n LLMs python -m pytest tests/test_architect_agent_llm.py -v
 """
 
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 
 import pytest
 
-BASE_URL = "http://localhost:1234/v1"
-MODEL = "qwen/qwen3.5-9b"
+from ._llm_test_provider import make_provider, provider_ready, skip_reason
 
-
-def _lmstudio_ready() -> bool:
-    try:
-        import httpx
-
-        resp = httpx.get(f"{BASE_URL}/models", timeout=3.0)
-        return MODEL in [m.get("id") for m in resp.json().get("data", [])]
-    except Exception:  # noqa: BLE001
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _lmstudio_ready(), reason=f"LM Studio with {MODEL} not reachable at {BASE_URL}"
-)
+pytestmark = pytest.mark.skipif(not provider_ready(), reason=skip_reason())
 
 
 @pytest.fixture(scope="module")
 def provider():
-    from neurosurfer.llm.providers.openai import OpenAICompatProvider
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return OpenAICompatProvider(
-            base_url=BASE_URL, api_key="not-needed", model=MODEL, context_window=32768
-        )
+    return make_provider()
 
 
 def _agent(provider, tmp_path: Path):
