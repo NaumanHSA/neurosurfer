@@ -14,9 +14,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .agent import ArchitectAgent
 from .build import ArchitectBuilder, WorkflowInfeasible
 from .conversation import ArchitectConversation
 
 _PACKAGE_DIR = Path(__file__).parent / "package"
 
-__all__ = ["ArchitectBuilder", "ArchitectConversation", "WorkflowInfeasible"]
+__all__ = [
+    "ArchitectAgent",
+    "ArchitectBuilder",
+    "ArchitectConversation",
+    "WorkflowInfeasible",
+]

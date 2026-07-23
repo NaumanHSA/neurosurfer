@@ -254,8 +254,14 @@ def normalize_tool_names(tools: list[str]) -> list[str]:
 
 
 def workflow_node_tools() -> list[Tool]:
-    """Tools usable inside a generated workflow node: the built-in worker subset
-    plus every Architect-generated tool."""
+    """Tools usable inside a generated workflow node: the built-in worker subset,
+    every Architect-generated tool, and any live (MCP) tools.
+
+    MCP tools are workflow-usable because their server configs persist in the
+    ``McpStore``: the workflow runtime reconnects on demand
+    (:func:`neurosurfer.mcp.runtime.ensure_mcp_tools`), so a registered workflow
+    referencing an MCP tool keeps working across sessions — the connection is
+    ephemeral, the capability is not."""
     from .generated import load_generated_tools  # noqa: PLC0415 - avoid import cycle
 
     tools = [t for t in _builtin_tools() if t.name in _BUILTIN_WORKFLOW_NODE_TOOLS]
@@ -264,6 +270,10 @@ def workflow_node_tools() -> list[Tool]:
         if gen.name not in known:
             tools.append(gen)
             known.add(gen.name)
+    for live in live_tools():
+        if live.name not in known:
+            tools.append(live)
+            known.add(live.name)
     return tools
 
 

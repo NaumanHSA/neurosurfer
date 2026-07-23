@@ -167,6 +167,17 @@ class WorkflowRunner:
             and (self._allowed_tools is None or name in self._allowed_tools)
         )
         if unknown:
+            # The missing names may live on a configured MCP server — connect on
+            # demand (idempotent; publishes tools to the live registry) and retry.
+            try:
+                from neurosurfer.mcp.runtime import ensure_mcp_tools
+
+                if ensure_mcp_tools():
+                    tool_map = {t.name: t for t in all_tools()}
+                    unknown = [n for n in unknown if n not in tool_map]
+            except Exception:  # noqa: BLE001 - fall through to the clear error below
+                pass
+        if unknown:
             available = ", ".join(sorted(tool_map))
             raise ValueError(
                 "This workflow references tool(s) that are not registered: "

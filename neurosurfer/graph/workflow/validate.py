@@ -136,6 +136,18 @@ def validate_package(pkg: WorkflowPackage) -> ValidationReport:
             ),
         ))
 
+    # Wiring-floor: multiple nodes with zero depends_on edges is a bag of parallel
+    # nodes, not a pipeline — later steps can't see earlier steps' outputs.
+    if len(graph.nodes) > 1 and not any(n.depends_on for n in graph.nodes):
+        report.warnings.append(ValidationIssue(
+            kind="structure",
+            message=(
+                "no node declares depends_on — all nodes run in parallel and none "
+                "can read another's output; wire depends_on edges so data flows "
+                "between steps"
+            ),
+        ))
+
     return report
 
 
