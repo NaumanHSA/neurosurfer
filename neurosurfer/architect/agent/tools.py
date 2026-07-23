@@ -76,6 +76,39 @@ class SetWorkflowTool(Tool):
                              f"outputs={s.outputs}")
 
 
+class SetOutputsArgs(BaseModel):
+    outputs: list[str] = Field(
+        description="Node ids whose outputs are the workflow result (usually the terminal nodes)."
+    )
+
+
+class SetOutputsTool(Tool):
+    name = "set_outputs"
+    description = (
+        "Set the workflow's output node ids — the graph's final result. Use THIS "
+        "(not update_node) to declare or change outputs."
+    )
+    input_model = SetOutputsArgs
+
+    def __init__(self, session: BuildSession) -> None:
+        self.session = session
+
+    def is_read_only(self, args: BaseModel) -> bool:
+        return False
+
+    async def call(self, args: SetOutputsArgs, ctx: ToolContext) -> ToolResult:
+        s = self.session
+        unknown = [o for o in args.outputs if o not in set(s.node_ids())]
+        if unknown:
+            return ToolResult.error(
+                f"Unknown output node ids: {unknown}. Existing nodes: {s.node_ids()}"
+            )
+        s.outputs = list(args.outputs)
+        s.invalidate_verification()
+        s.notify(f"outputs set: {s.outputs}")
+        return ToolResult.ok(f"Workflow outputs set to {s.outputs}.")
+
+
 # ── node construction ───────────────────────────────────────────────────────────
 
 class AddNodeArgs(BaseModel):
@@ -119,8 +152,11 @@ class UpdateNodeTool(Tool):
     async def call(self, args: UpdateNodeArgs, ctx: ToolContext) -> ToolResult:
         current = self.session.get_node(args.id)
         if current is None:
+            hint = ""
+            if "outputs" in args.patch or "output" in args.id.lower():
+                hint = " To set the workflow's output node ids, call set_outputs (not update_node)."
             return ToolResult.error(
-                f"No node '{args.id}'. Existing: {self.session.node_ids()}"
+                f"No node '{args.id}'. Existing: {self.session.node_ids()}.{hint}"
             )
         merged = {**current, **args.patch, "id": args.id}
         return _put_node(self.session, merged, replace=True)
@@ -475,6 +511,7 @@ def architect_tools(session: BuildSession) -> list[Tool]:
     """The full architect toolbelt bound to *session* (+ web_search if available)."""
     tools: list[Tool] = [
         SetWorkflowTool(session),
+        SetOutputsTool(session),
         AddNodeTool(session),
         UpdateNodeTool(session),
         RemoveNodeTool(session),

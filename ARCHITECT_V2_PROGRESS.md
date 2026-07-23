@@ -492,3 +492,60 @@ knowledge guidance + agent cookbook (until-first), tutorial §11 (judge feedback
 visibly steering redrafts). 5 new tests (stop+feedback threading, repair retry,
 judge-failure fail-safe, mutual exclusion, empty-until) — full suite
 **489 passed**, ruff clean.
+
+---
+
+## Session 2026-07-23 — Tutorial 06 (Architect) + provider-owned sampling + toolbelt fixes 🔶 (in progress)
+
+**Shipped this session:**
+
+1. **New tutorial `tutorials/06_architect.ipynb`** — a compact Architect walkthrough
+   (Phases 3–6): self-knowledge (`KnowledgeBase`), ONE linear build + run, closed-loop
+   verification *reusing that build* (`derive_acceptance` + `verify_workflow`), and ONE
+   branching build. Heavier flows (requirement-gathering `ArchitectConversation`,
+   `verify="required"` self-repair, the A/B `run_harness`) are documented as copy-paste
+   "Go further" snippets to keep runtime short (2 builds). Trimmed down from a fuller
+   5-build draft after it proved too slow/costly on local models.
+   - **Committed with outputs cleared** — see TODO: needs one clean end-to-end run to
+     embed live outputs. Was validated through §4 (build + verification) on `gpt-5-mini`.
+
+2. **Provider-owned sampling params** (`llm/types.py` + providers). `GenerationConfig`'s
+   `max_tokens` / `temperature` / `effort` now default to **`None`**; the provider
+   resolves them from its own capabilities at request time. Agents no longer hardcode
+   these (stripped from `architect/conversation`, `architect/refine`,
+   `architect/tool_author`, `architect/agent/verify`, `agents/base`,
+   `agents/context/manager`, `rag/agent` router call). Rationale: gpt-5 / o-series reject
+   any non-default temperature and require `max_completion_tokens` — agents shouldn't
+   know per-model constraints; the Provider owns them.
+   - `OpenAIProvider`: `_send_temperature=False` for `gpt-5`/`o1`/`o3`/`o4` (omit
+     temperature entirely); `max_tokens` → `capabilities.max_output_tokens` when unset.
+   - `AnthropicProvider`: `max_tokens` resolved from caps; `temperature`/`effort` sent
+     only when explicitly set.
+   - `OpenAIProvider` (official api.openai.com) now actually drives current gpt-5 models.
+
+3. **Architect toolbelt fixes** — found by autopsying a Langfuse trace of one branching
+   build (`ArchitectAgent.build 6b980132b9e3`: **266s, 37 LLM calls, 5 errors, $0.066**):
+   - `GraphNode.accumulate` now coerces a **bool** → `False`→`None`, `True`→`"accumulated"`
+     (models pass `accumulate: false` where a var-name string is expected). *(fixed the
+     `add_node` loop crash.)*
+   - New **`set_outputs`** tool + a redirect hint on `update_node` — the model had
+     hallucinated a `set_workflow_outputs` *node* to declare graph outputs. Prompt step 7
+     now says declare outputs with `set_outputs`. *(fixed 2 of the 5 trace errors.)*
+
+**Verification:** full hermetic suite **489 passed**, ruff clean (real-LLM tests pinned to
+`qwen/qwen3.5-9b` are excluded — that model crashes on load on this box).
+
+**TODO — left for the next machine:**
+- [ ] **Run `tutorials/06_architect.ipynb` end-to-end** to embed live outputs (gpt-5-mini,
+      ~5 min, 2 builds). Needs a real `OPENAI_API_KEY` in `.env` and `MODEL=gpt-5-mini`.
+- [ ] **Over-engineering steer** (agent prompt): on a failed `test_workflow`, fix node
+      prompts/wiring *before* adding new control-flow constructs. The trace showed a
+      correct 3-node router rebuilt into an unnecessary 6-node `loop` design.
+- [ ] **Verification cost** (biggest cost lever): branch-coverage re-runs the *entire*
+      graph once per branch, per `test_workflow` call (~half the 37 LLM calls in the
+      trace). Cap `extra_cases` / skip unchanged branches / judge on a single run.
+- [ ] Real-LLM architect tests (`tests/test_architect_agent_llm.py`,
+      `tests/test_graph_llm_integration.py`) are hardcoded to `qwen/qwen3.5-9b`; consider
+      parametrizing the model (add a gpt-5-mini / hosted path).
+- [ ] Carried from earlier phases: README / `docs/` "What's New in the Engine" + example
+      gallery; drop the "experimental" framing.

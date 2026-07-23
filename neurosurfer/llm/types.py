@@ -155,13 +155,19 @@ class Usage(BaseModel):
 
 @dataclass
 class GenerationConfig:
-    max_tokens: int = 8192
-    temperature: float = 1.0
-    # Adaptive thinking + effort are applied by capability-supporting providers.
+    # Sampling / budget knobs are PROVIDER-OWNED: leave them None and the provider
+    # fills them from its own capabilities at request time (token budget from the
+    # model's max output, temperature/effort per the model's rules). Agents should
+    # not set these — they don't know a given model's constraints (e.g. gpt-5 and
+    # the o-series reject any non-default temperature). Set one explicitly only to
+    # deliberately override the provider default for a specific call.
+    max_tokens: int | None = None
+    temperature: float | None = None
+    effort: str | None = None
+    # Call/task semantics (safe for agents to set — honored uniformly):
+    # whether to allow thinking, hard stop sequences, and streaming vs. one-shot.
     enable_thinking: bool = True
-    effort: str = "high"
     stop_sequences: list[str] = field(default_factory=list)
-    # When True, the provider streams; otherwise a single completion is returned.
     stream: bool = True
 
 

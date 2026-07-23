@@ -210,7 +210,7 @@ async def derive_acceptance(
         messages=[Message.user_text(prompt)],
         system=_DERIVE_SYSTEM,
         tools=[],
-        config=GenerationConfig(max_tokens=1200, temperature=0.2, stream=False),
+        config=GenerationConfig(stream=False),
     )
     data = _parse_json(response.text(), want="criteria") or {}
     criteria = []
@@ -301,7 +301,7 @@ async def _judge(
         messages=[Message.user_text(prompt)],
         system=_JUDGE_SYSTEM,
         tools=[],
-        config=GenerationConfig(max_tokens=1200, temperature=0.0, stream=False),
+        config=GenerationConfig(stream=False),
     )
     data = _parse_json(response.text(), want="verdicts") or {}
     raw = data.get("verdicts") if isinstance(data.get("verdicts"), list) else []

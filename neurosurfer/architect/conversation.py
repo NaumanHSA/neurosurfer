@@ -123,8 +123,6 @@ _BUILD_WORKFLOW_TOOL = ToolSchema(
 )
 
 _CONFIG = GenerationConfig(
-    max_tokens=1024,
-    temperature=0.7,
     enable_thinking=False,
     stream=False,
 )

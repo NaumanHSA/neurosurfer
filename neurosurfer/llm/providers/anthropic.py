@@ -137,7 +137,12 @@ class AnthropicProvider(Provider):
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": config.max_tokens,
+            # Anthropic requires max_tokens; resolve the provider default when unset.
+            "max_tokens": (
+                config.max_tokens
+                if config.max_tokens is not None
+                else self.capabilities.max_output_tokens
+            ),
             "messages": to_anthropic_messages(
                 messages, supports_vision=self.capabilities.supports_vision
             ),
@@ -154,9 +159,12 @@ class AnthropicProvider(Provider):
             # Adaptive thinking requires temperature == 1.0.
             kwargs["thinking"] = {"type": "adaptive"}
             kwargs["temperature"] = 1.0
-            # effort is passed through the raw body for forward-compatibility.
-            kwargs["extra_body"] = {"effort": config.effort}
-        else:
+            # effort is passed through the raw body for forward-compatibility;
+            # omit it unless explicitly set (it's provider-owned otherwise).
+            if config.effort is not None:
+                kwargs["extra_body"] = {"effort": config.effort}
+        elif config.temperature is not None:
+            # Temperature is provider-owned: send only an explicit override.
             kwargs["temperature"] = config.temperature
         return kwargs
 

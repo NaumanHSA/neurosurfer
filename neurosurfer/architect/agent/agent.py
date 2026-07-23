@@ -56,7 +56,8 @@ workflow packages from a user's plain-English intent.
    derived inputs and judges the outputs against the user's intent. If it FAILS,
    read the diagnosis, fix the DESIGN (rewire, split, improve node prompts,
    change tools), and test again. Never leave a failing verification unaddressed.
-7. FINISH: `register_workflow` once valid (and tested), then stop with a 2–3
+7. FINISH: declare the result node(s) with `set_outputs` (never `update_node`),
+   then `register_workflow` once valid (and tested), and stop with a 2–3
    sentence summary of what the workflow does and its inputs. If the request is
    impossible as described (needs credentials/resources the user didn't provide,
    or an unsafe capability), call `declare_blocked` with a precise reason instead.

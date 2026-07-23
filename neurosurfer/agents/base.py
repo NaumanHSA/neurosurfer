@@ -92,9 +92,9 @@ class BaseAgent:
         self.io = io if io is not None else _resolve_io(approval)
         cwd = cwd if cwd is not None else Path.cwd()
         self.cwd = cwd
-        self.gen_config = gen_config or lt.GenerationConfig(
-            max_tokens=provider.capabilities.max_output_tokens
-        )
+        # Sampling/budget is provider-owned; the provider resolves the token
+        # budget from its own capabilities when unset.
+        self.gen_config = gen_config or lt.GenerationConfig()
         self.mode: PermissionMode = mode
         self.durable = durable
         self.depth = depth

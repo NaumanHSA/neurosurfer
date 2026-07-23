@@ -163,7 +163,7 @@ class WorkflowRefiner:
             messages=[Message.user_text(prompt)],
             system=_SYSTEM_PROMPT,
             tools=[],
-            config=GenerationConfig(max_tokens=800, temperature=0.2, stream=False),
+            config=GenerationConfig(stream=False),
         )
         data = _parse_json(response.text())
         if not isinstance(data, dict):

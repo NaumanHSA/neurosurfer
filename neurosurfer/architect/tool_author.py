@@ -219,7 +219,7 @@ class ToolAuthor:
             messages=[Message.user_text(prompt)],
             system=_SYSTEM_PROMPT,
             tools=[],
-            config=GenerationConfig(max_tokens=1500, temperature=0.3, stream=False),
+            config=GenerationConfig(stream=False),
         )
         return _extract_code_block(response.text())
 

@@ -431,7 +431,7 @@ class RAGAgent:
                 self.router_llm.complete(
                     messages=[Message.user_text(user_prompt)],
                     system=RETRIEVAL_PLANNER_SYSTEM_PROMPT,
-                    config=GenerationConfig(max_tokens=1024, temperature=0.2),
+                    config=GenerationConfig(),
                 )
             )
             content = response.text()

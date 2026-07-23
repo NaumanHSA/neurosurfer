@@ -295,6 +295,18 @@ class GraphNode(BaseModel):
             raise ValueError("node id must not be empty")
         return v
 
+    @field_validator("accumulate", mode="before")
+    @classmethod
+    def _coerce_accumulate(cls, v: object) -> object:
+        # `accumulate` is the variable NAME to append each iteration's output to,
+        # but LLMs routinely pass a boolean ("yes/no accumulate"). Coerce it:
+        # False → None (don't accumulate); True → a sensible default var name.
+        if v is False:
+            return None
+        if v is True:
+            return "accumulated"
+        return v
+
 
 # Resolve the self-referential `body: list[GraphNode]` forward reference.
 GraphNode.model_rebuild()

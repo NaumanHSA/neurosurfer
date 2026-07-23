@@ -122,7 +122,6 @@ class ContextManager:
         # No tools, no thinking — the preamble explicitly tells the model not
         # to call tools; thinking adds unnecessary latency + tokens here.
         summary_config = GenerationConfig(
-            max_tokens=min(self._caps.max_output_tokens, 20_000),
             enable_thinking=False,
             stream=False,
         )

@@ -125,3 +125,6 @@ test.py
 
 # neurosurfer runtime data (traces, generated projects, transcripts, state)
 .neurosurfer/
+
+# Architect tutorial (06) runtime artifacts — built workflow packages
+tutorials/.architect_tutorial/

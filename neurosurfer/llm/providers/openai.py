@@ -252,6 +252,9 @@ class _ToolCallAccumulator:
 class OpenAICompatProvider(Provider):
     # Subclasses may override to use 'max_completion_tokens' (newer OpenAI API).
     _tokens_param = "max_tokens"
+    # gpt-5 / o-series reasoning models reject any non-default temperature; the
+    # native provider flips this off for them (see OpenAIProvider.__init__).
+    _send_temperature = True
 
     def __init__(
         self,
@@ -313,11 +316,18 @@ class OpenAICompatProvider(Provider):
             "messages": to_openai_messages(
                 messages, system, supports_vision=self.capabilities.supports_vision
             ),
-            self._tokens_param: config.max_tokens,
-            "temperature": config.temperature,
+            self._tokens_param: (
+                config.max_tokens
+                if config.max_tokens is not None
+                else self.capabilities.max_output_tokens
+            ),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        # Temperature is provider-owned: only send an explicit override, and never
+        # for models that reject a non-default temperature (gpt-5 / o-series).
+        if self._send_temperature and config.temperature is not None:
+            kwargs["temperature"] = config.temperature
         if tools:
             kwargs["tools"] = to_openai_tools(tools)
             kwargs["tool_choice"] = "auto"
@@ -435,6 +445,9 @@ class OpenAIProvider(OpenAICompatProvider):
 
     _tokens_param = "max_completion_tokens"
 
+    # gpt-5 and the o-series reasoning models only accept the default temperature.
+    _FIXED_TEMPERATURE_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
     def __init__(self, api_key: str, model: str, max_output_tokens: int = 16384):
         import httpx
         from openai import AsyncOpenAI
@@ -446,3 +459,5 @@ class OpenAIProvider(OpenAICompatProvider):
         self.model = model
         self.capabilities = openai_native_capabilities(model, max_output_tokens)
         self.strict_tools = False
+        # Reasoning models reject a custom temperature — omit it (API default = 1).
+        self._send_temperature = not model.startswith(self._FIXED_TEMPERATURE_PREFIXES)
