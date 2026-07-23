@@ -112,8 +112,22 @@ class WorkflowRunner:
         with _PackagePathContext(pkg), traced_run(
             f"workflow:{pkg.manifest.name}",
             metadata={"workflow": pkg.manifest.name, "kind": "workflow"},
-        ):
+            input=inputs,
+        ) as wspan:
             result = executor.run(inputs, node_event=on_node_event)
+            # Attach the run's outcome to the workflow span so the trace root shows
+            # the final outputs (or the failure) instead of null/undefined.
+            if wspan is not None:
+                if result.errors:
+                    wspan.error("; ".join(
+                        f"{nid}: {err[:150]}" for nid, err in result.errors.items()
+                    ))
+                else:
+                    from neurosurfer.graph.engine.state import _jsonable
+
+                    wspan.output = {
+                        k: _jsonable(v) for k, v in (result.final or {}).items()
+                    }
 
         if tracer is not None and trace_path is not None:
             self._dump_trace(tracer, trace_path)

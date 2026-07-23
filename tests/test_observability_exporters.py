@@ -221,3 +221,11 @@ class TestWorkflowTraceNesting:
         assert node["trace_id"] == wf["trace_id"] == agent["trace_id"]
         # every span opened is closed
         assert len(mem.of("run_finish")) == len(starts) == 3
+
+        # V2: workflow + node spans carry the run's real I/O — previously they
+        # showed null/undefined and only the nested agent had input/output.
+        assert wf["input"] == {"query": "hi"}
+        assert node["input"]["graph_inputs"] == {"query": "hi"}
+        finishes = {f.get("span_id"): f for f in mem.of("run_finish")}
+        assert "the answer" in str(finishes[node["span_id"]]["output"])
+        assert finishes[wf["span_id"]]["output"] == {"n": finishes[node["span_id"]]["output"]}
