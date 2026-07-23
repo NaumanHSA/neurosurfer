@@ -231,10 +231,24 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                     f"its depends_on (so it runs as the fallback)."
                 )
         if n.kind == "router":
-            if not n.cases:
-                errors.append(f"router '{n.id}' must declare at least one case.")
+            if not n.cases and not n.routes:
+                errors.append(
+                    f"router '{n.id}' must declare `routes` (label → target) "
+                    f"or `cases`."
+                )
                 continue
-            targets = [c.to for c in n.cases] + ([n.default] if n.default else [])
+            if n.cases and n.routes:
+                errors.append(
+                    f"router '{n.id}' declares both `routes` and `cases` — pick one "
+                    f"(routes = LLM classification, cases = deterministic predicates)."
+                )
+            if n.routes and any(not str(lb).strip() for lb in n.routes):
+                errors.append(f"router '{n.id}' has an empty route label.")
+            targets = (
+                [c.to for c in (n.cases or [])]
+                + list((n.routes or {}).values())
+                + ([n.default] if n.default else [])
+            )
             for t in targets:
                 if t not in node_ids:
                     errors.append(f"router '{n.id}' targets unknown node id {t!r}.")
@@ -245,7 +259,7 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                         f"router '{n.id}' target '{t}' must list '{n.id}' in its "
                         f"depends_on (so it runs after the routing decision)."
                     )
-            for c in n.cases:
+            for c in n.cases or []:
                 _check_expr(c.when, f"router '{n.id}' case → '{c.to}'")
         elif n.kind in {"loop", "map", "subgraph"}:
             if not n.body:
@@ -253,6 +267,14 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
             if n.kind == "loop":
                 if not n.max_iterations or n.max_iterations < 1:
                     errors.append(f"loop '{n.id}' requires max_iterations >= 1 (a hard ceiling).")
+                if n.until and n.break_when:
+                    errors.append(
+                        f"loop '{n.id}' declares both `until` and `break_when` — pick "
+                        f"one (until = plain-English judged condition, break_when = "
+                        f"deterministic expression)."
+                    )
+                if n.until is not None and not n.until.strip():
+                    errors.append(f"loop '{n.id}' has an empty `until` condition.")
                 _check_expr(n.break_when, f"loop '{n.id}' break_when")
             if n.kind == "map":
                 if not n.over:
@@ -260,10 +282,10 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                 _check_expr(n.over, f"map '{n.id}' over")
             if n.body:
                 _validate_body(n, errors)
-        elif n.cases or n.default:
+        elif n.cases or n.routes or n.default:
             errors.append(
-                f"node '{n.id}' declares router fields (cases/default) but kind is "
-                f"'{n.kind}', not 'router'."
+                f"node '{n.id}' declares router fields (routes/cases/default) but "
+                f"kind is '{n.kind}', not 'router'."
             )
 
     if errors:

@@ -195,6 +195,85 @@ def test_router_falls_back_to_default():
     assert res.nodes["big"].skipped is True
 
 
+# ── router (routes: the router IS the classifier) ──────────────────────────────
+
+def _routes_graph(default: str | None = "reply", repair: bool = True) -> dict:
+    spec = {
+        "name": "routes_wf",
+        "inputs": [{"name": "ticket", "type": "string"}],
+        "nodes": [
+            {"id": "route", "kind": "router", "repair": repair,
+             "goal": "Route this support ticket by urgency: {ticket}",
+             "routes": {"urgent": "escalate", "billing": "finance", "routine": "reply"}},
+            {"id": "escalate", "kind": "function", "callable": f"{FN}._mark", "depends_on": ["route"]},
+            {"id": "finance", "kind": "function", "callable": f"{FN}._mark", "depends_on": ["route"]},
+            {"id": "reply", "kind": "function", "callable": f"{FN}._mark", "depends_on": ["route"]},
+        ],
+        "outputs": ["escalate", "finance", "reply"],
+    }
+    if default:
+        spec["nodes"][0]["default"] = default
+    return spec
+
+
+def test_routes_router_is_n_way_classifier():
+    # ONE router, THREE targets — the model's label picks the branch directly.
+    graph = load_graph_from_dict(_routes_graph())
+    provider = ScriptedProvider(turns=[("billing", [])])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run(
+        {"ticket": "I was charged twice for my subscription"})
+    assert res.nodes["route"].raw_output == "finance"
+    assert res.nodes["finance"].skipped is False
+    assert res.nodes["escalate"].skipped is True
+    assert res.nodes["reply"].skipped is True
+
+
+def test_routes_router_tolerates_wrapping_prose():
+    graph = load_graph_from_dict(_routes_graph())
+    provider = ScriptedProvider(turns=[("  The route is: URGENT.\n", [])])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({"ticket": "x"})
+    assert res.nodes["route"].raw_output == "escalate"
+
+
+def test_routes_router_repair_retries_invalid_answer():
+    graph = load_graph_from_dict(_routes_graph())
+    # First answer matches no label → repair retry → valid answer.
+    provider = ScriptedProvider(turns=[("I think it's about money?", []), ("billing", [])])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({"ticket": "x"})
+    assert res.nodes["route"].raw_output == "finance"
+    assert provider.calls == 2  # exactly one repair round-trip
+
+
+def test_routes_router_falls_back_to_default_after_repair():
+    graph = load_graph_from_dict(_routes_graph(default="reply"))
+    provider = ScriptedProvider(turns=[("nonsense", []), ("still nonsense", [])])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({"ticket": "x"})
+    assert res.nodes["route"].raw_output == "reply"
+    assert res.nodes["reply"].skipped is False
+
+
+def test_routes_router_no_default_errors_honestly():
+    graph = load_graph_from_dict(_routes_graph(default=None, repair=False))
+    provider = ScriptedProvider(turns=[("nonsense", [])])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({"ticket": "x"})
+    assert res.nodes["route"].error is not None
+    assert "no default" in res.nodes["route"].error
+
+
+def test_routes_and_cases_together_rejected():
+    spec = _routes_graph()
+    spec["nodes"][0]["cases"] = [{"when": "True", "to": "reply"}]
+    with pytest.raises(GraphConfigurationError, match="both"):
+        load_graph_from_dict(spec)
+
+
+def test_routes_target_must_depend_on_router():
+    spec = _routes_graph()
+    spec["nodes"][1]["depends_on"] = []  # escalate no longer depends on route
+    with pytest.raises(GraphConfigurationError, match="depends_on"):
+        load_graph_from_dict(spec)
+
+
 # ── router (LLM) ────────────────────────────────────────────────────────────────
 
 def test_llm_router_picks_label():

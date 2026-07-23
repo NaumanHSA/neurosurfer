@@ -56,18 +56,24 @@ _KIND_GUIDANCE: dict[str, dict[str, Any]] = {
         "requires": ["tools (first entry is invoked)"],
     },
     "router": {
-        "summary": "Selects ONE downstream branch. Expression router: first case whose "
-                   "`when` is truthy wins, else `default`. LLM router: cases carry only "
-                   "labels and the model picks one. Non-selected targets are pruned.",
-        "key_fields": ["cases", "default", "purpose", "depends_on"],
-        "requires": ["cases; every case target must depends_on the router"],
+        "summary": "Selects ONE downstream branch; non-selected targets are pruned. "
+                   "Simple form: `routes` ({label: target}) — the router itself "
+                   "classifies via one LLM call instructed by purpose/goal, with "
+                   "`repair` retrying an invalid answer before `default`. Advanced "
+                   "form: `cases` ([{when, to}]) — deterministic predicates, no LLM "
+                   "call.",
+        "key_fields": ["routes", "repair", "cases", "default", "purpose", "depends_on"],
+        "requires": ["routes or cases (not both); every target must depends_on the router"],
     },
     "loop": {
-        "summary": "Repeats a nested `body` sub-graph until `break_when` is truthy or "
-                   "`max_iterations` (required hard ceiling) is reached. `accumulate` "
+        "summary": "Repeats a nested `body` sub-graph, always capped by "
+                   "`max_iterations`. Stop condition: `until` (plain-English, judged "
+                   "by an internal LLM decision each iteration; a CONTINUE verdict's "
+                   "reason reaches the next iteration as {feedback}) or `break_when` "
+                   "(deterministic expression, no LLM call) — not both. `accumulate` "
                    "collects each iteration's output into a list.",
-        "key_fields": ["body", "max_iterations", "break_when", "accumulate", "as"],
-        "requires": ["body", "max_iterations >= 1"],
+        "key_fields": ["body", "max_iterations", "until", "break_when", "accumulate", "as"],
+        "requires": ["body", "max_iterations >= 1", "until XOR break_when (or neither)"],
     },
     "map": {
         "summary": "Runs a nested `body` once per item of the collection from the `over` "

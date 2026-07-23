@@ -162,7 +162,7 @@ class GraphExecutor:
             except Exception:  # noqa: BLE001 - progress UI must never break execution
                 pass
 
-        def _prune(nid: str, reason: str) -> None:
+        def _prune(nid: str, reason: str, *, quiet: bool = False) -> None:
             node = self._node_map[nid]
             nodes_results[nid] = NodeExecutionResult(
                 node_id=nid, mode=node.mode, raw_output=None,
@@ -171,7 +171,12 @@ class GraphExecutor:
             )
             pruned_ids.add(nid)
             _emit(nid, "skipped")
-            self._log(f"Node {nid} pruned ({reason})", tracer=trace_step, type="info")
+            if quiet:
+                # Router non-selection is already announced positively by the
+                # "routing to" line — per-target prune lines would just be noise.
+                self.logger.debug("Node %s pruned (%s)", nid, reason)
+            else:
+                self._log(f"Node {nid} pruned ({reason})", tracer=trace_step, type="info")
 
         def _post_run(nid: str, result: NodeExecutionResult) -> None:
             """Record a completed node: update state, propagate failure/pruning, emit."""
@@ -207,6 +212,15 @@ class GraphExecutor:
                 state.set_var(node.writes, result.raw_output)
             if node.kind == "router":
                 self._apply_router_pruning(node, result, pruned_ids)
+                selected = result.raw_output
+                label = (result.structured_output or {}).get("label")
+                if selected is None:
+                    msg = f"Node {nid}: no route matched — all targets pruned"
+                elif label and str(label) != str(selected):
+                    msg = f"Node {nid}: routing to '{selected}' (label: {label})"
+                else:
+                    msg = f"Node {nid}: routing to '{selected}'"
+                self._log(msg, tracer=trace_step, type="info")
             _emit(nid, "ok")
 
         for layer in self._layers:
@@ -229,7 +243,7 @@ class GraphExecutor:
                     continue
                 # 2. Explicitly pruned by an upstream router.
                 if nid in pruned_ids:
-                    _prune(nid, "not selected by router")
+                    _prune(nid, "not selected by router", quiet=True)
                     continue
                 # 3. OR-join: prune only if the node has deps and EVERY dep was pruned
                 #    (no live branch reached it). A single live dep keeps it alive.
@@ -262,9 +276,18 @@ class GraphExecutor:
                 # ambient TraceContext the node agent inherits (across threads too,
                 # via the copy_context() used for parallel/timeout nodes).
                 retries = node.policy.retries if (node.policy and node.policy.retries) else 0
+                # The span carries the node's real I/O so the trace UI shows what
+                # went in (graph inputs + upstream outputs) and what came out —
+                # not just on the nested agent generation.
+                from .state import _jsonable
+
+                span_input: dict[str, Any] = {"graph_inputs": _jsonable(graph_inputs)}
+                if dep_results:
+                    span_input["dependencies"] = _jsonable(dep_results)
                 with traced_run(
                     f"node:{node.id}",
                     metadata={"node_id": node.id, "kind": node.kind, "mode": node.mode},
+                    input=span_input,
                     flush=False,
                 ) as span:
                     attempt = 0
@@ -288,8 +311,11 @@ class GraphExecutor:
                             )
                             continue
                         break
-                    if span is not None and result.error and not result.skipped:
-                        span.error(result.error)
+                    if span is not None:
+                        if result.error and not result.skipped:
+                            span.error(result.error)
+                        else:
+                            span.output = _jsonable(result.raw_output)
                     return result
 
             if self.parallelism == 1 or len(to_run) == 1:
@@ -452,12 +478,14 @@ class GraphExecutor:
         started_at = time.time()
         cases = node.cases or []
         try:
-            if not cases:
+            if not cases and not node.routes:
                 raise GraphConfigurationError(
-                    f"router node '{node.id}' has no 'cases' declared."
+                    f"router node '{node.id}' has neither 'routes' nor 'cases'."
                 )
-            has_predicates = any(c.when and c.when.strip() for c in cases)
-            if has_predicates:
+            if node.routes:
+                # The simple form: the router IS the classifier (one LLM call).
+                selected, label = self._route_by_classification(node, state)
+            elif any(c.when and c.when.strip() for c in cases):
                 selected, label = self._route_by_expression(cases, node.default, state)
             else:
                 selected, label = self._route_by_llm(node, cases, state)
@@ -479,6 +507,77 @@ class GraphExecutor:
                 duration_ms=int((time.time() - started_at) * 1000),
                 error=str(e),
             )
+
+    def _route_by_classification(self, node: GraphNode, state: WorkflowState):
+        """`routes` router: one LLM call classifies and picks a label → target.
+
+        The node's purpose/goal (interpolated with graph inputs, e.g. ``{ticket}``)
+        is the classification instruction. If the answer matches no label and
+        ``repair`` is on, retry once telling the model exactly what went wrong;
+        after that fall back to ``default`` (or error if none).
+        """
+        if self.provider is None:
+            raise GraphConfigurationError(
+                f"router '{node.id}' uses `routes` (LLM classification) but no "
+                f"provider was given to the executor."
+            )
+        from .node_runner import run_base_node
+
+        routes: dict[str, str] = node.routes or {}
+        labels = list(routes)
+
+        def tmpl(text: str) -> str:
+            try:
+                return text.format(**state.inputs)
+            except Exception:  # noqa: BLE001 - unresolved placeholders stay literal
+                return text
+
+        instruction = tmpl((node.purpose or node.goal or f"Route for node {node.id}").strip())
+        # Upstream outputs are the routing evidence when the router has parents.
+        context = ""
+        if node.depends_on:
+            deps = {d: str(state.get_node_output(d))[:1200] for d in node.depends_on}
+            import json as _json
+
+            context = f"\n\nUpstream results:\n{_json.dumps(deps, ensure_ascii=False)}"
+
+        system = (
+            "You are a routing classifier inside a workflow engine. Decide which "
+            "route fits best. Reply with EXACTLY one route name from the allowed "
+            "list — nothing else."
+        )
+        user = f"{instruction}{context}\n\nAllowed routes: {labels}"
+
+        def _match(text: str) -> str | None:
+            answer = (text or "").strip().lower()
+            for lb in labels:
+                if lb.lower() == answer:
+                    return lb
+            for lb in labels:  # tolerate wrapping prose, e.g. "Route: urgent."
+                if lb.lower() in answer:
+                    return lb
+            return None
+
+        raw = run_base_node(self.provider, system, user)
+        label = _match(str(raw))
+        if label is None and node.repair:
+            self.logger.info(
+                "router %s: answer %r matched no route; repairing", node.id, str(raw)[:80]
+            )
+            retry = (
+                f"{user}\n\nYour previous answer was invalid: {str(raw)[:200]!r}. "
+                f"Answer again with EXACTLY one of: {labels} — a single word, no prose."
+            )
+            raw = run_base_node(self.provider, system, retry)
+            label = _match(str(raw))
+        if label is not None:
+            return routes[label], label
+        if node.default:
+            return node.default, None
+        raise GraphExecutionError(
+            f"router '{node.id}' could not map the model's answer "
+            f"({str(raw)[:120]!r}) to any route in {labels} and has no default."
+        )
 
     @staticmethod
     def _route_by_expression(cases, default, state: WorkflowState):
@@ -536,6 +635,7 @@ class GraphExecutor:
         """Mark every router-controlled target except the selected one as pruned."""
         selected = result.raw_output
         controlled: set[str] = {c.to for c in (node.cases or [])}
+        controlled.update((node.routes or {}).values())
         if node.default:
             controlled.add(node.default)
         for target in controlled:
@@ -572,11 +672,17 @@ class GraphExecutor:
         return final
 
     def _run_loop_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
-        """Run ``node.body`` repeatedly until ``break_when`` or ``max_iterations``.
+        """Run ``node.body`` repeatedly until the stop condition or ``max_iterations``.
 
-        Each iteration sees ``index`` and the previous output (bound to ``item_var``)
-        in its scope; body node outputs are published back to the parent state so the
-        break predicate and downstream nodes can read them.
+        Stop conditions (mutually exclusive):
+          - ``until``       — a plain-English condition judged by an internal LLM
+            decision after each iteration. A CONTINUE verdict carries a reason,
+            which the next iteration receives as ``{feedback}`` — directed
+            refinement, not blind retry.
+          - ``break_when``  — a sandboxed expression, evaluated for free.
+
+        Each iteration sees ``index``, the previous output (bound to ``item_var``),
+        and ``feedback``; body node outputs are published back to the parent state.
         """
         from .expressions import safe_bool
 
@@ -590,14 +696,18 @@ class GraphExecutor:
                 )
             child = self._child_executor(node)
             acc: list[Any] = []
+            judge_log: list[dict[str, Any]] = []
             last_output: Any = None
+            feedback = ""
             iterations = 0
             broke = False
             for i in range(node.max_iterations):
                 iterations = i + 1
-                scope = {"index": i, "iteration": i, node.item_var: last_output, "acc": list(acc)}
+                scope = {"index": i, "iteration": i, node.item_var: last_output,
+                         "acc": list(acc), "feedback": feedback}
                 child_state = state.child_scope(scope)
-                iter_inputs = {**state.inputs, "index": i, node.item_var: last_output}
+                iter_inputs = {**state.inputs, "index": i,
+                               node.item_var: last_output, "feedback": feedback}
                 body_result = child.run(iter_inputs, seed_state=child_state)
                 # Publish body outputs to the parent state (readable by break_when).
                 for nid, r in body_result.nodes.items():
@@ -613,7 +723,22 @@ class GraphExecutor:
                         node, started_at,
                         f"loop body failed on iteration {iterations}: {body_result.errors}",
                     )
-                if node.break_when:
+                if node.until:
+                    stop, reason = self._judge_loop_until(node, last_output, i)
+                    judge_log.append(
+                        {"iteration": iterations, "stop": stop, "reason": reason}
+                    )
+                    self._log(
+                        f"Node {node.id}: iteration {iterations} → "
+                        f"{'stop' if stop else 'continue'}"
+                        + (f" ({reason[:80]})" if reason else ""),
+                        tracer=None, type="info",
+                    )
+                    if stop:
+                        broke = True
+                        break
+                    feedback = reason or feedback
+                elif node.break_when:
                     ns = state.child_scope(
                         {"index": i, "iteration": i, node.item_var: last_output, "acc": list(acc)}
                     ).namespace()
@@ -621,17 +746,82 @@ class GraphExecutor:
                         broke = True
                         break
             result_value = state.vars.get(node.accumulate) if node.accumulate else last_output
+            structured: dict[str, Any] = {
+                "iterations": iterations, "broke_early": broke, "results": acc,
+            }
+            if judge_log:
+                structured["judge"] = judge_log
             return NodeExecutionResult(
                 node_id=node.id,
                 mode=node.mode,
                 raw_output=result_value,
-                structured_output={"iterations": iterations, "broke_early": broke, "results": acc},
+                structured_output=structured,
                 started_at=started_at,
                 duration_ms=int((time.time() - started_at) * 1000),
             )
         except Exception as e:  # noqa: BLE001
             self.logger.exception("Loop node %s failed: %s", node.id, e)
             return self._error_result(node, started_at, str(e))
+
+    def _judge_loop_until(
+        self, node: GraphNode, body_value: Any, index: int
+    ) -> tuple[bool, str]:
+        """The loop's hidden exit judge: one constrained LLM decision per iteration.
+
+        Returns ``(stop, reason)``. The reason for a CONTINUE verdict becomes the
+        next iteration's ``{feedback}``. Unparseable answers get one corrective
+        retry (when ``repair``), then fail safe to CONTINUE — the mandatory
+        ``max_iterations`` ceiling still bounds the loop.
+        """
+        import json as _json
+        import re as _re
+
+        if self.provider is None:
+            raise GraphConfigurationError(
+                f"loop '{node.id}' uses `until` (LLM-judged) but no provider was "
+                f"given to the executor."
+            )
+        from .node_runner import run_base_node
+
+        evidence = _json.dumps(body_value, ensure_ascii=False, default=str)[:3000]
+        system = (
+            "You are a loop-exit judge inside a workflow engine. Decide whether the "
+            "stop condition is met. Reply with exactly one word first — STOP or "
+            "CONTINUE — optionally followed by ' - <one short reason>'. On CONTINUE, "
+            "the reason must say what is still lacking: it is handed to the next "
+            "attempt as feedback."
+        )
+        user = (
+            f"Stop condition: {node.until}\n\n"
+            f"Iteration {index + 1} of at most {node.max_iterations}. Its results:\n"
+            f"{evidence}\n\nIs the stop condition met?"
+        )
+
+        def _parse(text: str) -> tuple[bool | None, str]:
+            m = _re.search(r"\b(stop|continue)\b", (text or "").lower())
+            if m is None:
+                return None, ""
+            reason = (text or "")[m.end():].strip(" \t\n-—:.,*")
+            return m.group(1) == "stop", reason
+
+        raw = run_base_node(self.provider, system, user)
+        decision, reason = _parse(str(raw))
+        if decision is None and node.repair:
+            retry = (
+                f"{user}\n\nYour previous answer was invalid: {str(raw)[:200]!r}. "
+                f"Reply with exactly STOP or CONTINUE (one word), optionally "
+                f"' - <short reason>'."
+            )
+            raw = run_base_node(self.provider, system, retry)
+            decision, reason = _parse(str(raw))
+        if decision is None:
+            # Fail safe: keep iterating — max_iterations still bounds the loop.
+            self.logger.warning(
+                "loop %s: until-judge answer unparseable (%r); continuing",
+                node.id, str(raw)[:80],
+            )
+            return False, ""
+        return decision, reason
 
     def _run_map_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
         """Fan ``node.body`` out over the collection from the ``over`` expression.

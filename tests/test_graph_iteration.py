@@ -179,6 +179,90 @@ def test_map_empty_collection_yields_empty_list():
     assert res.nodes["doubled"].raw_output == []
 
 
+# ── loop with `until` (LLM-judged stop condition + feedback) ───────────────────
+
+from .fakes import ScriptedProvider  # noqa: E402
+
+_feedbacks: list = []
+
+
+def _echo_feedback(feedback="", **kwargs):
+    _feedbacks.append(feedback)
+    return f"draft {len(_feedbacks)}"
+
+
+def _until_spec(repair: bool = True) -> dict:
+    return {
+        "name": "until_wf",
+        "nodes": [
+            {"id": "refine", "kind": "loop", "max_iterations": 3, "repair": repair,
+             "until": "the draft is good enough",
+             "accumulate": "attempts",
+             "body": [{"id": "draft", "kind": "function",
+                       "callable": f"{FN}._echo_feedback"}]},
+        ],
+        "outputs": ["refine"],
+    }
+
+
+def test_until_judge_stops_and_feeds_back():
+    _feedbacks.clear()
+    graph = load_graph_from_dict(_until_spec())
+    provider = ScriptedProvider(turns=[
+        ("CONTINUE - make it shorter and punchier", []),   # judge, iteration 1
+        ("STOP - looks good now", []),                     # judge, iteration 2
+    ])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({})
+    node = res.nodes["refine"]
+    assert node.error is None
+    assert node.structured_output["iterations"] == 2
+    assert node.structured_output["broke_early"] is True
+    # The judge log records both verdicts with reasons.
+    judge = node.structured_output["judge"]
+    assert [j["stop"] for j in judge] == [False, True]
+    assert "shorter" in judge[0]["reason"]
+    # The CONTINUE reason reached iteration 2 as {feedback}.
+    assert _feedbacks == ["", "make it shorter and punchier"]
+
+
+def test_until_judge_repair_retries_unparseable_answer():
+    _feedbacks.clear()
+    graph = load_graph_from_dict(_until_spec())
+    provider = ScriptedProvider(turns=[
+        ("hmm, hard to say really", []),   # unparseable → repair retry
+        ("STOP", []),                      # retry answer
+    ])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({})
+    assert res.nodes["refine"].structured_output["iterations"] == 1
+    assert res.nodes["refine"].structured_output["broke_early"] is True
+    assert provider.calls == 2
+
+
+def test_until_judge_failure_fails_safe_to_ceiling():
+    _feedbacks.clear()
+    graph = load_graph_from_dict(_until_spec(repair=False))
+    provider = ScriptedProvider(turns=[("???", []), ("???", []), ("???", [])])
+    res = GraphExecutor(graph, provider=provider, log_traces=False).run({})
+    node = res.nodes["refine"]
+    assert node.error is None
+    assert node.structured_output["iterations"] == 3  # ceiling still bounds it
+    assert node.structured_output["broke_early"] is False
+
+
+def test_until_and_break_when_together_rejected():
+    spec = _until_spec()
+    spec["nodes"][0]["break_when"] = "index >= 1"
+    with pytest.raises(GraphConfigurationError, match="both"):
+        load_graph_from_dict(spec)
+
+
+def test_empty_until_rejected():
+    spec = _until_spec()
+    spec["nodes"][0]["until"] = "   "
+    with pytest.raises(GraphConfigurationError, match="empty"):
+        load_graph_from_dict(spec)
+
+
 # ── validation ──────────────────────────────────────────────────────────────────
 
 def test_loop_requires_max_iterations():

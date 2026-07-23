@@ -116,23 +116,31 @@ class GraphBuilder:
         })
 
     # ── control-flow nodes ───────────────────────────────────────────────────
-    def router(self, id: str, *, cases: list[dict[str, Any]], default: str | None = None,
-               depends_on: list[str] | None = None, purpose: str | None = None,
+    def router(self, id: str, *, routes: dict[str, str] | None = None,
+               cases: list[dict[str, Any]] | None = None, default: str | None = None,
+               repair: bool = True, depends_on: list[str] | None = None,
+               purpose: str | None = None, goal: str | None = None,
                **extra: Any) -> GraphBuilder:
+        """`routes` = the simple classification router (label → target, one LLM
+        call instructed by purpose/goal); `cases` = deterministic predicates."""
         return self._add({
-            "id": id, "kind": "router", "cases": cases, "default": default,
-            "depends_on": depends_on or [], "purpose": purpose, **extra,
+            "id": id, "kind": "router", "routes": routes, "cases": cases,
+            "default": default, "repair": repair, "depends_on": depends_on or [],
+            "purpose": purpose, "goal": goal, **extra,
         })
 
     def loop(self, id: str, *, body: list[Any], max_iterations: int,
-             break_when: str | None = None, accumulate: str | None = None,
-             depends_on: list[str] | None = None, body_outputs: list[str] | None = None,
-             **extra: Any) -> GraphBuilder:
+             until: str | None = None, break_when: str | None = None,
+             accumulate: str | None = None, depends_on: list[str] | None = None,
+             body_outputs: list[str] | None = None, **extra: Any) -> GraphBuilder:
+        """`until` = plain-English stop condition (judged each iteration, CONTINUE
+        reasons become the next iteration's {feedback}); `break_when` = expression."""
         return self._add({
             "id": id, "kind": "loop", "body": _dump_body(body),
-            "max_iterations": max_iterations, "break_when": break_when,
-            "accumulate": accumulate, "depends_on": depends_on or [],
-            "body_outputs": body_outputs or [], **extra,
+            "max_iterations": max_iterations, "until": until,
+            "break_when": break_when, "accumulate": accumulate,
+            "depends_on": depends_on or [], "body_outputs": body_outputs or [],
+            **extra,
         })
 
     def map(self, id: str, *, over: str, body: list[Any], as_: str = "item",

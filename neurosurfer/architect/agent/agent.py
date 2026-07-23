@@ -89,17 +89,26 @@ good → `loop`; same processing for every item of a list → `map`; a step that
 sometimes applies → a `when:` guard; a risky step needing a fallback → `on_error`.
 A plain linear pipeline needs NONE of these — don't force control flow.
 
-Router (branch on an upstream result; every target depends_on the router):
-  {"id": "route", "kind": "router", "depends_on": ["classify"],
-   "cases": [{"when": "contains(lower(nodes.classify), 'urgent')", "to": "escalate"}],
+Router (the router ITSELF classifies — no separate classify node needed; every
+target depends_on the router):
+  {"id": "route", "kind": "router",
+   "goal": "Route this support ticket by urgency: {ticket}",
+   "routes": {"urgent": "escalate", "routine": "archive"},
    "default": "archive"}
+(Advanced: deterministic routing on a prior node's output uses
+ "cases": [{"when": "contains(lower(nodes.check), 'yes')", "to": "…"}] instead.)
 
-Loop (iterate a nested body until good; the body is its own mini-graph):
+Loop (iterate a nested body until good; state the stop condition in PLAIN ENGLISH
+via `until` — an internal judge decides stop/continue each iteration and its
+reason reaches the next attempt as {feedback}):
   {"id": "refine", "kind": "loop", "max_iterations": 3,
-   "break_when": "contains(lower(nodes.review), 'approved')",
-   "body": [{"id": "draft", "kind": "base", "purpose": "…", "goal": "…"},
+   "until": "the review approves the draft",
+   "body": [{"id": "draft", "kind": "base",
+             "goal": "Draft it. Reviewer feedback from last attempt: {feedback}"},
             {"id": "review", "kind": "base", "depends_on": ["draft"],
-             "purpose": "Review the draft; reply approved or rejected.", "goal": "…"}]}
+             "goal": "Review the draft critically."}]}
+(Deterministic loops — budgets, cursors, index checks — use
+ "break_when": "<expression>" instead of `until`.)
 
 Map (fan out over a list; the node's output is the ordered per-item results):
   {"id": "per_item", "kind": "map", "over": "inputs.items", "as": "item",

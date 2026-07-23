@@ -183,16 +183,34 @@ class GraphNode(BaseModel):
         default=None,
         description="Node id to activate if this node errors (fallback branch).",
     )
-    # Router node (kind='router'): ordered cases + a default target. Expression router
-    # picks the first case whose `when` is truthy; LLM router (mode/purpose set, no
-    # cases guards) asks the model to choose among case labels.
+    # Router node (kind='router'). Two flavours:
+    #
+    # 1. `routes` (the simple, recommended form): the router IS the classifier.
+    #    One LLM call — instructed by purpose/goal — picks one label from the dict
+    #    and its target runs; every other target is pruned. N-way by construction.
+    #    `repair` retries once with corrective feedback when the model's answer
+    #    matches no label, before falling back to `default`.
+    #
+    # 2. `cases` (deterministic/advanced): ordered {when, to} predicates evaluated
+    #    against state — no LLM call, free and reproducible. Cases with only
+    #    labels (no `when`) behave like `routes` (legacy LLM-router form).
+    routes: dict[str, str] | None = Field(
+        default=None,
+        description="Classification router: {label: target_node_id}. The router "
+                    "itself classifies via one LLM call and picks a branch.",
+    )
+    repair: bool = Field(
+        default=True,
+        description="routes only: retry once with corrective feedback when the "
+                    "model's answer matches no label (then fall back to default).",
+    )
     cases: list[RouterCase] | None = Field(
         default=None,
-        description="Router branches (kind='router'): ordered {when, to} cases.",
+        description="Deterministic router branches: ordered {when, to} cases.",
     )
     default: str | None = Field(
         default=None,
-        description="Router fallback target node id when no case matches.",
+        description="Router fallback target node id when no route/case matches.",
     )
 
     # ── iteration (Phase 1e loop / 1f map) ──────────────────────────────────
@@ -206,14 +224,25 @@ class GraphNode(BaseModel):
         default_factory=list,
         description="Body node ids whose outputs form the iteration result (default: all).",
     )
-    # loop node
+    # loop node. Two stop conditions (mutually exclusive; neither → run to the
+    # ceiling):
+    #   `until`      — plain-English condition judged by a hidden LLM decision
+    #                  after each iteration (stop/continue + a reason; the reason
+    #                  is fed to the next iteration as {feedback}).
+    #   `break_when` — sandboxed expression, no LLM call (deterministic loops:
+    #                  budgets, cursors, index checks).
     max_iterations: int | None = Field(
         default=None,
         description="Hard iteration ceiling for loop nodes (always required for loops).",
     )
+    until: str | None = Field(
+        default=None,
+        description="Plain-English stop condition (e.g. 'the review approves the "
+                    "slogan') judged by an internal LLM decision each iteration.",
+    )
     break_when: str | None = Field(
         default=None,
-        description="Loop stop predicate: expression evaluated after each iteration.",
+        description="Deterministic stop predicate: expression evaluated after each iteration.",
     )
     accumulate: str | None = Field(
         default=None,
