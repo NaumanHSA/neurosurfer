@@ -185,6 +185,113 @@ def _validate_graph_spec(spec: Graph) -> None:
             f"Graph '{spec.name}' has invalid dependency structure (likely a cycle): {e}"
         ) from e
 
+    # ---- control-flow validation (routers + when guards) ----
+    _validate_control_flow(spec, node_ids)
+
+
+def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
+    """Validate router nodes and conditional-edge (`when`) expressions.
+
+    Rules:
+      - A router must declare at least one case.
+      - Every router case ``to`` (and ``default``) must be a real node id.
+      - Every router-controlled target must ``depends_on`` the router, so the
+        scheduler runs the router first and can prune the non-selected branches.
+      - Every ``when`` guard (node-level and per-case) must be a syntactically valid
+        restricted expression.
+    """
+    from .expressions import ExpressionError, evaluate
+
+    def _check_expr(expr: str | None, where: str) -> None:
+        if not expr or not expr.strip():
+            return
+        try:
+            # Parse+shape check against an empty namespace: a NameError-style miss is
+            # fine (returns None / raises ExpressionError we ignore), but a syntax or
+            # disallowed-construct error must surface at load time.
+            evaluate(expr, {"inputs": {}, "nodes": {}, "vars": {}, "state": {}})
+        except ExpressionError as e:
+            msg = str(e)
+            if "syntax error" in msg or "not allowed" in msg or "unsupported" in msg:
+                raise GraphConfigurationError(f"{where}: invalid expression {expr!r}: {e}") from e
+        except Exception:  # noqa: BLE001 - a runtime miss on empty state is acceptable
+            pass
+
+    errors: list[str] = []
+    node_map = spec.node_map()
+    for n in spec.nodes:
+        _check_expr(n.when, f"node '{n.id}' when")
+        # Error/fallback target must exist and run after the node that routes to it.
+        if n.on_error:
+            if n.on_error not in node_ids:
+                errors.append(f"node '{n.id}' on_error targets unknown node id {n.on_error!r}.")
+            elif n.id not in (node_map[n.on_error].depends_on or []):
+                errors.append(
+                    f"node '{n.id}' on_error target '{n.on_error}' must list '{n.id}' in "
+                    f"its depends_on (so it runs as the fallback)."
+                )
+        if n.kind == "router":
+            if not n.cases:
+                errors.append(f"router '{n.id}' must declare at least one case.")
+                continue
+            targets = [c.to for c in n.cases] + ([n.default] if n.default else [])
+            for t in targets:
+                if t not in node_ids:
+                    errors.append(f"router '{n.id}' targets unknown node id {t!r}.")
+                    continue
+                tgt = node_map[t]
+                if n.id not in (tgt.depends_on or []):
+                    errors.append(
+                        f"router '{n.id}' target '{t}' must list '{n.id}' in its "
+                        f"depends_on (so it runs after the routing decision)."
+                    )
+            for c in n.cases:
+                _check_expr(c.when, f"router '{n.id}' case → '{c.to}'")
+        elif n.kind in {"loop", "map", "subgraph"}:
+            if not n.body:
+                errors.append(f"{n.kind} '{n.id}' must declare a non-empty body.")
+            if n.kind == "loop":
+                if not n.max_iterations or n.max_iterations < 1:
+                    errors.append(f"loop '{n.id}' requires max_iterations >= 1 (a hard ceiling).")
+                _check_expr(n.break_when, f"loop '{n.id}' break_when")
+            if n.kind == "map":
+                if not n.over:
+                    errors.append(f"map '{n.id}' requires an 'over' expression.")
+                _check_expr(n.over, f"map '{n.id}' over")
+            if n.body:
+                _validate_body(n, errors)
+        elif n.cases or n.default:
+            errors.append(
+                f"node '{n.id}' declares router fields (cases/default) but kind is "
+                f"'{n.kind}', not 'router'."
+            )
+
+    if errors:
+        raise GraphConfigurationError(
+            "Invalid control-flow configuration:\n  - " + "\n  - ".join(errors)
+        )
+
+
+def _validate_body(node, errors: list[str]) -> None:
+    """Validate a loop/map ``body`` sub-graph: internal deps, acyclicity, outputs."""
+    body_ids = {b.id for b in node.body}
+    for b in node.body:
+        for d in (b.depends_on or []):
+            if d not in body_ids:
+                errors.append(
+                    f"{node.kind} '{node.id}' body node '{b.id}' depends on '{d}', "
+                    f"which is not part of the body."
+                )
+    try:
+        topo_sort(node.body)
+    except GraphConfigurationError as e:
+        errors.append(f"{node.kind} '{node.id}' body has invalid structure: {e}")
+    for o in (node.body_outputs or []):
+        if o not in body_ids:
+            errors.append(
+                f"{node.kind} '{node.id}' body_outputs references unknown body node '{o}'."
+            )
+
 
 def load_graph_from_dict(data: dict[str, Any]) -> Graph:
     """

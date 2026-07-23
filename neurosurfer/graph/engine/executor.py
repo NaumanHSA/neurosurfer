@@ -26,6 +26,7 @@ from .errors import (
 from .export import GraphExporter
 from .manager import ManagerAgent, ManagerConfig
 from .schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
+from .state import WorkflowState
 from .templates import DEFAULT_NODE_SYSTEM_TEMPLATE
 from .utils import import_string, normalize_and_validate_graph_inputs, topo_sort
 
@@ -101,6 +102,7 @@ class GraphExecutor:
         manager_max_new_tokens: int = None,
         trace_step: TraceStepContext | None = None,
         node_event: Any | None = None,
+        seed_state: WorkflowState | None = None,
     ) -> GraphExecutionResult:
         """
         Execute the entire graph once.
@@ -129,10 +131,27 @@ class GraphExecutor:
             Contains the graph spec, all node results, and the final outputs.
         """
         graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
+        # Typed shared state threaded through the whole run (Phase 1a). Node outputs
+        # and explicit `writes` land here so conditional edges / routers / loops can
+        # read them via the expression evaluator. A `seed_state` (passed by loop/map
+        # body execution) pre-populates prior node outputs / vars / iteration scope.
+        if seed_state is not None:
+            state = WorkflowState(
+                inputs=dict(graph_inputs),
+                nodes=dict(seed_state.nodes),
+                vars=dict(seed_state.vars),
+                scope=dict(seed_state.scope),
+            )
+        else:
+            state = WorkflowState(inputs=dict(graph_inputs))
         nodes_results: dict[str, NodeExecutionResult] = {}
-        # Track which nodes failed (error set, raw_output None) — their dependents
-        # must be skipped rather than receiving None in dep_results.
+        # Nodes that errored (or were skipped because an upstream errored). These
+        # propagate AND-skip semantics to dependents (an error taints the branch).
         failed_ids: set[str] = set()
+        # Nodes deliberately not taken — a false `when` guard, a router not selecting
+        # them, or all incoming branches pruned. Distinct from `failed_ids`: a join
+        # node still runs if *any* incoming branch is live (OR-join).
+        pruned_ids: set[str] = set()
 
         def _emit(node_id: str, status: str) -> None:
             """Fire the optional per-node lifecycle callback, ignoring callback errors."""
@@ -143,67 +162,132 @@ class GraphExecutor:
             except Exception:  # noqa: BLE001 - progress UI must never break execution
                 pass
 
-        for layer in self._layers:
-            # Determine which nodes in this layer are blocked by a failed upstream.
-            to_skip = [nid for nid in layer if any(d in failed_ids for d in self._node_map[nid].depends_on)]
-            to_run  = [nid for nid in layer if nid not in to_skip]
+        def _prune(nid: str, reason: str) -> None:
+            node = self._node_map[nid]
+            nodes_results[nid] = NodeExecutionResult(
+                node_id=nid, mode=node.mode, raw_output=None,
+                started_at=time.time(), duration_ms=0,
+                skipped=True, skip_reason=reason,
+            )
+            pruned_ids.add(nid)
+            _emit(nid, "skipped")
+            self._log(f"Node {nid} pruned ({reason})", tracer=trace_step, type="info")
 
-            # Mark skipped nodes immediately (no LLM call needed).
-            for nid in to_skip:
-                node = self._node_map[nid]
-                failed_upstream = next(d for d in node.depends_on if d in failed_ids)
-                upstream_err = nodes_results[failed_upstream].error or "unknown error"
-                skip_result = NodeExecutionResult(
-                    node_id=nid,
-                    mode=node.mode,
-                    raw_output=None,
-                    started_at=time.time(),
-                    duration_ms=0,
-                    error=f"Skipped: upstream node '{failed_upstream}' failed: {upstream_err}",
-                    skipped=True,
-                    skip_reason=f"upstream '{failed_upstream}' failed",
-                )
-                nodes_results[nid] = skip_result
+        def _post_run(nid: str, result: NodeExecutionResult) -> None:
+            """Record a completed node: update state, propagate failure/pruning, emit."""
+            nodes_results[nid] = result
+            node = self._node_map[nid]
+            if result.error and not result.skipped:
+                # Error/fallback routing: a handled error activates the on_error branch
+                # and prunes the normal successors, instead of AND-skipping dependents.
+                if node.on_error:
+                    state.set_var(f"{nid}__error", result.error)
+                    for other in self.graph.nodes:
+                        if nid in (other.depends_on or []) and other.id != node.on_error:
+                            pruned_ids.add(other.id)
+                    _emit(nid, "error")
+                    self._log(
+                        f"Node {nid} errored; routing to fallback '{node.on_error}': "
+                        f"{result.error}",
+                        tracer=trace_step, type="warning",
+                    )
+                    return
                 failed_ids.add(nid)
-                _emit(nid, "skipped")
-                self._log(
-                    f"Node {nid} skipped (upstream '{failed_upstream}' failed)",
-                    tracer=trace_step,
-                    type="warning",
-                )
+                _emit(nid, "error")
+                self._log(f"Node {nid} failed: {result.error}", tracer=trace_step, type="error")
+                if self.graph.fail_fast:
+                    raise GraphExecutionError(
+                        f"Node '{nid}' failed (fail_fast=True): {result.error}",
+                        failed_node=nid,
+                    )
+                return
+            # Success: publish output to state (+ named variable), then handle routing.
+            state.set_node_output(nid, result.raw_output)
+            if node.writes:
+                state.set_var(node.writes, result.raw_output)
+            if node.kind == "router":
+                self._apply_router_pruning(node, result, pruned_ids)
+            _emit(nid, "ok")
+
+        for layer in self._layers:
+            to_run: list[str] = []
+            for nid in layer:
+                node = self._node_map[nid]
+                deps = node.depends_on
+                # 1. Upstream error → skip (AND-propagation; preserves prior behaviour).
+                failed_dep = next((d for d in deps if d in failed_ids), None)
+                if failed_dep is not None:
+                    upstream_err = nodes_results[failed_dep].error or "unknown error"
+                    nodes_results[nid] = NodeExecutionResult(
+                        node_id=nid, mode=node.mode, raw_output=None,
+                        started_at=time.time(), duration_ms=0,
+                        error=f"Skipped: upstream node '{failed_dep}' failed: {upstream_err}",
+                        skipped=True, skip_reason=f"upstream '{failed_dep}' failed",
+                    )
+                    failed_ids.add(nid)
+                    _emit(nid, "skipped")
+                    continue
+                # 2. Explicitly pruned by an upstream router.
+                if nid in pruned_ids:
+                    _prune(nid, "not selected by router")
+                    continue
+                # 3. OR-join: prune only if the node has deps and EVERY dep was pruned
+                #    (no live branch reached it). A single live dep keeps it alive.
+                if deps and all(d in pruned_ids for d in deps):
+                    _prune(nid, "no active branch reached this node")
+                    continue
+                # 4. Conditional-edge guard.
+                if node.when:
+                    from .expressions import safe_bool
+                    if not safe_bool(node.when, state.namespace(), default=False):
+                        _prune(nid, f"condition false: {node.when}")
+                        continue
+                to_run.append(nid)
 
             if not to_run:
                 continue
 
-            # Run nodes in this layer — serially (parallelism=1) or in a thread pool.
             def _execute_one(nid: str) -> NodeExecutionResult:
                 node = self._node_map[nid]
-                dep_results = {d: nodes_results[d].raw_output for d in node.depends_on}
-                # Find the most-recently completed non-skipped node for prev context.
+                dep_results = {d: state.get_node_output(d) for d in node.depends_on}
+                # Find the most-recently completed live node for prev context.
                 prev_result = None
                 for past_id in reversed(list(nodes_results.keys())):
                     past = nodes_results[past_id]
                     if not past.skipped and past.raw_output is not None:
                         prev_result = past.raw_output
                         break
-                # One trace span per node: makes non-agent (function/tool) nodes
+                # One trace span per node: makes non-agent (function/tool/router) nodes
                 # visible and nests each node's agent under its *node* row. Pushes an
                 # ambient TraceContext the node agent inherits (across threads too,
                 # via the copy_context() used for parallel/timeout nodes).
+                retries = node.policy.retries if (node.policy and node.policy.retries) else 0
                 with traced_run(
                     f"node:{node.id}",
                     metadata={"node_id": node.id, "kind": node.kind, "mode": node.mode},
                     flush=False,
                 ) as span:
-                    result = self._run_node(
-                        node=node,
-                        graph_inputs=graph_inputs,
-                        dependency_results=dep_results,
-                        previous_result=prev_result,
-                        manager_temperature=manager_temperature,
-                        manager_max_new_tokens=manager_max_new_tokens,
-                        trace_step=trace_step,
-                    )
+                    attempt = 0
+                    while True:
+                        result = self._run_node(
+                            node=node,
+                            graph_inputs=graph_inputs,
+                            dependency_results=dep_results,
+                            previous_result=prev_result,
+                            state=state,
+                            manager_temperature=manager_temperature,
+                            manager_max_new_tokens=manager_max_new_tokens,
+                            trace_step=trace_step,
+                        )
+                        # Retry a genuinely-failed node up to policy.retries times.
+                        if result.error and not result.skipped and attempt < (retries or 0):
+                            attempt += 1
+                            self._log(
+                                f"Node {nid} retry {attempt}/{retries} after error: {result.error}",
+                                tracer=trace_step, type="warning",
+                            )
+                            continue
+                        break
                     if span is not None and result.error and not result.skipped:
                         span.error(result.error)
                     return result
@@ -211,19 +295,7 @@ class GraphExecutor:
             if self.parallelism == 1 or len(to_run) == 1:
                 for nid in to_run:
                     _emit(nid, "start")
-                    result = _execute_one(nid)
-                    nodes_results[nid] = result
-                    if result.error and not result.skipped:
-                        failed_ids.add(nid)
-                        _emit(nid, "error")
-                        self._log(f"Node {nid} failed: {result.error}", tracer=trace_step, type="error")
-                        if self.graph.fail_fast:
-                            raise GraphExecutionError(
-                                f"Node '{nid}' failed (fail_fast=True): {result.error}",
-                                failed_node=nid,
-                            )
-                    else:
-                        _emit(nid, "ok")
+                    _post_run(nid, _execute_one(nid))
             else:
                 for nid in to_run:
                     _emit(nid, "start")
@@ -240,28 +312,13 @@ class GraphExecutor:
                         try:
                             result = fut.result()
                         except Exception as exc:
-                            # Wrap any unexpected exception from the thread.
                             node = self._node_map[nid]
                             result = NodeExecutionResult(
-                                node_id=nid,
-                                mode=node.mode,
-                                raw_output=None,
-                                started_at=time.time(),
-                                duration_ms=0,
+                                node_id=nid, mode=node.mode, raw_output=None,
+                                started_at=time.time(), duration_ms=0,
                                 error=f"Unexpected thread error: {exc}",
                             )
-                        nodes_results[nid] = result
-                        if result.error and not result.skipped:
-                            failed_ids.add(nid)
-                            _emit(nid, "error")
-                            self._log(f"Node {nid} failed: {result.error}", tracer=trace_step, type="error")
-                            if self.graph.fail_fast:
-                                raise GraphExecutionError(
-                                    f"Node '{nid}' failed (fail_fast=True): {result.error}",
-                                    failed_node=nid,
-                                )
-                        else:
-                            _emit(nid, "ok")
+                        _post_run(nid, result)
 
         final = self._select_final_outputs(nodes_results)
         all_errors = {nid: r.error for nid, r in nodes_results.items() if r.error and not r.skipped}
@@ -376,6 +433,359 @@ class GraphExecutor:
                 error=str(e),
             )
 
+    # ------------------------------------------------------------------ #
+    # Router node (Phase 1d)
+    # ------------------------------------------------------------------ #
+    def _run_router_node(
+        self, node: GraphNode, state: WorkflowState
+    ) -> NodeExecutionResult:
+        """Evaluate a router node and return the selected target node id as output.
+
+        Two flavours:
+          - **Expression router** (cases carry ``when`` predicates): the first case
+            whose predicate is truthy wins; otherwise ``default``.
+          - **LLM router** (cases carry only labels, node has a purpose): the model
+            picks one label from the case list; that label maps to its ``to`` target.
+        The selected id becomes ``raw_output`` so the scheduler can prune the
+        non-selected branches.
+        """
+        started_at = time.time()
+        cases = node.cases or []
+        try:
+            if not cases:
+                raise GraphConfigurationError(
+                    f"router node '{node.id}' has no 'cases' declared."
+                )
+            has_predicates = any(c.when and c.when.strip() for c in cases)
+            if has_predicates:
+                selected, label = self._route_by_expression(cases, node.default, state)
+            else:
+                selected, label = self._route_by_llm(node, cases, state)
+            return NodeExecutionResult(
+                node_id=node.id,
+                mode=node.mode,
+                raw_output=selected,
+                structured_output={"selected": selected, "label": label},
+                started_at=started_at,
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("Router node %s failed: %s", node.id, e)
+            return NodeExecutionResult(
+                node_id=node.id,
+                mode=node.mode,
+                raw_output=None,
+                started_at=started_at,
+                duration_ms=int((time.time() - started_at) * 1000),
+                error=str(e),
+            )
+
+    @staticmethod
+    def _route_by_expression(cases, default, state: WorkflowState):
+        from .expressions import safe_bool
+
+        ns = state.namespace()
+        for case in cases:
+            # An empty/None `when` is a catch-all (always matches).
+            if not case.when or not case.when.strip() or safe_bool(case.when, ns, default=False):
+                return case.to, case.label
+        return default, None
+
+    def _route_by_llm(self, node: GraphNode, cases, state: WorkflowState):
+        """Ask the LLM to choose exactly one route label from the case list."""
+        if self.provider is None:
+            raise GraphConfigurationError(
+                f"LLM router '{node.id}' needs a provider but none was given."
+            )
+        from .node_runner import run_base_node
+
+        labels = [(c.label or c.to) for c in cases]
+        purpose = (node.purpose or node.goal or f"Route node {node.id}").strip()
+        # Compact, JSON-safe state context so the classifier can decide.
+        import json as _json
+        context = _json.dumps(state.snapshot(), ensure_ascii=False)[:4000]
+        system = (
+            "You are a routing classifier inside a workflow engine. Read the context "
+            "and choose EXACTLY ONE route from the allowed list. Reply with only the "
+            "route label, nothing else."
+        )
+        user = (
+            f"Routing decision: {purpose}\n\n"
+            f"Allowed routes: {labels}\n\n"
+            f"Workflow state:\n{context}\n\n"
+            f"Answer with exactly one of: {labels}"
+        )
+        raw = run_base_node(self.provider, system, user)
+        answer = str(raw or "").strip().lower()
+        # Match the answer to a case by label/to (exact, then substring).
+        for case in cases:
+            key = (case.label or case.to).lower()
+            if key == answer:
+                return case.to, case.label
+        for case in cases:
+            key = (case.label or case.to).lower()
+            if key and key in answer:
+                return case.to, case.label
+        # No confident match → default (or first case as a last resort).
+        return (node.default or cases[0].to), None
+
+    @staticmethod
+    def _apply_router_pruning(
+        node: GraphNode, result: NodeExecutionResult, pruned_ids: set[str]
+    ) -> None:
+        """Mark every router-controlled target except the selected one as pruned."""
+        selected = result.raw_output
+        controlled: set[str] = {c.to for c in (node.cases or [])}
+        if node.default:
+            controlled.add(node.default)
+        for target in controlled:
+            if target != selected:
+                pruned_ids.add(target)
+
+    # ------------------------------------------------------------------ #
+    # Iteration nodes (Phase 1e loop / 1f map)
+    # ------------------------------------------------------------------ #
+    def _child_executor(self, node: GraphNode) -> GraphExecutor:
+        """Build a nested executor for a loop/map ``body`` sub-graph."""
+        body_graph = Graph(
+            name=f"{node.id}__body",
+            nodes=node.body or [],
+            outputs=list(node.body_outputs or []),
+        )
+        return GraphExecutor(
+            body_graph,
+            provider=self.provider,
+            native_tools=self.native_tools,
+            tool_ctx=self._tool_ctx,
+            exporter=self.exporter,
+            tracer=self.tracer,
+            log_traces=self.log_traces,
+            parallelism=self.parallelism,
+        )
+
+    @staticmethod
+    def _body_value(result: GraphExecutionResult) -> Any:
+        """Reduce a body run's final outputs to a single value (unwrap 1-key dicts)."""
+        final = result.final or {}
+        if len(final) == 1:
+            return next(iter(final.values()))
+        return final
+
+    def _run_loop_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        """Run ``node.body`` repeatedly until ``break_when`` or ``max_iterations``.
+
+        Each iteration sees ``index`` and the previous output (bound to ``item_var``)
+        in its scope; body node outputs are published back to the parent state so the
+        break predicate and downstream nodes can read them.
+        """
+        from .expressions import safe_bool
+
+        started_at = time.time()
+        try:
+            if not node.body:
+                raise GraphConfigurationError(f"loop node '{node.id}' has no body.")
+            if not node.max_iterations or node.max_iterations < 1:
+                raise GraphConfigurationError(
+                    f"loop node '{node.id}' requires max_iterations >= 1 (a hard ceiling)."
+                )
+            child = self._child_executor(node)
+            acc: list[Any] = []
+            last_output: Any = None
+            iterations = 0
+            broke = False
+            for i in range(node.max_iterations):
+                iterations = i + 1
+                scope = {"index": i, "iteration": i, node.item_var: last_output, "acc": list(acc)}
+                child_state = state.child_scope(scope)
+                iter_inputs = {**state.inputs, "index": i, node.item_var: last_output}
+                body_result = child.run(iter_inputs, seed_state=child_state)
+                # Publish body outputs to the parent state (readable by break_when).
+                for nid, r in body_result.nodes.items():
+                    if not r.skipped and r.error is None:
+                        state.set_node_output(nid, r.raw_output)
+                last_output = self._body_value(body_result)
+                acc.append(last_output)
+                if node.accumulate:
+                    state.set_var(node.accumulate, list(acc))
+                if body_result.errors:
+                    # A failing body stops the loop (surface it below).
+                    return self._error_result(
+                        node, started_at,
+                        f"loop body failed on iteration {iterations}: {body_result.errors}",
+                    )
+                if node.break_when:
+                    ns = state.child_scope(
+                        {"index": i, "iteration": i, node.item_var: last_output, "acc": list(acc)}
+                    ).namespace()
+                    if safe_bool(node.break_when, ns, default=False):
+                        broke = True
+                        break
+            result_value = state.vars.get(node.accumulate) if node.accumulate else last_output
+            return NodeExecutionResult(
+                node_id=node.id,
+                mode=node.mode,
+                raw_output=result_value,
+                structured_output={"iterations": iterations, "broke_early": broke, "results": acc},
+                started_at=started_at,
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("Loop node %s failed: %s", node.id, e)
+            return self._error_result(node, started_at, str(e))
+
+    def _run_map_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        """Fan ``node.body`` out over the collection from the ``over`` expression.
+
+        Returns the list of per-item body outputs (implicit gather); a downstream
+        node depending on this map receives that list.
+        """
+        from .expressions import ExpressionError, evaluate
+
+        started_at = time.time()
+        try:
+            if not node.body:
+                raise GraphConfigurationError(f"map node '{node.id}' has no body.")
+            if not node.over:
+                raise GraphConfigurationError(f"map node '{node.id}' requires an 'over' expression.")
+            try:
+                collection = evaluate(node.over, state.namespace())
+            except ExpressionError as e:
+                raise GraphConfigurationError(
+                    f"map '{node.id}' over-expression {node.over!r} failed: {e}"
+                ) from e
+            if collection is None:
+                collection = []
+            if not isinstance(collection, (list, tuple)):
+                raise GraphConfigurationError(
+                    f"map '{node.id}' over-expression must yield a list, got "
+                    f"{type(collection).__name__}."
+                )
+            items = list(collection)
+            child = self._child_executor(node)
+            results: list[Any] = [None] * len(items)
+
+            def _run_item(i: int) -> Any:
+                scope = {"index": i, node.item_var: items[i]}
+                child_state = state.child_scope(scope)
+                iter_inputs = {**state.inputs, "index": i, node.item_var: items[i]}
+                body_result = child.run(iter_inputs, seed_state=child_state)
+                if body_result.errors:
+                    raise GraphExecutionError(
+                        f"map body failed for item {i}: {body_result.errors}"
+                    )
+                return self._body_value(body_result)
+
+            if node.concurrency > 1 and len(items) > 1:
+                with ThreadPoolExecutor(max_workers=min(node.concurrency, len(items))) as pool:
+                    futures = {
+                        pool.submit(copy_context().run, _run_item, i): i
+                        for i in range(len(items))
+                    }
+                    for fut in futures:
+                        idx = futures[fut]
+                        results[idx] = fut.result()
+            else:
+                for i in range(len(items)):
+                    results[i] = _run_item(i)
+
+            return NodeExecutionResult(
+                node_id=node.id,
+                mode=node.mode,
+                raw_output=results,
+                structured_output={"count": len(items)},
+                started_at=started_at,
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("Map node %s failed: %s", node.id, e)
+            return self._error_result(node, started_at, str(e))
+
+    def _error_result(self, node: GraphNode, started_at: float, message: str) -> NodeExecutionResult:
+        return NodeExecutionResult(
+            node_id=node.id,
+            mode=node.mode,
+            raw_output=None,
+            started_at=started_at,
+            duration_ms=int((time.time() - started_at) * 1000),
+            error=message,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Sub-workflow (Phase 1h) + human-in-the-loop (Phase 1i)
+    # ------------------------------------------------------------------ #
+    def _run_subgraph_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        """Run ``node.body`` once as a nested sub-graph (composition).
+
+        The body sees the parent inputs/state; its final outputs become this node's
+        output (unwrapped when there's a single output).
+        """
+        started_at = time.time()
+        try:
+            if not node.body:
+                raise GraphConfigurationError(f"subgraph node '{node.id}' has no body.")
+            child = self._child_executor(node)
+            body_result = child.run(dict(state.inputs), seed_state=state.child_scope({}))
+            if body_result.errors:
+                return self._error_result(
+                    node, started_at, f"subgraph body failed: {body_result.errors}"
+                )
+            return NodeExecutionResult(
+                node_id=node.id,
+                mode=node.mode,
+                raw_output=self._body_value(body_result),
+                structured_output={"body_nodes": list(body_result.nodes.keys())},
+                started_at=started_at,
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
+        except Exception as e:  # noqa: BLE001
+            self.logger.exception("Subgraph node %s failed: %s", node.id, e)
+            return self._error_result(node, started_at, str(e))
+
+    def _run_input_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        """Human-in-the-loop node: obtain a value from the user (or a supplied answer).
+
+        Resolution order:
+          1. A pre-supplied value (``state.inputs[key]`` / ``state.vars[key]``) — this
+             is the **resume** path a durable API run uses (Phase 2).
+          2. An interactive ask through the ToolContext IO handler (CLI).
+          3. Otherwise an error signalling the run is awaiting input.
+        The answer key is ``writes`` if set, else the node id.
+        """
+        from neurosurfer.tools.base import AutoApproveIOHandler
+
+        started_at = time.time()
+        key = node.writes or node.id
+        supplied = state.inputs.get(key)
+        if supplied is None:
+            supplied = state.vars.get(key)
+        if supplied is not None:
+            return NodeExecutionResult(
+                node_id=node.id, mode=node.mode, raw_output=supplied,
+                structured_output={"source": "supplied"},
+                started_at=started_at, duration_ms=int((time.time() - started_at) * 1000),
+            )
+
+        io = self._tool_ctx.io if self._tool_ctx else None
+        question = (node.purpose or node.goal or f"Input needed for '{node.id}'").strip()
+        # Headless auto-approvers are non-interactive — don't fabricate an answer.
+        if io is not None and not isinstance(io, AutoApproveIOHandler):
+            from .node_runner import run_coro_blocking
+            try:
+                answer = run_coro_blocking(io.ask(question, node.options or None))
+            except Exception as e:  # noqa: BLE001
+                return self._error_result(node, started_at, f"input ask failed: {e}")
+            return NodeExecutionResult(
+                node_id=node.id, mode=node.mode, raw_output=answer,
+                structured_output={"source": "interactive"},
+                started_at=started_at, duration_ms=int((time.time() - started_at) * 1000),
+            )
+
+        return self._error_result(
+            node, started_at,
+            f"input node '{node.id}' is awaiting a value — supply '{key}' as an input "
+            f"to resume this run.",
+        )
+
     def _run_node(
         self,
         *,
@@ -383,6 +793,7 @@ class GraphExecutor:
         graph_inputs: dict[str, Any],
         dependency_results: dict[str, Any],
         previous_result: Any,
+        state: WorkflowState | None = None,
         manager_temperature: float,
         manager_max_new_tokens: int,
         trace_step: TraceStepContext | None = None,
@@ -393,6 +804,17 @@ class GraphExecutor:
             return self._run_function_node(node, graph_inputs, dependency_results)
         if node.kind == "tool":
             return self._run_tool_node(node, graph_inputs, dependency_results)
+        _state = state or WorkflowState(inputs=dict(graph_inputs))
+        if node.kind == "router":
+            return self._run_router_node(node, _state)
+        if node.kind == "loop":
+            return self._run_loop_node(node, _state)
+        if node.kind == "map":
+            return self._run_map_node(node, _state)
+        if node.kind == "subgraph":
+            return self._run_subgraph_node(node, _state)
+        if node.kind == "input":
+            return self._run_input_node(node, _state)
 
         # LLM-based node (base | react)
         user_prompt = self.manager.compose_user_prompt(
