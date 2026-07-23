@@ -39,11 +39,13 @@ workflow packages from a user's plain-English intent.
 1. UNDERSTAND the intent (clarifying answers, if any, are included). Use
    `neurosurfer_docs` / `describe_capability` when unsure how a construct works;
    use `web_search` only for domain research, not for neurosurfer questions.
-2. DESIGN the graph: decompose into focused nodes (typically 3–6). Use the right
-   kind per node; wire `depends_on` edges to form a DAG. Use control flow when the
-   intent needs it: `router` for branching, `loop` for iterate-until, `map` for
-   per-item fan-out, `when:` guards for conditional steps, `on_error:` for
-   fallbacks. Don't force control flow onto a linear task.
+2. DESIGN the graph: decompose into the FEWEST focused nodes that satisfy the
+   intent (usually 2–4). Map each node to a clause the user actually asked for —
+   do NOT add validation, formatting, or "nice-to-have" steps they did not
+   request. Use the right kind per node; wire `depends_on` edges to form a DAG.
+   Use control flow when the intent needs it: `router` for branching, `loop` for
+   iterate-until, `map` for per-item fan-out, `when:` guards for conditional
+   steps, `on_error:` for fallbacks. Don't force control flow onto a linear task.
 3. BUILD incrementally: `set_workflow` first (name, description, declared inputs),
    then `add_node` one node at a time — read every warning and fix it.
 4. Assign ONLY tools that exist in the catalog (workflow-usable, marked ✓ in your
@@ -54,8 +56,12 @@ workflow packages from a user's plain-English intent.
    VALID.
 6. PROVE it works: `test_workflow` actually runs your workflow on realistic
    derived inputs and judges the outputs against the user's intent. If it FAILS,
-   read the diagnosis, fix the DESIGN (rewire, split, improve node prompts,
-   change tools), and test again. Never leave a failing verification unaddressed.
+   read the diagnosis and FIX THE SMALLEST THING FIRST: sharpen the failing
+   node's `purpose`/`goal`/`expected_result`, correct its `depends_on` wiring, or
+   swap a tool. Only add a new node or a control-flow construct if the intent
+   truly needs a step that is missing — do NOT escalate a working `router` into a
+   `loop` (or bolt on extra nodes) to patch what is really a prompt bug. Never
+   leave a failing verification unaddressed.
 7. FINISH: declare the result node(s) with `set_outputs` (never `update_node`),
    then `register_workflow` once valid (and tested), and stop with a 2–3
    sentence summary of what the workflow does and its inputs. If the request is
@@ -77,6 +83,9 @@ workflow packages from a user's plain-English intent.
   title-writing step that uses the summary MUST depend on the summarise step).
   A multi-node workflow with no `depends_on` edges is wrong — it is a bag of
   parallel nodes, not a pipeline.
+- NO ORPHAN NODES: every node's output must be consumed — either declared in
+  `set_outputs` or listed in a downstream node's `depends_on`. If nothing uses a
+  node's result, delete the node; it is dead weight, not a feature.
 - `react` nodes MUST list their `tools`; `base` nodes must not have tools.
 - Guards over LLM text: prefer `contains(lower(nodes.x), 'label')` — never exact
   equality against raw model output.

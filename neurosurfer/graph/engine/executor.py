@@ -1015,7 +1015,13 @@ class GraphExecutor:
             temperature=manager_temperature,
             max_new_tokens=manager_max_new_tokens,
         )
-        system_prompt = self._build_system_prompt(node, graph_inputs)
+        # Interpolate templates over graph inputs *and* upstream state — a node's
+        # `goal`/`purpose` commonly references an upstream node's output by its
+        # `writes` name (e.g. "…based on the summary: {summary}"). `writes` vars are
+        # in `_state.vars`; dependency outputs are also exposed by node id. Explicit
+        # `writes` take precedence over a same-named graph input.
+        interp_scope = {**graph_inputs, **dependency_results, **_state.vars}
+        system_prompt = self._build_system_prompt(node, interp_scope)
         output_schema = self._load_output_schema_if_needed(node)
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
 
@@ -1132,24 +1138,27 @@ class GraphExecutor:
                 error=str(e),
             )
 
-    def _build_system_prompt(self, node: GraphNode, graph_inputs: dict[str, Any]) -> str:
+    def _build_system_prompt(self, node: GraphNode, scope: dict[str, Any]) -> str:
         """
-        Build the system prompt for a node, interpolating graph-level
-        inputs into purpose/goal/expected_result using `{name}` syntax.
+        Build the system prompt for a node, interpolating available scope
+        (graph inputs + upstream `writes` vars + dependency outputs) into
+        purpose/goal/expected_result using `{name}` syntax.
 
         Example:
-            purpose: "Perform research on {company_title}."
+            purpose: "Perform research on {company_title}."          # graph input
+            goal:    "Write a title based on the summary: {summary}"  # upstream writes
         """
         def tmpl(text: str | None) -> str:
             if not text:
                 return ""
             try:
-                return text.format(**graph_inputs)
+                return text.format(**scope)
             except Exception as e:
                 self.logger.warning(
-                    "Failed to format node %s template %r with graph inputs: %s",
+                    "Failed to format node %s template %r with available scope %s: %s",
                     node.id,
                     text,
+                    sorted(scope),
                     e,
                 )
                 return text

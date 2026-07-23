@@ -388,13 +388,22 @@ async def verify_workflow(
 
     # Branch coverage: run each extra case; it must run cleanly, and together the
     # cases should light up every branch. Extra cases are not judged (cost) — the
-    # main case carries the criteria.
+    # main case carries the criteria. Each extra case re-runs the WHOLE graph, so
+    # to keep cost down we (a) stop as soon as every node has been exercised and
+    # (b) skip cases whose inputs duplicate an already-run set.
     case_results: list[dict[str, Any]] = []
     cases_ok = True
+    seen_inputs: list[dict[str, Any]] = [dict(plan.test_inputs)]
     for case in plan.extra_cases:
+        if all(nid in executed for nid in all_node_ids):
+            break  # full node coverage reached — further re-runs are pure cost
+        case_inputs = case.get("test_inputs", {})
+        if any(case_inputs == prev for prev in seen_inputs):
+            continue  # identical inputs already exercised
+        seen_inputs.append(dict(case_inputs))
         label = case.get("label", "?")
         try:
-            case_run = await asyncio.to_thread(_run, case.get("test_inputs", {}))
+            case_run = await asyncio.to_thread(_run, case_inputs)
             errs = case_run.errors or {}
             executed |= {nid for nid, nr in case_run.nodes.items()
                          if not nr.skipped and nr.error is None}

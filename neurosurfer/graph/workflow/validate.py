@@ -15,6 +15,7 @@ they block registration with an actionable message.
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -124,17 +125,38 @@ def validate_package(pkg: WorkflowPackage) -> ValidationReport:
                 message=f"output '{out}' is not a node in the graph",
             ))
 
-    # Depth-floor: a 1–2-node workflow is almost certainly under-designed.
-    llm_nodes = [n for n in graph.nodes if n.kind in {"base", "react"}]
-    if len(llm_nodes) < 3:
-        report.warnings.append(ValidationIssue(
-            kind="structure",
-            message=(
-                f"workflow has only {len(llm_nodes)} LLM node(s) — "
-                "consider adding intermediate steps (validation, transformation, "
-                "output formatting) to make it more robust"
-            ),
-        ))
+    # Orphan nodes: a node whose output nothing consumes — not in `outputs`, not in
+    # any node's `depends_on`, not referenced by an expression (`nodes.<id>` /
+    # `vars.<writes>`) or an `on_error` target. Dead weight that inflates cost and
+    # is a classic over-design smell (a "validation"/"formatting" node bolted on but
+    # wired to nothing). Body-internal nodes are scoped separately, so only the
+    # top-level graph is checked.
+    if len(graph.nodes) > 1:
+        referenced_ids: set[str] = set(graph.outputs)
+        referenced_vars: set[str] = set()
+        for n in graph.nodes:
+            referenced_ids.update(n.depends_on or [])
+            if n.on_error:
+                referenced_ids.add(n.on_error)
+            exprs = [n.when, n.until, n.break_when, n.over]
+            exprs += [c.when for c in (n.cases or [])]
+            for e in exprs:
+                if not e:
+                    continue
+                referenced_ids.update(re.findall(r"nodes\.([A-Za-z_]\w*)", e))
+                referenced_vars.update(re.findall(r"vars\.([A-Za-z_]\w*)", e))
+        for n in graph.nodes:
+            if n.id in referenced_ids or (n.writes and n.writes in referenced_vars):
+                continue
+            report.warnings.append(ValidationIssue(
+                kind="structure",
+                node_id=n.id,
+                message=(
+                    "orphan node — nothing consumes its output (not in `outputs`, "
+                    "no node depends on it). Wire it into the graph, add it to "
+                    "`outputs`, or remove it."
+                ),
+            ))
 
     # Wiring-floor: multiple nodes with zero depends_on edges is a bag of parallel
     # nodes, not a pipeline — later steps can't see earlier steps' outputs.
