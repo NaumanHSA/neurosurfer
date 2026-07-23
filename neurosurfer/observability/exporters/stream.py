@@ -74,11 +74,16 @@ class TraceStreamObserver:
         *,
         model: str | None,
         name: str,
+        system: str | None = None,
     ) -> None:
         self._ctx = ctx
         self._exporters = exporters
         self._model = model
         self._name = name
+        # The agent's system prompt — prepended to each generation's traced input so
+        # the trace shows the FULL prompt the model saw (a node's interpolated
+        # purpose/goal lives here, not in the message history).
+        self._system = system
         self._answer: list[str] = []       # whole-run answer text (→ run output)
         self._last_output = None            # last turn's assistant message (fallback output)
         self._status: str | None = None
@@ -92,6 +97,14 @@ class TraceStreamObserver:
                 getattr(exp, hook)(self._ctx, **kw)
             except Exception:  # noqa: BLE001 — an exporter must never break the run
                 logger.debug("trace exporter %s.%s failed", exp.name, hook, exc_info=True)
+
+    def _turn_input(self, messages: list | None) -> list[dict] | None:
+        """The generation's input: the turn's messages, with the system prompt
+        prepended so the trace shows the full prompt the model actually saw."""
+        summarized = _summarize_messages(messages) or []
+        if self._system:
+            return [{"role": "system", "content": self._system}, *summarized]
+        return summarized or None
 
     # ── lifecycle ───────────────────────────────────────────────────────────
     def start(self, *, input: str | None = None) -> None:
@@ -121,7 +134,7 @@ class TraceStreamObserver:
                 usage=ev.usage,
                 model=self._model,
                 stop_reason=ev.stop_reason,
-                input=_summarize_messages(ev.input),
+                input=self._turn_input(ev.input),
                 # The model's own output this turn — thinking + text + tool_use —
                 # so each generation shows what *it* produced, not just the answer text.
                 output=_summarize_message(ev.output) if ev.output is not None else None,

@@ -71,6 +71,19 @@ class LangfuseExporter(TraceExporter):
         handle = self._handle(ctx)
         if handle is None:
             return
+        # We report *tokens only* — cost is the backend's job, computed from its own
+        # per-model price table. Send both usage shapes for broad server compat: the
+        # legacy `usage` (Langfuse ≤ v2 servers) and `usage_details` (v3-native, whose
+        # keys line up with a model's `prices` map so it prices correctly). Verified
+        # the two together do NOT double-count. Cache tokens surface when present.
+        usage_details = {
+            "input": int(usage.input_tokens),
+            "output": int(usage.output_tokens),
+        }
+        if usage.cache_read_input_tokens:
+            usage_details["cache_read"] = int(usage.cache_read_input_tokens)
+        if usage.cache_creation_input_tokens:
+            usage_details["cache_write"] = int(usage.cache_creation_input_tokens)
         handle.generation(
             name="llm-turn",
             model=model,
@@ -80,6 +93,7 @@ class LangfuseExporter(TraceExporter):
                 "output": int(usage.output_tokens),
                 "unit": "TOKENS",
             },
+            usage_details=usage_details,
             output=output,
             metadata={"stop_reason": stop_reason},
         )

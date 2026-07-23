@@ -261,7 +261,9 @@ class BaseAgent:
         else:
             ctx = TraceContext(session_id=self.session_id, metadata=meta)
         name = self._trace_name or f"{type(self).__name__}.run"
-        return TraceStreamObserver(ctx, exporters, model=model, name=name)
+        return TraceStreamObserver(
+            ctx, exporters, model=model, name=name, system=self.system_prompt
+        )
 
     async def run_collect(self, user_input: str) -> events.RunResult:
         """Drive :meth:`run` to completion and collect a :class:`RunResult`."""
