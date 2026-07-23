@@ -45,3 +45,8 @@ def generated_tools_dir() -> Path:
 def traces_dir() -> Path:
     """Where exported execution traces (JSON) are written for debugging."""
     return artifacts_home() / "traces"
+
+
+def runs_dir() -> Path:
+    """Durable per-run records for the workflow execution API (Phase 2)."""
+    return artifacts_home() / "runs"

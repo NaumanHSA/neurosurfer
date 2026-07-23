@@ -80,6 +80,10 @@ class NeurosurferServer:
         self.hooks: list[Hook] = []
         self.router = ModelRouter()
         self._upstream_backend: UpstreamBackend | None = None
+        # Workflow execution API (Phase 2). Inject a preconfigured RunManager here
+        # (tests / embedders), or leave None and one is built lazily on first use
+        # from the configured LLM provider.
+        self.run_manager: Any = None
 
         self.app = FastAPI(
             title=self.settings.app_name,
