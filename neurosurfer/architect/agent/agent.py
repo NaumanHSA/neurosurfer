@@ -157,6 +157,8 @@ class ArchitectAgent:
         self._max_turns = max_turns
         self._gen_config = gen_config
         self._verify = verify
+        # Set at the start of build(); lets external observers snapshot the graph.
+        self.session: Any = None
         # Continuation rounds after a premature text-only stop (see _nudge).
         # Small models narrate mid-build and stall the loop; nudges recover it.
         self._max_nudges = 6
@@ -173,6 +175,9 @@ class ArchitectAgent:
         from neurosurfer.tools.base import AutoApproveIOHandler, ToolPool
 
         session = self._make_session(intent)
+        # Expose the live session so external observers (e.g. the studio's build
+        # stream) can snapshot the staged graph as it is assembled.
+        self.session = session
 
         # Best-effort MCP: connect configured servers so their tools join the
         # workflow-usable catalog (and the knowledge context) before designing.
