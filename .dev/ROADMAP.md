@@ -3,11 +3,12 @@
 **Status:** current · branch `architect-validator/enhancement`, cut from `main`
 (`4065c2f`) · build logs live beside each plan.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1
-and 2 are in**: the engine can branch and loop, and the Architect has a capability
-manifest that resolves a need against a declared tag instead of against prose.
-641 tests pass from a 360 baseline (2026-08-03). Phase 3 next — the validator
-becomes a module.
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–3
+are in**: the engine branches and loops, the Architect has a capability manifest,
+and the validator is a module whose rules declare which kinds they speak about.
+796 tests pass from a 360 baseline, ruff clean across the tree (2026-08-03).
+Phase 4 next — the Architect plans first, grounds, and refuses what it cannot
+build.
 
 ---
 

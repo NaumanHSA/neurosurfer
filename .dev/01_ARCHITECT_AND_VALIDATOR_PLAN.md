@@ -216,26 +216,26 @@ derive from the live registry and engine, and a capability resolves against a
 declared tag rather than against prose — `file.write` → `write_file`. Phase 4 is
 the consumer.
 
-### Phase 3 — The validator becomes a module
+### Phase 3 — The validator becomes a module ✅
 
 Portable close to verbatim once Phase 1 lands.
 
-- [ ] `validation/` package: `models` · `registry` · `context` · `graph` ·
+- [x] `validation/` package: `models` · `registry` · `context` · `graph` ·
       `templates` · `nodes/` (`46ea9d1`).
-- [ ] A rule **declares its kinds and its severity**, so `rules_for_kind("input")`
+- [x] A rule **declares its kinds and its severity**, so `rules_for_kind("input")`
       answers §0.1's question as a query rather than a read.
-- [ ] Severity travels **on the issue**; `errors` / `gaps` / `warnings` / `infos`
+- [x] Severity travels **on the issue**; `errors` / `gaps` / `warnings` / `infos`
       become views over one list, which keeps the Architect's gap-routing working.
-- [ ] `message` / `detail` split, and the plain-language contract test — scoped to
+- [x] `message` / `detail` split, and the plain-language contract test — scoped to
       the swept rule ids, so the standard is enforced for new rules rather than
       asserted everywhere and skipped.
-- [ ] `validate.py` stays as a documented re-export, so every existing importer is
+- [x] `validate.py` stays as a documented re-export, so every existing importer is
       untouched by the move.
-- [ ] **Move first, change second.** The move is proven by diffing the complete
+- [x] **Move first, change second.** The move is proven by diffing the complete
       failure list before behaviour changes. On the studio branch the move alone
       surfaced four defects that would have been indistinguishable from intended
       changes had the rules changed in the same pass.
-- [ ] Retire the depth-floor guess (§0.1) — or demote it to `info`, which is what
+- [x] Retire the depth-floor guess (§0.1) — or demote it to `info`, which is what
       it always was.
 
 **Done when:** the rule table is the answer to "what can go wrong with this kind",

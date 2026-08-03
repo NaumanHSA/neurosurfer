@@ -212,7 +212,86 @@ derivable, and that is done.
 
 ## §3 — Phase 3: the validator becomes a module
 
-*Not started.*
+**Shipped 2026-08-03** (`ad28104`). 796 pass, 6 skipped, from 641. **Ruff clean
+across the whole tree**, for the first time on this line.
+
+### The port was the easy half
+
+`validate.py` becoming a 31-line re-export meant all twelve importers — four in
+`architect/`, two in `registry/`, and six test modules — were untouched. That is
+the whole argument for keeping a shim: a rename is not a reason to edit nineteen
+files, and every one you edit is a chance to edit it wrong.
+
+### Three failures, and only one of them was a bug
+
+Worth separating, because they looked identical in the output:
+
+1. **`test_unknown_depends_on_is_error`** asserted `"ghost" in e.message`. The
+   rule survives with the same `kind="dag"`; the message became *"This step waits
+   for a step that is not in the workflow."* and `ghost` moved to `detail`. That
+   is the `message`/`detail` split working exactly as designed, and the tip's own
+   version of the test asserts `"ghost" in (e.detail or "")`. Superseded, not
+   fixed.
+
+2. **`test_invalid_patch_is_rejected`** in refine. The fixture patched
+   `tools: [nonexistent_xyz]` onto a **`function`** node and expected
+   re-validation to fail. Under declared kinds, `tools_exist` speaks about
+   base/react/tool — a function node has no tools, so the patch is inert and
+   validation correctly passes. A stale fixture, and the tip had hit it and
+   changed the same line. Fixed the fixture; the comment says why.
+
+3. **Seven requirements failures** were a genuinely missing module. Real work,
+   not a test artefact.
+
+The distinction matters because the instinct on a red suite is to treat all of it
+as breakage. Two of these three were the port *working*.
+
+### `refine.py` could not come, and that is the plan holding
+
+Its tip version needs `architect/agent/jsonio` — Phase 4. So `refine.py` stays at
+`main`'s version here, and the one test that depended on new validator semantics
+was fixed at the fixture rather than by dragging Phase 4 forward. The 527-line
+refine diff waits its turn.
+
+### The depth-floor guess retired itself
+
+§0.1 called out *"a workflow with fewer than three LLM nodes is almost certainly
+under-designed"* as a judgement about taste sitting in a registration gate. The
+matured module had already deleted it — the studio branch reached the same
+conclusion independently. A correct two-step workflow now validates silent, which
+is checked rather than assumed.
+
+### Eighteen lint findings came with the port
+
+They had been sitting on the studio branch too; this is the first branch where
+the whole tree is clean. Two were worth more than tidying:
+
+- **Six annotations named `ValidationReport` without importing it.** Invisible at
+  run time under `from __future__ import annotations`, and simply wrong — the
+  annotation refers to a name not in scope. Fixed by importing it, not by
+  deleting the annotation.
+- **`Severity(str, Enum)`** where the engine's own `NodeMode` already uses
+  `StrEnum`. Same behaviour, and the codebase now agrees with itself.
+
+### What Phase 3 delivers
+
+```
+rules_for_kind('input')  -> edges_point_at_real_nodes, required_fields_present,
+                            one_declared_field_could_be_free_text,
+                            capability_is_available
+two-step workflow issues -> none
+```
+
+*"What can go wrong with an input node"* is a query. §0.1 said it was a careful
+read of a thousand lines.
+
+### Deliberately not done
+
+- **`refine.py` stays at `main`'s version.** Phase 4.
+- **Five registration-gate tests are skipped at their fixture**, with
+  `pytest.importorskip` and a reason, rather than five separate markers. They
+  test the gate; the rules the gate consumes are covered by the thirty-odd tests
+  above them in the same file.
 
 ---
 
