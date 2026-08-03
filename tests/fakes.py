@@ -263,6 +263,10 @@ class ScriptedProvider:
         self._turns = list(turns)
         self.model = "scripted"
         self.calls = 0
+        # Text of each user prompt received, so a test can assert on what a
+        # deriver/judge was actually told rather than only on what it replied.
+        self.prompts: list[str] = []
+        self.systems: list[str] = []
         self.capabilities = ProviderCapabilities(
             supports_thinking=False,
             supports_prompt_cache=False,
@@ -285,6 +289,13 @@ class ScriptedProvider:
         )
 
         self.calls += 1
+        self.systems.append(str(system or ""))
+        self.prompts.append("\n".join(
+            block.text
+            for m in (messages or [])
+            for block in getattr(m, "content", []) or []
+            if getattr(block, "text", None)
+        ))
         text, tool_calls = self._turns.pop(0) if self._turns else ("", [])
         content = []
         if text:

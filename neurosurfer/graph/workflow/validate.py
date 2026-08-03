@@ -186,6 +186,14 @@ def _check_output_schema(node, report: ValidationReport) -> None:
     path = node.output_schema
     if not path:
         return
+    # `output_schema` is now `str | dict`: an import path to a pydantic model, or
+    # a JSON Schema object written inline. Only the first is checkable here —
+    # handing a dict to `import_string` would report "does not import" about a
+    # schema that is perfectly well-formed, which is a worse answer than silence.
+    # The inline form gets its own rule when the validator becomes a module
+    # (plan 01, Phase 3); until then it is deliberately unchecked.
+    if isinstance(path, dict):
+        return
     try:
         obj = import_string(path)
     except Exception as exc:  # noqa: BLE001 - any import failure is a validation error

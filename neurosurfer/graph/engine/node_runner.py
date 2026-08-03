@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from neurosurfer.agents.oneshot import Agent as OneShotAgent
 from neurosurfer.agents.react import ReactAgent
 from neurosurfer.agents.runtime.permissions import Guardrails
 from neurosurfer.llm.base import Provider
-from neurosurfer.llm.types import GenerationConfig
+from neurosurfer.llm.types import GenerationConfig, ToolUseBlock, Usage
 from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext, ToolPool
 
 # ── async→sync bridge ────────────────────────────────────────────────────────
@@ -74,36 +75,81 @@ _WORKFLOW_GUARDRAILS = Guardrails(
 
 # ── per-kind node runners ─────────────────────────────────────────────────────
 
+def _tool_names(agent: Any) -> list[str]:
+    """Tools the agent actually invoked, in order, read back off its history."""
+    names: list[str] = []
+    try:
+        for msg in agent.history.messages:
+            for block in msg.content:
+                if isinstance(block, ToolUseBlock):
+                    names.append(block.name)
+    except Exception:  # noqa: BLE001 - telemetry must never fail a node
+        return names
+    return names
+
+
+@dataclass
+class NodeCall:
+    """What one node's LLM work produced: the output plus what it cost.
+
+    Node runners used to return the output alone, so the token usage the agent had
+    already tallied was discarded at the boundary and never reached the run record
+    or the API. Callers that only want the value can use ``.output``.
+    """
+
+    output: Any
+    usage: Usage = field(default_factory=Usage)
+    tool_calls: list[str] = field(default_factory=list)
+
+
 def run_base_node(
     provider: Provider,
     system_prompt: str,
     user_prompt: str,
     *,
+    tool_pool: ToolPool | None = None,
+    tool_ctx: ToolContext | None = None,
     output_schema: type | None = None,
     gen_config: GenerationConfig | None = None,
-) -> Any:
-    """Execute a base (single-LLM-call) node on the native provider stack.
+) -> NodeCall:
+    """Execute a base node: one LLM call, optionally with tools.
 
-    Returns a Pydantic model instance when output_schema is set, plain text
-    otherwise.
+    ``NodeCall.output`` is a Pydantic model instance when output_schema is set,
+    plain text otherwise.
+
+    **With tools, this is the rung between `base` and `react`.** `OneShotAgent`
+    offers the tools, lets the model call them once (`max_tool_rounds=1`), feeds the
+    results back and takes the answer — a single round rather than a loop. That is
+    the right shape for "fetch this, then tell me about it", which needed a `react`
+    node and its whole loop before.
+
+    An empty pool leaves the behaviour exactly as it was: one call, no tools
+    offered. Nothing changes for a node that never had any.
+
+    ``output_schema`` and tools do not combine — the structured path in
+    `OneShotAgent` answers in one shot by construction and never reaches the tool
+    loop. A node asking for both gets the schema, which is the field it declared
+    explicitly.
     """
     cfg = gen_config or GenerationConfig(
         max_tokens=provider.capabilities.max_output_tokens
     )
+    pool = tool_pool if tool_pool is not None else ToolPool([])
 
-    async def _run() -> Any:
+    async def _run() -> NodeCall:
         agent = OneShotAgent(
             provider=provider,
-            tools=ToolPool([]),
+            tools=pool,
             system_prompt=system_prompt,
             guardrails=_WORKFLOW_GUARDRAILS,
-            io=_HeadlessIO(),
-            cwd=Path.cwd(),
+            io=(tool_ctx.io if tool_ctx else _HeadlessIO()),
+            cwd=(tool_ctx.cwd if tool_ctx else Path.cwd()),
             gen_config=cfg,
             mode="bypass",
             output_schema=output_schema,
         )
-        return await agent.complete(user_prompt)
+        out = await agent.complete(user_prompt)
+        return NodeCall(output=out, usage=agent.usage, tool_calls=_tool_names(agent))
 
     return run_coro_blocking(_run())
 
@@ -116,7 +162,7 @@ def run_react_node(
     user_prompt: str,
     *,
     gen_config: GenerationConfig | None = None,
-) -> str:
+) -> NodeCall:
     """Execute a react (tool-using agent loop) node via the native agents.Agent."""
     cfg = gen_config or GenerationConfig(
         max_tokens=provider.capabilities.max_output_tokens
@@ -126,7 +172,7 @@ def run_react_node(
     native = getattr(provider.capabilities, "tool_call_style", None) in ("anthropic", "openai")
     agent_cls = AgenticLoop if native else ReactAgent
 
-    async def _run() -> str:
+    async def _run() -> NodeCall:
         agent = agent_cls(
             provider=provider,
             tools=tool_pool,
@@ -138,7 +184,11 @@ def run_react_node(
             mode="bypass",
         )
         result = await agent.run_collect(user_prompt)
-        return result.final_text
+        return NodeCall(
+            output=result.final_text,
+            usage=result.usage or Usage(),
+            tool_calls=_tool_names(agent),
+        )
 
     return run_coro_blocking(_run())
 
