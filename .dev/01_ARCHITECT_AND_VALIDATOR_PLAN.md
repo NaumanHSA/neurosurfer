@@ -241,15 +241,15 @@ Portable close to verbatim once Phase 1 lands.
 **Done when:** the rule table is the answer to "what can go wrong with this kind",
 and the plain-language test passes for every swept rule.
 
-### Phase 4 — The Architect plans first, and refuses what it cannot ground
+### Phase 4 — The Architect plans first, and refuses what it cannot ground ✅
 
-- [ ] The ReAct architect agent: toolbelt, session, JSON I/O harness (`309c94b`).
-- [ ] **Plan before design.** A written plan, checked against the capabilities
+- [x] The ReAct architect agent: toolbelt, session, JSON I/O harness (`309c94b`).
+- [x] **Plan before design.** A written plan, checked against the capabilities
       that exist, before any node is emitted (`9843e87`).
-- [ ] **Refuse what cannot run** — a capability nothing provides is reported as a
+- [x] **Refuse what cannot run** — a capability nothing provides is reported as a
       gap with what is missing, not built and discovered later.
-- [ ] Check the plan was actually built, and read the design back (`3bab542`).
-- [ ] The eleven fixes in `21e09a5`, each found by a live build. These are the
+- [x] Check the plan was actually built, and read the design back (`3bab542`).
+- [x] The eleven fixes in `21e09a5`, each found by a live build. These are the
       highest-value part of the whole port and the easiest to lose.
 
 **Done when:** a request needing a capability nothing provides comes back as a
@@ -297,9 +297,13 @@ The studio branch has a run store, REST + SSE streaming and durable run records
 (`6c8214a`). Phase 5's verification needs *a* way to run a workflow and read what
 happened; it does not need the HTTP surface.
 
-**Recommendation: take the run store and the durable run record, leave the REST
-and SSE routes.** The record is what verification reads; the routes exist to feed
-a browser.
+~~**Recommendation: take the run store and the durable run record, leave the REST
+and SSE routes.**~~ **Overturned in Phase 4.** The recommendation was right about
+the Architect's *code* — its closure is clean — and wrong about the cost. Its
+*tests* are written at the HTTP boundary, so leaving the routes left twenty tests
+on the floor, including the only coverage of "a build that parks and asks a
+person". `routes_architect`, `routes_workflows` and `workflow_runs` are in; the
+studio, accounts and uploads are not. See the build log §4.
 
 ### §3.2 — Do the node kind specs come across?
 

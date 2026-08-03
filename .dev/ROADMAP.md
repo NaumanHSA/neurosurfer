@@ -3,12 +3,15 @@
 **Status:** current · branch `architect-validator/enhancement`, cut from `main`
 (`4065c2f`) · build logs live beside each plan.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–3
-are in**: the engine branches and loops, the Architect has a capability manifest,
-and the validator is a module whose rules declare which kinds they speak about.
-796 tests pass from a 360 baseline, ruff clean across the tree (2026-08-03).
-Phase 4 next — the Architect plans first, grounds, and refuses what it cannot
-build.
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–4
+are in**. The Architect grounds every capability against a declared tag and
+refuses what nothing provides, proven deterministically and once live on
+`gpt-4o-mini`. 1134 tests pass from a 360 baseline, ruff clean (2026-08-03).
+Phase 5 next — verification that actually runs the workflow.
+
+**Running the suite:** 24s offline with
+`NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`. Without it, the live tests
+default to LM Studio on `:1234` and take twelve minutes if it happens to be up.
 
 ---
 

@@ -297,7 +297,93 @@ read of a thousand lines.
 
 ## §4 — Phase 4: plan first, ground, refuse
 
-*Not started.*
+**Shipped 2026-08-03** (`7ccc08c`). 1134 pass, 4 skipped, from 796. Ruff clean.
+
+### §3.1 was wrong, and the reason is worth keeping
+
+The plan declined the REST and SSE routes: *"the record is what verification
+reads; the routes exist to feed a browser."* That was right about the Architect's
+**code** — its closure was clean apart from `mcp.runtime` — and wrong about the
+cost, because its **tests** are written at the HTTP boundary.
+
+Twenty of the twenty-four failures after the code port were gateway surface. The
+one that decided it was `test_architect_interaction.py`: ten tests covering *"a
+build that parks and asks a person, is answered, and resumes"*. That is
+behaviour, not transport, and it had no other coverage anywhere.
+
+So `routes_architect` and `routes_workflows` came in, with `workflow_runs`
+behind them. The studio, accounts and uploads did not.
+
+### `workspaces.py` was rewritten, not ported
+
+The per-account version keys every manager on a user id, and there are no users
+on this line. Porting it would have brought a workspace dimension that is inert
+by construction, plus the half of `paths.py` that exists to serve it.
+
+Rewritten single-tenant instead — but **keeping the `user` parameter on every
+signature**, which is the part worth explaining. It means the nine call sites in
+the ported routes are untouched (nine chances to drop the wrong argument, not
+taken), and it keeps one file as the seam if accounts ever return. `user` is
+accepted and ignored, and the docstring says so rather than leaving the next
+reader to work out why a single-tenant module talks about users.
+
+### A real defect, not a missing module
+
+Four MCP tests failed with `assert []` — no servers connected. The cause was two
+layers down:
+
+```
+McpManager.connect_all() got an unexpected keyword argument 'publish'
+```
+
+`mcp/runtime.py` came across in Phase 4; `mcp/manager.py` had not, and its
+`connect_all` predated the argument. Every server reported `connected: False`
+with the `TypeError` **buried inside a status object** rather than raised — so
+the test said "nothing connected" and the reason was one `getattr` away.
+
+Worth noting as a class: a port can be import-clean and still signature-broken.
+The closure scan cannot see this, and neither can the type checker when the
+call is `connect_all(publish=...)` on a duck-typed manager.
+
+### Proven twice, deliberately
+
+Deterministically, with no model in the loop — which is the point, because a weak
+model has no say in it:
+
+```
+'file.read'   -> read_file        grounded
+'web.search'  -> web_search       grounded
+'email.read'  -> nothing provides it
+'chat.post'   -> nothing provides it
+```
+
+Then once **live**, on OpenAI `gpt-4o-mini`:
+`test_agent_declares_blocked_with_real_llm` — 1 passed in 35.77s. A real model,
+asked for something the install cannot do, declares it blocked instead of
+building an unrunnable workflow. That is Phase 4's finish line.
+
+### The suite got twelve minutes slower without saying so
+
+`tests/_llm_test_provider.py` defaults to `qwen/qwen3.5-9b` at
+`localhost:1234`. It is written to auto-skip when that is unreachable — and it
+was reachable, because LM Studio was running. So the live architect tests
+silently engaged the developer's GPU and took the suite from 22s to **12m16s**.
+
+Nothing was wrong; it simply never announced itself. Offline runs now use
+`NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`, and live checks are named,
+individual, and pointed at OpenAI.
+
+### Deliberately not done
+
+- **`test_architect_clarify_and_attachments.py` deleted**, not skipped. It drives
+  `POST /v1/architect/attachments`; uploads are not on this line, so the tests are
+  not pending, they are inapplicable.
+- **`auth/`, `routes_uploads`, `routes_attachments`, `routes_fs`, `routes_catalog`,
+  `routes_authored_tools`, `routes_mcp`, `routes_settings`** stay behind. The
+  first three are accounts and uploads; the rest exist to render a studio.
+- **`settings_store.py` came in** even though its routes did not — the run
+  manager reads provider profiles and secrets from it, so it is a dependency of
+  execution rather than of a settings screen.
 
 ---
 
