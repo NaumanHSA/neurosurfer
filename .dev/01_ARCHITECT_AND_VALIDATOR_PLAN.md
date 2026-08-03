@@ -190,20 +190,31 @@ The kinds the Architect designs with and the validator speaks about.
 **Done when:** a hand-written YAML workflow with a router and a loop loads, runs,
 and routes.
 
-### Phase 2 — The Architect can see what exists
+### Phase 2 — The Architect can see what exists ✅
 
-- [ ] The capability manifest: content-hash versioned, auto-derived from the tool
+- [x] The capability manifest: content-hash versioned, auto-derived from the tool
       classes, with a **closed capability vocabulary** so a step's need is matched
       against a declared tag rather than against shared words (`6a3bd67`).
-- [ ] The docs index and `KnowledgeBase`, with its freshness gate.
-- [ ] The tool registry — foldered by domain, `Tool.title` / `icon` /
+- [x] The docs index and `KnowledgeBase`, with its freshness gate.
+- [x] The tool registry — foldered by domain, `Tool.title` / `icon` /
       `capabilities` / `secret_inputs` / `credential_help`, operations as a
       first-class thing (`80d7c45`). This is what replaces the formatted string in
       §0.2.
-- [ ] `capability.py` — what a node *claims* to do, checked against what it holds.
+- [x] `capability.py` — what a node *claims* to do, checked against what it holds.
 
-**Done when:** `KnowledgeBase().render_context()` is what the Architect is given,
-and `format_workflow_tool_catalog()` is no longer interpolated into a prompt.
+**Done when:** ~~`KnowledgeBase().render_context()` is what the Architect is
+given, and `format_workflow_tool_catalog()` is no longer interpolated into a
+prompt.~~ **Corrected after the fact.** The second half was a planning error, not
+a shortfall: the studio branch's own `build.py` still interpolates that string,
+and the function is byte-identical on both branches. The tip never rewired the
+YAML architect — it built the ReAct agent beside it and left the old path alone,
+because **Phase 4 replaces that path outright.** Doing it here would be work the
+tip never did, on code about to be deleted.
+
+**Done when (as shipped):** the manifest, the docs index and `KnowledgeBase`
+derive from the live registry and engine, and a capability resolves against a
+declared tag rather than against prose — `file.write` → `write_file`. Phase 4 is
+the consumer.
 
 ### Phase 3 — The validator becomes a module
 

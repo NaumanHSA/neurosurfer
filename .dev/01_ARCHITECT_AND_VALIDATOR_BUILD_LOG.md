@@ -124,7 +124,89 @@ here yet, and the port would have looked further along than it was.
 
 ## §2 — Phase 2: the Architect can see what exists
 
-*Not started.*
+**Shipped 2026-08-03** (`fedbff3`). 641 pass, 1 skipped, from 620. Ruff clean.
+
+### The closure scan was wrong a third time, in a third way
+
+Phase 1 learned that an import scan must resolve *relative* imports and check the
+package `__init__` above the ported directory. So this time the scan did both —
+and still missed something, because the registry port is a **move**, not an
+addition.
+
+Six test files and three source files imported `neurosurfer.tools.builtin.<mod>`
+by submodule path. `tools/builtin/__init__.py` survives as a re-export, so
+`from neurosurfer.tools.builtin import ReadFileTool` keeps working; `from
+neurosurfer.tools.builtin.search import SearchTool` does not.
+
+The rule the three failures actually teach:
+
+> A closure scan answers *"what does the ported code need?"*. A **move** also
+> needs the reverse: *"who reaches into where it used to be?"* — and nothing about
+> the first question surfaces the second.
+
+`grep -rn "tools\.builtin\.[a-z_]"` answers it in one line. It should have been
+the first thing run, not the thing run after the suite went red.
+
+### Two more test files filed under the wrong phase
+
+Exactly Phase 1's mistake, repeated with different files. `test_capability_grounding.py`
+turned out to be **validator** tests (it asserts severities from rules that arrive
+in Phase 3) and `test_capability_resolution.py` needs `architect/agent/`, which is
+Phase 4. Both deferred rather than made to pass.
+
+That is twice now. The pattern is worth naming: **a test file named after a
+subject does not belong to the phase that ports that subject** — it belongs to
+the phase that ports whatever it *asserts against*. Checking a ported test's
+imports before adding it costs one command.
+
+### The "done when" was wrong, and the tip proves it
+
+Phase 2's stated finish line was *"`format_workflow_tool_catalog()` is no longer
+interpolated into a prompt"*. It is still interpolated, and it will be until
+Phase 4.
+
+The reason is worth recording, because it was a bad piece of planning rather than
+a shortfall in the work. **The tip's `build.py` still calls it too**, and
+`format_workflow_tool_catalog` is byte-identical on both branches — a flat
+`- name: description` list with no capabilities. The studio branch never rewired
+the YAML architect: it built the ReAct agent beside it and left the old path
+alone, because Phase 4 replaces that path outright.
+
+So rewiring `build.py` here would be work the tip never did, on a path that is
+about to be deleted. Not done, deliberately. The Phase 2 checklist has been
+corrected rather than ticked around.
+
+### What Phase 2 actually delivers
+
+Measured, not asserted:
+
+```
+VOCAB    : 17 declared capability tags
+MANIFEST : 11/20 tools declare capabilities
+GROUND   : file.write     -> ['write_file']
+           web.search     -> ['web_search']
+           data.inspect   -> ['data']
+KINDS    : base, function, input, loop, map, output, python, react,
+           router, subgraph, tool
+```
+
+Eleven node kinds in the manifest is Phase 1 paying for itself — on `main` the
+same derivation finds five. The capability lookup is the thing `main` could not
+do at all: a need resolved against a **declared tag** instead of against words a
+description happens to share.
+
+The consumer of all this is Phase 4. Phase 2's job was to make it exist and be
+derivable, and that is done.
+
+### Deliberately not done
+
+- **`build.py` still gets the flat catalog string.** See above.
+- **9 of 20 tools declare no capabilities.** Untagged tools still work; they are
+  simply never a *match*, which is the design. Tagging the rest is cheap and is
+  better done when Phase 4 shows which gaps actually bite.
+- **`test_execution_api_endpoints_derived` is skipped**, with the reason in the
+  skip marker rather than in a commit message nobody will find: it walks the
+  gateway's routes for `/v1/workflows` and `/v1/runs`, and §3.1 declines them.
 
 ---
 

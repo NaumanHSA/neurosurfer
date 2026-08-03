@@ -3,10 +3,11 @@
 **Status:** current · branch `architect-validator/enhancement`, cut from `main`
 (`4065c2f`) · build logs live beside each plan.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phase 1 is
-in**: the engine can branch and loop, 581 tests pass from a 360 baseline, and two
-hand-written YAML packages prove a router routes and a loop iterates
-(2026-08-03). Phase 2 next — the Architect can see what exists.
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1
+and 2 are in**: the engine can branch and loop, and the Architect has a capability
+manifest that resolves a need against a declared tag instead of against prose.
+641 tests pass from a 360 baseline (2026-08-03). Phase 3 next — the validator
+becomes a module.
 
 ---
 
