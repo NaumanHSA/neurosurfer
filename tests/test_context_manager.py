@@ -521,8 +521,8 @@ async def test_durable_state_in_system_after_compaction():
 
 async def test_todo_tool_writes_to_durable_state(tmp_path: Path):
     """TodoTool must persist items to DurableState when ctx.durable is set."""
+    from neurosurfer.registry.core.agent.todo import TodoTool
     from neurosurfer.tools.base import ToolContext
-    from neurosurfer.tools.builtin.todo import TodoTool
 
     d = DurableState()
     io = ScriptedIO()

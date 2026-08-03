@@ -80,7 +80,7 @@ async def check_mcp(ctx: CLIContext) -> list[tuple[bool, str]]:
 
 def _report_managed_env(ctx: CLIContext) -> None:
     """Report the managed python_exec venv's status (read-only; never provisions)."""
-    from neurosurfer.tools.builtin.python_exec.managed_env import (
+    from neurosurfer.registry.core.system.python_exec.managed_env import (
         installed_packages,
         is_provisioned,
         managed_python,
@@ -136,7 +136,7 @@ def cmd_doctor(ctx: CLIContext) -> int:
 
 def cmd_setup(ctx: CLIContext) -> int:
     """Provision the managed python_exec venv up front (curated packages)."""
-    from neurosurfer.tools.builtin.python_exec.managed_env import ensure_managed_venv
+    from neurosurfer.registry.core.system.python_exec.managed_env import ensure_managed_venv
 
     console = ctx.console
     console.print("[bold]neurosurfer setup[/bold]\n")

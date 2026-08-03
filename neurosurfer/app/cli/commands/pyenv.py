@@ -20,7 +20,7 @@ from .base import SlashCommand
 
 
 async def _pyenv_cmd(ctx: CLIContext, args: list[str]) -> None:
-    from neurosurfer.tools.builtin.python_exec.interpreter import (
+    from neurosurfer.registry.core.system.python_exec.interpreter import (
         SESSION_KEY,
         EnvResolutionError,
         describe_interpreter,
@@ -78,8 +78,8 @@ async def _pyenv_cmd(ctx: CLIContext, args: list[str]) -> None:
 def _peek_without_agent() -> tuple[str, bool]:
     from pathlib import Path
 
+    from neurosurfer.registry.core.system.python_exec.interpreter import describe_interpreter
     from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext
-    from neurosurfer.tools.builtin.python_exec.interpreter import describe_interpreter
 
     dummy_ctx = ToolContext(cwd=Path.cwd(), io=AutoApproveIOHandler())
     return describe_interpreter(dummy_ctx)

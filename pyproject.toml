@@ -136,3 +136,6 @@ check_untyped_defs = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "slow: spawns real subprocesses; ~half the suite's wall time",
+]

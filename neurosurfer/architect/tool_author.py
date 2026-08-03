@@ -41,19 +41,12 @@ from neurosurfer.tools.generated import (
 
 logger = logging.getLogger(__name__)
 
-# Tokens that warrant a flag in the approval prompt. Not a hard block — the human
-# decides — but they must be surfaced, not buried.
-_RISKY_PATTERNS = (
-    "os.system",
-    "subprocess",
-    "eval(",
-    "exec(",
-    "__import__",
-    "shutil.rmtree",
-    "socket.",
-    "pickle.loads",
-    "rm -rf",
-)
+# A substring scan for "risky" tokens used to live here and raise warnings like
+# "uses 'eval('". It was removed: it matched inside comments and strings, fired on
+# tools whose whole purpose was the flagged call (a calculator *is* eval), and
+# blocked nothing — so it read as a security control while providing none, and
+# trained the eye to skip warnings. Judging the code is what the source view and
+# the approval step are for.
 
 _SANDBOX_TIMEOUT_S = 15
 
@@ -86,6 +79,13 @@ class SandboxResult:
     error: str = ""
     warnings: list[str] = field(default_factory=list)
     functional_summary: str = ""  # result of actually calling the tool, if tested
+    #: The tool's own `name`, read off the instantiated class. Lets a caller adopt
+    #: a name the model chose instead of demanding one up front.
+    tool_name: str = ""
+    #: The tool's input JSON schema. A UI needs this to render real fields for a
+    #: test call — otherwise the only way to pass arguments is hand-written JSON
+    #: against a signature you cannot see.
+    input_schema: dict = field(default_factory=dict)
 
     def render(self) -> str:
         lines = [f"  {'✓' if v else '✗'} {k}" for k, v in self.checks.items()]
@@ -213,19 +213,34 @@ class ToolAuthor:
         return None
 
     # ── generation ───────────────────────────────────────────────────────────────
+    async def draft_code(
+        self, spec: ToolGapSpec, *, last_error: str | None = None
+    ) -> str | None:
+        """One generation attempt, returning source or None.
+
+        Public because authoring outside a build is an editing loop — generate,
+        read, change a line, re-run the sandbox — rather than the single
+        generate-validate-approve pass `author()` performs.
+        """
+        return await self._generate(spec, last_error)
+
     async def _generate(self, spec: ToolGapSpec, last_error: str | None) -> str | None:
         prompt = self._build_prompt(spec, last_error)
         response = await self.provider.complete(
             messages=[Message.user_text(prompt)],
             system=_SYSTEM_PROMPT,
             tools=[],
-            config=GenerationConfig(max_tokens=1500, temperature=0.3, stream=False),
+            config=GenerationConfig(stream=False),
         )
         return _extract_code_block(response.text())
 
     def _build_prompt(self, spec: ToolGapSpec, last_error: str | None) -> str:
         parts = [
-            f"Write a tool named '{spec.name}'.",
+            f"Write a tool named '{spec.name}'."
+            if spec.name
+            # No name given: the caller wants one chosen. Say so explicitly,
+            # because the system prompt otherwise insists `name` match a request.
+            else "Write a tool and give it a short, descriptive snake_case name.",
             f"Purpose: {spec.purpose}",
         ]
         if spec.inputs:
@@ -265,12 +280,7 @@ class ToolAuthor:
         except SyntaxError as exc:
             return SandboxResult(ok=False, checks={"parses": False}, error=f"syntax error: {exc}")
 
-        # 2) Static: surface risky tokens (flag, don't block).
-        for pat in _RISKY_PATTERNS:
-            if pat in draft.code:
-                warnings.append(f"uses {pat!r}")
-
-        # 3) Dynamic: import + instantiate + contract checks in a child process.
+        # 2) Dynamic: import + instantiate + contract checks in a child process.
         sandbox = self._sandbox_check(draft)
         checks.update(sandbox.checks)
         warnings.extend(sandbox.warnings)
@@ -282,6 +292,8 @@ class ToolAuthor:
             error=sandbox.error,
             warnings=warnings,
             functional_summary=sandbox.functional_summary,
+            tool_name=sandbox.tool_name,
+            input_schema=sandbox.input_schema,
         )
 
     def _sandbox_check(self, draft: ToolDraft) -> SandboxResult:
@@ -339,6 +351,8 @@ class ToolAuthor:
                 checks=payload.get("checks", {}),
                 error=payload.get("error", ""),
                 functional_summary=payload.get("functional_summary", ""),
+                tool_name=payload.get("tool_name", "") or "",
+                input_schema=payload.get("input_schema") or {},
             )
 
 
@@ -401,12 +415,16 @@ def main():
         print(json.dumps({"ok": False, "checks": checks, "error": f"instantiation failed: {exc}"}))
         return
 
-    checks["name_matches"] = (getattr(inst, "name", None) == expected)
+    tool_name = getattr(inst, "name", "") or ""
+    # No expected name means the caller let the model choose; adopt what it picked.
+    checks["name_matches"] = True if not expected else (tool_name == expected)
     checks["has_description"] = bool(getattr(inst, "description", ""))
     checks["input_model_ok"] = isinstance(getattr(inst, "input_model", None), type) and issubclass(inst.input_model, BaseModel)
     checks["call_is_async"] = inspect.iscoroutinefunction(getattr(cls, "call", None))
 
+    input_schema = {}
     try:
+        input_schema = inst.input_model.model_json_schema()
         _ = inst.schema  # exercises input_model -> json schema
         checks["schema_ok"] = True
     except Exception as exc:  # noqa: BLE001
@@ -442,25 +460,29 @@ def main():
             res = asyncio.run(inst.call(args_obj, ctx))
         except Exception as exc:  # noqa: BLE001
             checks["functional_runs"] = False
-            print(json.dumps({"ok": False, "checks": checks, "error": f"functional test raised: {exc}"}))
+            print(json.dumps({"ok": False, "checks": checks, "error": f"functional test raised: {exc}",
+                              "tool_name": tool_name, "input_schema": input_schema}))
             return
         if not isinstance(res, ToolResult):
             checks["functional_runs"] = False
-            print(json.dumps({"ok": False, "checks": checks, "error": "call() did not return a ToolResult"}))
+            print(json.dumps({"ok": False, "checks": checks, "error": "call() did not return a ToolResult",
+                              "tool_name": tool_name, "input_schema": input_schema}))
             return
         content = (getattr(res, "content", "") or "")[:200].replace(chr(10), " ")
         if getattr(res, "is_error", False):
             checks["functional_runs"] = False
             print(json.dumps({"ok": False, "checks": checks,
                               "error": "functional test returned an error result: " + content,
-                              "functional_summary": "[error] " + content}))
+                              "functional_summary": "[error] " + content,
+                              "tool_name": tool_name, "input_schema": input_schema}))
             return
         checks["functional_runs"] = True
         func_summary = "[ok] " + content
 
     ok = all(checks.values())
     print(json.dumps({"ok": ok, "checks": checks, "error": "" if ok else "contract checks failed",
-                      "functional_summary": func_summary}))
+                      "functional_summary": func_summary,
+                      "tool_name": tool_name, "input_schema": input_schema}))
 
 
 main()
