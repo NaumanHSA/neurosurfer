@@ -3,9 +3,10 @@
 **Status:** current · branch `architect-validator/enhancement`, cut from `main`
 (`4065c2f`) · build logs live beside each plan.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — the branch is
-cut, the studio's remains are out of the working copy, and the baseline is
-recorded (2026-08-03).
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phase 1 is
+in**: the engine can branch and loop, 581 tests pass from a 360 baseline, and two
+hand-written YAML packages prove a router routes and a loop iterates
+(2026-08-03). Phase 2 next — the Architect can see what exists.
 
 ---
 

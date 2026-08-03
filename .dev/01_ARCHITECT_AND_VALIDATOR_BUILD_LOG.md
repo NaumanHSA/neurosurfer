@@ -37,7 +37,88 @@ discrepancy worth chasing, which is the point of keeping both files.
 
 ## §1 — Phase 1: the engine floor
 
-*Not started.*
+**Shipped 2026-08-03** (`2fdd5b2`). 581 tests pass, from a 360 baseline — no
+failures on either side, compared as *lists* rather than counts. Ruff clean.
+
+### The decision that made it small: port the tip, not the commit
+
+`a57034b` is the commit that introduced control flow, and its parent is exactly
+`main`'s tip — so it would have cherry-picked cleanly. It was still the wrong
+thing to take. It is 53 commits behind, and the fixes since are the whole reason
+to port rather than rewrite. So the port is `git checkout studio/architect-v2 --
+neurosurfer/graph/engine`: the *matured* engine, in one move.
+
+`graph/engine/` goes 2.4k → 6.9k lines and **nothing was dropped** — every file on
+`main` still exists at the tip. That is what made a wholesale take safe, and it
+was worth checking before committing to it rather than after.
+
+### The closure was three modules, and the scan that found them was wrong twice
+
+Grepping the tip's engine for `from neurosurfer.…` said only two modules were
+missing. Both misses were the same mistake in different clothes:
+
+- **`from .registry import …`** — a *relative* import inside `mcp/credentials.py`,
+  which a `from neurosurfer.` grep cannot see. Found by the test suite, not by the
+  scan.
+- **`neurosurfer/graph/__init__.py`** — the package re-export one level *above*
+  the directory being ported. `GraphBuilder` was in the ported code and not in the
+  namespace anybody imports it from.
+
+Neither is exotic. Both say the same thing: **an import scan anchored on absolute
+paths inside one directory is not a dependency closure.** The suite found both in
+under a minute, which is the argument for porting against a green suite rather
+than reading imports harder.
+
+Two more arrived from outside `graph/`: `tests/fakes.py` (the tip's
+`ScriptedProvider` records prompts) and an additive `on_usage` hook in
+`structured_completion` — without which a structured node reports zero tokens no
+matter how many repair attempts it took.
+
+### One ported test belonged to a later phase
+
+`test_workflow_template_vars.py` failed 23 times, and the failures were real:
+it imports `validate_package` and tests the **template walk**, which is
+Phase 3's. Deferred rather than fixed. Worth stating because the count looked
+alarming and the cause was that a test had been filed under the wrong phase by
+whoever ported it — me, ten minutes earlier.
+
+### What the port bought, checked outside the suite
+
+Two hand-written YAML packages, loaded through `load_package` and run:
+
+- a `router` that takes the `bug` branch on *"there is an error in checkout"* and
+  the `question` branch on *"how do I reset my password"* — the branch that did
+  not run is genuinely absent from the results, not merely empty;
+- a `loop` with `break_when: iteration >= 2`, iterating and returning its last
+  draft.
+
+The first attempt at the router YAML was rejected at load with *"router 'classify'
+target 'bug' must list 'classify' in its depends_on (so it runs after the routing
+decision)"*. That is the ported control-flow validation earning its place on its
+first use — the error named the node, the rule and the fix.
+
+### …and what it taught
+
+**A branch switch does not leave a clean tree.** Twenty-seven directories from the
+studio branch survived the checkout because each held only `__pycache__`, and git
+cannot remove a directory whose remaining contents it never tracked.
+`import neurosurfer.registry` still succeeded on this branch before the sweep —
+so a Phase 2 test could have passed against code that is not supposed to exist
+here yet, and the port would have looked further along than it was.
+
+### Deliberately not done
+
+- **`configured_tools.py` and `tool_settings`** came along inside `graph/engine/`
+  rather than being chosen. They are inert without a tool declaring
+  `settings_model`, which is §3.3's call and not Phase 1's.
+- **`_check_output_schema` only guards.** `output_schema` is now `str | dict`,
+  and the inline JSON-Schema form is skipped rather than checked — handing a dict
+  to `import_string` would report "does not import" about a well-formed schema.
+  The real rule is Phase 3's.
+- **`tests/engine/` is a new directory beside `main`'s flat `tests/`.** The tip
+  reorganised the suite; four of its files have counterparts still living at the
+  top level here. Reconciling that is not Phase 1's job and would have made this
+  diff unreadable.
 
 ---
 

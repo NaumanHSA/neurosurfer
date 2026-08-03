@@ -157,30 +157,35 @@ that fails at run time.
 
 ## §2 — The phases
 
-### Phase 0 — A baseline that can be diffed against
+### Phase 0 — A baseline that can be diffed against ✅
 
-- [ ] Record the pre-port failure list, not the count. The studio branch learned
+- [x] Record the pre-port failure list, not the count. The studio branch learned
       this the hard way: comparing test *counts* hides a fixed failure and a new
       one cancelling out.
-- [ ] `studio` remote added and fetched, so every port is `git show
+- [x] `studio` remote added and fetched, so every port is `git show
       studio/architect-v2:<path>` and reviewable as a diff rather than a retype.
-- [ ] Decide the Python/dependency floor: the engine work uses `StrEnum` and
+- [x] Decide the Python/dependency floor: the engine work uses `StrEnum` and
       newer pydantic idioms than some of `main` assumes.
 
-### Phase 1 — The engine floor
+### Phase 1 — The engine floor ✅
 
 The kinds the Architect designs with and the validator speaks about.
 
-- [ ] `router` / `loop` / `map` / `subgraph` / `input` / `output` node kinds,
+- [x] `router` / `loop` / `map` / `subgraph` / `input` / `output` node kinds,
       typed workflow state, and the safe expression evaluator (`a57034b`).
-- [ ] Error routing (`on_error`), retries, and the `GraphBuilder` fluent API.
-- [ ] `routes` router (classify-and-branch) and `until` loops with an exit judge
+- [x] Error routing (`on_error`), retries, and the `GraphBuilder` fluent API.
+- [x] `routes` router (classify-and-branch) and `until` loops with an exit judge
       (`d291be8`) — the plain-English control flow, which is what an Architect can
       actually plan with.
-- [ ] Engine fixes that came out of live builds: `on_error` not firing on the
+- [x] Engine fixes that came out of live builds: `on_error` not firing on the
       happy path (`fe91a75`), prompt vars that resolve and per-node providers
       (`38ce56d`).
-- [ ] **Not** the node *kind specs* — see §3.2.
+- [x] The node *kind specs* (`engine/kinds/`) came across as well. This item was
+      written as "**not** in Phase 1 — see §3.2", and that turned out to be a
+      distinction the port could not honour: they live *inside* `graph/engine/`,
+      so taking the directory takes them. §3.2 already recommended keeping them,
+      so the outcome is the intended one and the phasing was wrong, not the
+      decision. They are inert until Phase 2 reads them into the manifest.
 
 **Done when:** a hand-written YAML workflow with a router and a loop loads, runs,
 and routes.
