@@ -24,7 +24,7 @@ import logging
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..config.mcp import McpServerConfig
 from ..tools.base import Tool
@@ -38,6 +38,94 @@ log = logging.getLogger(__name__)
 
 # How long to wait for a server to initialize / respond to list_tools.
 _CONNECT_TIMEOUT_S = 30.0
+
+#: How much of a failed server's stderr to quote back. Enough for a stack trace's
+#: first useful lines; not so much that a chatty server floods the UI.
+_STDERR_TAIL_CHARS = 1200
+
+#: Set by tests that want to inspect the capture file after a connect.
+_KEEP_CAPTURE = False
+
+
+def _stderr_capture(cfg: McpServerConfig) -> Any:
+    """A real file for the child's stderr, or None for transports without one.
+
+    Must be a genuine file rather than a StringIO: the SDK hands it to
+    `anyio.open_process(stderr=...)`, which needs a file descriptor.
+    """
+    if cfg.transport != "stdio":
+        return None
+    import tempfile
+
+    try:
+        return tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+    except OSError:  # pragma: no cover - capture is a nicety, never a blocker
+        return None
+
+
+#: How long the post-mortem re-run is allowed before being killed.
+_DIAGNOSE_TIMEOUT_S = 8.0
+
+
+def _diagnose_stdio(cfg: McpServerConfig) -> str:
+    """Re-run a failed stdio server briefly and report whatever it printed.
+
+    Only ever called *after* a connection has already failed, and only for stdio.
+    It exists because "Connection closed" is the same message whether the command
+    is missing, the package name is wrong, a port it wants is taken, or it
+    crashed on boot — and the answer is always in its output.
+
+    Both streams are captured, not just stderr. A well-behaved MCP server keeps
+    stdout for protocol and logs to stderr, but a server that gets this wrong is
+    exactly the kind that fails to start, and its explanation lands on stdout.
+    """
+    if cfg.transport != "stdio" or not cfg.command:
+        return ""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [cfg.command, *cfg.args],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=_DIAGNOSE_TIMEOUT_S,
+            env=cfg.resolved_env() or None,
+            cwd=cfg.cwd,
+            stdin=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        return f"command not found: {cfg.command!r}"
+    except PermissionError:
+        return f"not executable: {cfg.command!r}"
+    except subprocess.TimeoutExpired:
+        # It stayed up on its own, so the failure is in the handshake rather than
+        # the process — saying it died would be wrong.
+        return ""
+    except OSError:  # pragma: no cover - diagnosis must never raise
+        return ""
+
+    out = "\n".join(p for p in ((proc.stdout or "").strip(), (proc.stderr or "").strip()) if p)
+    if not out:
+        return f"the command exited with status {proc.returncode} and printed nothing"
+    if len(out) > _STDERR_TAIL_CHARS:
+        out = "…" + out[-_STDERR_TAIL_CHARS:]
+    return f"the command exited with status {proc.returncode}:\n{out}"
+
+
+def _read_capture(errlog: Any) -> str:
+    """The tail of what the child wrote to stderr, trimmed for a UI."""
+    if errlog is None:
+        return ""
+    try:
+        errlog.flush()
+        errlog.seek(0)
+        text = errlog.read().strip()
+    except (OSError, ValueError):  # pragma: no cover
+        return ""
+    if len(text) > _STDERR_TAIL_CHARS:
+        text = "…" + text[-_STDERR_TAIL_CHARS:]
+    return text
 
 
 @dataclass
@@ -57,8 +145,13 @@ class McpManager:
         self._status: dict[str, ServerStatus] = {}
 
     # ── lifecycle ───────────────────────────────────────────────────────────────
-    async def connect_all(self) -> list[ServerStatus]:
-        """Connect every server, discover tools, and publish them. Returns statuses."""
+    async def connect_all(self, *, publish: bool = True) -> list[ServerStatus]:
+        """Connect every server, discover tools, and publish them. Returns statuses.
+
+        ``publish=False`` skips writing the global live-tool registry — used by the
+        per-server runtime host, which owns that registry because it has to merge
+        the tools of several independently-started managers.
+        """
         if self._stack is not None:
             await self.aclose()
         self._stack = AsyncExitStack()
@@ -70,18 +163,31 @@ class McpManager:
             status = await self._connect_one(cfg, exposed_names)
             self._status[cfg.name] = status
 
-        set_live_tools(list(self._tools))
+        if publish:
+            set_live_tools(list(self._tools))
         return list(self._status.values())
 
     async def _connect_one(
         self, cfg: McpServerConfig, exposed_names: set[str]
     ) -> ServerStatus:
+        errlog = _stderr_capture(cfg)
         try:
-            session = await self._open_session(cfg)
+            session = await self._open_session(cfg, errlog=errlog)
             defs = (await session.list_tools()).tools
         except Exception as e:  # noqa: BLE001 - isolate a bad server
-            log.warning("MCP server '%s' failed to connect: %s", cfg.name, e)
-            return ServerStatus(cfg.name, connected=False, error=f"{type(e).__name__}: {e}")
+            detail = f"{type(e).__name__}: {e}"
+            # A stdio server that dies on startup only ever produces
+            # "Connection closed" here — the actual reason (missing command,
+            # port already bound, bad package name) went to its stderr, which
+            # was previously discarded. Without it the message is unactionable.
+            child = _read_capture(errlog) or _diagnose_stdio(cfg)
+            if child:
+                detail = f"{detail}\n{child}"
+            log.warning("MCP server '%s' failed to connect: %s", cfg.name, detail)
+            return ServerStatus(cfg.name, connected=False, error=detail)
+        finally:
+            if errlog is not None and not _KEEP_CAPTURE:
+                errlog.close()
 
         names: list[str] = []
         for d in defs:
@@ -98,7 +204,9 @@ class McpManager:
             names.append(exposed)
         return ServerStatus(cfg.name, connected=True, tool_count=len(names), tools=names)
 
-    async def _open_session(self, cfg: McpServerConfig) -> ClientSession:
+    async def _open_session(
+        self, cfg: McpServerConfig, *, errlog: Any = None
+    ) -> ClientSession:
         """Open + initialize a session on the shared exit stack."""
         from mcp import ClientSession  # noqa: PLC0415 - optional dep, import lazily
 
@@ -125,7 +233,10 @@ class McpManager:
                 env=cfg.resolved_env() or None,
                 cwd=cfg.cwd,
             )
-            read, write = await self._stack.enter_async_context(stdio_client(params))
+            read, write = await self._stack.enter_async_context(
+                stdio_client(params, errlog=errlog) if errlog is not None
+                else stdio_client(params)
+            )
 
         session = await self._stack.enter_async_context(
             ClientSession(read, write, read_timeout_seconds=timeout)

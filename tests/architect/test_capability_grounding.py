@@ -259,17 +259,7 @@ def test_regression_gmail_monitoring_workflow(tmp_path):
 
 @pytest.fixture()
 def session(tmp_path: Path):
-    # The registration gate belongs to the build *session*, which arrives with
-    # `architect/agent/` in plan 01 Phase 4. Everything above this line is the
-    # grounding rules themselves and runs now; these five are the gate that
-    # consumes them. Skipped at the fixture so the reason sits with the cause
-    # rather than being repeated on five tests.
-    pytest.importorskip(
-        "neurosurfer.architect.agent",
-        reason="BuildSession arrives in plan 01 Phase 4 — the rules it gates are already covered above",
-    )
     from neurosurfer.architect.agent import BuildSession
-
     from neurosurfer.architect.knowledge import KnowledgeBase
     from neurosurfer.graph.workflow.registry import WorkflowRegistry
 

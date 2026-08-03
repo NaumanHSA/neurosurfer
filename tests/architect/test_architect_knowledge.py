@@ -76,13 +76,6 @@ def test_graph_fields_cover_graph_model(manifest):
     assert set(manifest["workflow_package"]["graph_fields"]) == set(Graph.model_fields)
 
 
-@pytest.mark.skip(
-    reason="The execution REST API is not on this line. `_derive_api()` walks the "
-    "gateway's routes for /v1/workflows and /v1/runs, and this branch mounts only "
-    "health/models/chat — so the manifest correctly reports no endpoints and this "
-    "test correctly fails. Plan 01 §3.1 declines the REST and SSE routes and takes "
-    "only the run store; unskip if that decision is revisited."
-)
 def test_execution_api_endpoints_derived(manifest):
     api = manifest["execution_api"]
     if not api.get("available"):

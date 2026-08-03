@@ -69,14 +69,12 @@ def _make_pkg(pkg_dir: Path) -> None:
         yaml.dump({"name": pkg_dir.name, "version": "0.1.0", "entrypoint": "graph.yaml"}),
         encoding="utf-8",
     )
+    # A `base` node, not a `function` one: since V3 Phase 5d a patch to `purpose` /
+    # `goal` on a function node is dropped as inert (that kind never reads them), so
+    # a function node is the wrong fixture for testing that prose patches land.
     graph = {
         "name": pkg_dir.name,
         "description": "test wf",
-        # A `base` node, not a `function` one. Rules now declare which kinds they
-        # speak about, and `tools_exist` speaks about base/react/tool — a
-        # `function` node has no tools, so patching `tools: [nonexistent_xyz]`
-        # onto one is inert and re-validation correctly passes. That made this
-        # fixture the wrong shape for testing that an invalid patch is rejected.
         "nodes": [{"id": "n", "kind": "base", "goal": "do the thing"}],
         "outputs": ["n"],
     }
@@ -141,7 +139,11 @@ async def test_no_patch_proposed_stops(tmp_path):
     refiner = _refiner(pkg_dir, results, _patch_reply({}))  # empty patch
     res = await refiner.refine("wf", {})
     assert not res.ok
-    assert "No node could be patched" in res.message
+    # V3 Phase 5d reworded this: the message is now the proposal itself, and a
+    # diagnosis with no patch is a verdict rather than a shrug.
+    assert "the workflow is fine; what it was given is not" in res.message
+    assert not res.patched_nodes
+    assert not (pkg_dir / "agents").exists()
 
 
 @pytest.mark.asyncio
@@ -149,11 +151,18 @@ async def test_invalid_patch_is_rejected(tmp_path):
     pkg_dir = tmp_path / "wf"
     _make_pkg(pkg_dir)
     results = [_Result({"n": _NR(error="boom")}), _Result({"n": _NR()})]
-    # patch wires a tool that doesn't exist → re-validation must fail
+    # A patch wiring a tool that does not exist. This used to be applied and then
+    # caught by re-validation; since V3 Phase 5d the invented name is dropped
+    # before it is written, so it never reaches the package at all — one round
+    # earlier and much closer to the cause.
     refiner = _refiner(pkg_dir, results, _patch_reply({"tools": ["nonexistent_xyz"]}))
     res = await refiner.refine("wf", {})
     assert not res.ok
-    assert "invalid workflow" in res.message
+    assert not res.patched_nodes
+    assert not (pkg_dir / "agents").exists()
+    d = res.proposal.failed_nodes[0]
+    assert d.rejected_tools == ["nonexistent_xyz"]
+    assert "tools" not in d.patch
 
 
 @pytest.mark.asyncio

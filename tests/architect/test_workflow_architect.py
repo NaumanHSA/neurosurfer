@@ -368,11 +368,11 @@ class TestCapabilityPlan:
             NodeCapability(
                 node_id="exec", required_capability="query sqlite",
                 decision="author_new",
-                new_tools=[ToolSpec(name="sql_query", purpose="run SELECT")],
+                new_tools=[ToolSpec(name="sql", purpose="run SELECT")],
             ),
         ])
         assert cp.feasible is True
-        assert [s.name for s in cp.new_tool_specs()] == ["sql_query"]
+        assert [s.name for s in cp.new_tool_specs()] == ["sql"]
 
 
 class TestSchemaTolerance:
@@ -437,7 +437,7 @@ class TestCapabilityOverrides:
             NodeCapability(
                 node_id="exec", required_capability="query db", decision="author_new",
                 new_tools=[ToolSpec(
-                    name="sql_query", purpose="run sql",
+                    name="sql", purpose="run sql",
                     workflow_inputs=["connection_string: the DSN"],
                 )],
             ),
@@ -447,7 +447,7 @@ class TestCapabilityOverrides:
             ),
         ])
         overrides, inputs, suffixes = _capability_overrides(cp)
-        assert overrides["exec"] == ["sql_query"]
+        assert overrides["exec"] == ["sql"]
         assert overrides["read"] == ["data"]
         assert inputs == ["connection_string"]
         assert "{connection_string}" in suffixes["exec"]
@@ -526,7 +526,7 @@ class SqlQueryArgs(BaseModel):
     query: str = Field(description="sql")
 
 class SqlQueryTool(Tool):
-    name = "sql_query"
+    name = "sql"
     description = "Run a read-only SQL query on a SQLite db."
     input_model = SqlQueryArgs
     def is_read_only(self, args) -> bool:
@@ -560,7 +560,7 @@ class TestFunctionalSandbox:
     def _spec(self):
         from neurosurfer.architect.tool_author import ToolGapSpec
         return ToolGapSpec(
-            name="sql_query", purpose="run sql",
+            name="sql", purpose="run sql",
             test_setup=_SETUP,
             test_args={"db_path": "t.db", "query": "SELECT * FROM Users"},
         )
@@ -569,7 +569,7 @@ class TestFunctionalSandbox:
         from neurosurfer.architect.tool_author import ToolDraft
 
         author = self._author()
-        res = author.validate_draft(ToolDraft(name="sql_query", code=_GOOD_TOOL, spec=self._spec()))
+        res = author.validate_draft(ToolDraft(name="sql", code=_GOOD_TOOL, spec=self._spec()))
         assert res.ok is True
         assert res.checks.get("functional_runs") is True
         assert "alice" in res.functional_summary
@@ -582,7 +582,7 @@ class TestFunctionalSandbox:
             'raise RuntimeError("boom")',
         )
         author = self._author()
-        res = author.validate_draft(ToolDraft(name="sql_query", code=bad, spec=self._spec()))
+        res = author.validate_draft(ToolDraft(name="sql", code=bad, spec=self._spec()))
         assert res.ok is False
         assert "boom" in res.error
 
@@ -604,7 +604,7 @@ class TestRichSpecThreading:
             NodeCapability(
                 node_id="exec", required_capability="query db", decision="author_new",
                 new_tools=[ToolSpec(
-                    name="sql_query", purpose="run a SELECT",
+                    name="sql", purpose="run a SELECT",
                     inputs=["db_path: path"], test_args={"db_path": "t.db"},
                     expected_behavior="returns rows",
                 )],
@@ -612,8 +612,8 @@ class TestRichSpecThreading:
         ])
         builder = ArchitectBuilder.__new__(ArchitectBuilder)
         specs = builder._rich_specs(cp)
-        assert "sql_query" in specs
-        s = specs["sql_query"]
+        assert "sql" in specs
+        s = specs["sql"]
         assert s.inputs == ["db_path: path"]
         assert s.test_args == {"db_path": "t.db"}
         assert s.expected_behavior == "returns rows"

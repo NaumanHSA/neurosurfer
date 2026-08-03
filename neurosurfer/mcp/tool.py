@@ -68,6 +68,16 @@ class McpTool(Tool):
         except RuntimeError:
             self._home_loop = None
 
+    @property
+    def server_name(self) -> str:
+        """Which configured MCP server exposes this tool (read by the catalog API)."""
+        return self._server_name
+
+    @property
+    def remote_name(self) -> str:
+        """The name the server itself knows this tool by, before any prefixing."""
+        return self._remote_name
+
     # ── schema: pass the server's JSON Schema through unchanged ─────────────────
     @property
     def schema(self) -> ToolSchema:
