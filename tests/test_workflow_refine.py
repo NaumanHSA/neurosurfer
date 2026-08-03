@@ -72,7 +72,12 @@ def _make_pkg(pkg_dir: Path) -> None:
     graph = {
         "name": pkg_dir.name,
         "description": "test wf",
-        "nodes": [{"id": "n", "kind": "function", "callable": "os:getcwd"}],
+        # A `base` node, not a `function` one. Rules now declare which kinds they
+        # speak about, and `tools_exist` speaks about base/react/tool — a
+        # `function` node has no tools, so patching `tools: [nonexistent_xyz]`
+        # onto one is inert and re-validation correctly passes. That made this
+        # fixture the wrong shape for testing that an invalid patch is rejected.
+        "nodes": [{"id": "n", "kind": "base", "goal": "do the thing"}],
         "outputs": ["n"],
     }
     (pkg_dir / "graph.yaml").write_text(yaml.dump(graph), encoding="utf-8")
