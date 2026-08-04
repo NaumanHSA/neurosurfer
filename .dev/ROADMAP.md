@@ -9,11 +9,12 @@
 > tests** — has been run once deliberately, it merges to `main` **with a version
 > bump**. See the plan's §5 for the checklist and the `1.1.0`-vs-`2.0.0` argument.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–4
-are in**. The Architect grounds every capability against a declared tag and
-refuses what nothing provides, proven deterministically and once live on
-`gpt-4o-mini`. 1134 tests pass from a 360 baseline, ruff clean (2026-08-03).
-Phase 5 next — verification that actually runs the workflow.
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–5
+are in**. The Architect grounds every capability against a declared tag, refuses
+what nothing provides, and verifies by *running* what it built — with a
+fingerprinted record so an unchanged design is not re-run. 1134 tests pass from a
+360 baseline, ruff clean (2026-08-04). Phase 6 next — the three defects the port
+carried across.
 
 **Running the suite:** 24s offline with
 `NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`. Without it, the live tests

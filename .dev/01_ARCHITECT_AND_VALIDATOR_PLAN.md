@@ -255,13 +255,20 @@ and the plain-language test passes for every swept rule.
 **Done when:** a request needing a capability nothing provides comes back as a
 refusal naming the capability, before any model call designs a node for it.
 
-### Phase 5 — Verification that runs the workflow
+### Phase 5 — Verification that runs the workflow ✅ *(arrived with Phase 4)*
 
-- [ ] Closed-loop verification: the built workflow is *executed*, not just
+- [x] Closed-loop verification: the built workflow is *executed*, not just
       validated (`e18e33f`).
-- [ ] The A/B harness, so a prompt change can be measured rather than argued about.
-- [ ] Verification that remembers, so the same defect is not re-found each build
+- [x] The A/B harness, so a prompt change can be measured rather than argued about.
+- [x] Verification that remembers, so the same defect is not re-found each build
       (`38ce56d`).
+
+**All three came in with Phase 4**, because they live in `architect/agent/` and
+taking the package took them. The same thing happened to the kind specs in Phase
+1 — twice now, a phase boundary has been drawn through a Python package, and a
+package is not divisible by `git checkout`. Worth remembering when phasing the
+*next* plan: **phase by package, or accept that the boundary is a reporting
+convention rather than a sequencing one.**
 
 ### Phase 6 — The defects the port would otherwise carry across
 

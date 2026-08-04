@@ -400,7 +400,68 @@ individual, and pointed at OpenAI.
 
 ## §5 — Phase 5: verification that runs
 
-*Not started.*
+**Already in, as of Phase 4** (`7ccc08c`). Nothing new was written; this section
+records the check that it is genuinely there, because a ticked box with no work
+behind it is exactly the discrepancy the README's convention exists to catch.
+
+All three items live in `architect/agent/`, and taking that package took them.
+
+### 1. Verification executes the graph
+
+`agent/verify.py` builds a `WorkflowRunner` and runs it — it does not re-validate
+and call that verification. It tracks which nodes actually executed and reports
+**branch coverage**:
+
+> `COVERAGE WARNING — these nodes never executed in any test case`
+
+which is the check that separates "the workflow ran" from "every path in the
+workflow ran". A router whose second branch is never exercised is a workflow
+half-verified, and it now says so.
+
+### 2. Verification remembers, and stales correctly
+
+`session.VerificationRecord` stores a **fingerprint** (graph + authored tools) and
+an `inputs_key` alongside the verdict, rather than a bare `verified` flag. Its own
+docstring gives the reason: verifying re-runs the whole graph and is *"by some
+distance the most expensive thing a build does"*.
+
+The tests name the behaviours precisely, and all pass:
+
+```
+test_repeat_test_does_not_re_run_the_graph
+test_a_no_op_edit_does_not_stale_the_verification
+test_reverting_an_edit_restores_the_verification
+test_a_real_edit_forces_a_re_run
+test_changing_the_output_set_stales_it
+test_authoring_a_tool_stales_it
+test_different_test_inputs_are_a_different_test
+test_the_report_states_how_many_graph_runs_it_cost
+```
+
+*Reverting an edit restores the verification* is the one worth pointing at: a
+fingerprint over content, not a dirty bit, so editing a node and putting it back
+does not cost another full run.
+
+### 3. The A/B harness
+
+`agent/harness.py`, unchanged from the tip. Runs a fixed suite of intents through
+named builder callables and compares success rate, validation status, node count
+and wall time — *"the evidence that decides whether the ReAct agent replaces the
+legacy pipeline — no pre-commitment."*
+
+**Verified:** 21 verification tests pass; 1134 total, 4 skipped, ruff clean.
+
+### …and what it taught
+
+**Two phase boundaries have now been drawn through a Python package**, and a
+package is not divisible by `git checkout`. Phase 1 was written as *"not the kind
+specs"* and got them because they sit in `graph/engine/`; Phase 5 was written as
+separate work and arrived with Phase 4 because it sits in `architect/agent/`.
+
+Neither produced a wrong outcome — §3.2 wanted the kind specs, and Phase 5's items
+were always going to come with the agent. But the plan claimed a sequencing it
+could not enforce. For the next plan: **phase by package**, or say plainly that a
+phase is a unit of *reporting* rather than of *delivery*.
 
 ---
 
