@@ -343,3 +343,61 @@ exercised code on that branch.
   a hosted multi-user surface; this line has a CLI and a library.
 - **MCP.** The engine can already carry MCP tools; the discovery/registry surfaces
   on the other branch are studio-facing. Revisit after Phase 4.
+
+---
+
+## §5 — How this lands
+
+**`main` is not touched until the whole plan is done.** Every phase lands on
+`architect-validator/enhancement`, which is pushed and is the only place this work
+exists. `main` stays at `4065c2f` — the stable line people can use while a
+fifty-commit port is in flight.
+
+Two mechanical notes, because the branch was created in a way that makes one
+mistake easy:
+
+- It was cut with `git checkout -b … origin/main`, so its **upstream was
+  `origin/main`** until it was first pushed. `push.default` is unset (`simple`),
+  which refuses on a name mismatch — but under `upstream` a bare `git push` would
+  have put the whole port on `main`. The upstream now points at the branch itself.
+- Push explicitly — `git push origin architect-validator/enhancement` — rather than
+  relying on whatever `push.default` happens to be on the machine.
+
+### The merge, when the phases are done
+
+Not before: the plan's own argument is that these pieces only make sense on top of
+each other, and a half-ported Architect on `main` is the thing §1 exists to avoid.
+
+- [ ] All phases ticked, and the build log has a section for each — a ticked box
+      with an empty log section is the discrepancy the README's convention exists
+      to catch.
+- [ ] The **full suite including the live tests**, run once, deliberately, against
+      OpenAI. Everything up to here has been run with the live provider pointed
+      away so the loop stays at 24s; that is a working convenience and not a
+      release check.
+- [ ] Ruff clean, which it currently is.
+- [ ] Merge to `main`, then **bump the version**.
+
+### The bump
+
+`1.0.0` today, in **two** places that must move together —
+[`pyproject.toml`](../pyproject.toml) and
+[`neurosurfer/__init__.py`](../neurosurfer/__init__.py) — plus the `[Unreleased]`
+section of the [CHANGELOG](../CHANGELOG.md), which follows Keep a Changelog and
+declares SemVer.
+
+**Recommendation: `1.1.0`, a minor bump**, and the reasoning is worth settling
+before the day of, because there is a real argument for major:
+
+- *For minor:* everything the port adds is additive — six node kinds, a capability
+  layer, a rules-based validator, two route groups. Nothing that worked on `1.0.0`
+  stops working. The tool modules that **moved** kept package-level re-exports, so
+  `from neurosurfer.tools.builtin import ReadFileTool` is unchanged.
+- *For major:* **submodule** imports did break —
+  `from neurosurfer.tools.builtin.search import SearchTool` no longer resolves, and
+  nine files in this repo were relying on exactly that. If anyone outside is
+  importing tools by submodule path, that is a breaking change to them.
+
+Minor plus a prominent CHANGELOG note under *Changed* naming the move, unless
+somebody knows of an external caller reaching in by submodule path — in which case
+it is `2.0.0` and the note is not enough.

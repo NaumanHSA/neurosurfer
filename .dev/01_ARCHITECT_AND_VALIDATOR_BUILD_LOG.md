@@ -5,6 +5,13 @@ What shipped, what it cost, and — more usefully — what the work turned out t
 once it was underway.
 
 **Started:** 2026-08-03. **Baseline on `4065c2f`:** 360 tests passing.
+**Now:** 1134 passing, 4 skipped, ruff clean — Phases 0–4 in.
+
+**Where it lives.** `architect-validator/enhancement`, pushed to `origin`.
+**`main` is not touched until the plan is finished**, then merged with a version
+bump — see the plan's §5. Nine commits were local-only for most of a day before
+anybody noticed, which is its own small lesson: *push the branch when you cut it,
+not when someone asks where it is.*
 
 Fill a section in as each phase lands. A phase with nothing under it has not
 started; a phase whose plan boxes are ticked but whose section here is empty is a
@@ -32,6 +39,10 @@ discrepancy worth chasing, which is the point of keeping both files.
   makes a port look further along than it is.
 
 - [x] Baseline recorded: 360 passed, 0 failed, in 17s.
+- [x] Branch pushed to `origin` (2026-08-03, after four phases — see above). Its
+      upstream had been `origin/main`, from `git checkout -b … origin/main`; a
+      bare `git push` under `push.default=upstream` would have put the port on
+      `main`. Now tracks itself.
 
 ---
 

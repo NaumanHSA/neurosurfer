@@ -21,6 +21,14 @@ decide what to do next.
 |---|---|---|
 | [01 — The Architect and the validator](01_ARCHITECT_AND_VALIDATOR_PLAN.md) · [build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) | Bringing the matured Architect and validator onto the stable line, with the engine floor they stand on — and without the studio. | Current |
 
+## Where the work happens
+
+All of it is on `architect-validator/enhancement`. **`main` is left alone** until
+plan 01 is finished, then merged with a version bump — the plan's §5 holds the
+checklist. A half-ported Architect on the stable branch is precisely what the
+plan's bottom-up ordering exists to prevent, and merging phase by phase would
+produce one.
+
 ## Conventions
 
 **A ticked box means it shipped.** Items deliberately left undone stay `- [ ]`

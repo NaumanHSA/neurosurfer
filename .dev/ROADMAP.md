@@ -1,7 +1,13 @@
 # Roadmap — one plan, in order
 
 **Status:** current · branch `architect-validator/enhancement`, cut from `main`
-(`4065c2f`) · build logs live beside each plan.
+(`4065c2f`) and pushed · build logs live beside each plan.
+
+> **`main` is not touched until this plan is finished.** Every phase lands on the
+> branch; `main` stays at `4065c2f` as the stable line while a fifty-commit port
+> is in flight. When the phases are done and the full suite — **including the live
+> tests** — has been run once deliberately, it merges to `main` **with a version
+> bump**. See the plan's §5 for the checklist and the `1.1.0`-vs-`2.0.0` argument.
 
 Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–4
 are in**. The Architect grounds every capability against a declared tag and
@@ -43,3 +49,7 @@ the primitive rather than in the authoring.
   different times not to write a step it kept writing.
 - **Evals** wait for something stable to measure. Nine runs of two prompts is a
   bug-finder, not a benchmark, and nothing above is stable until Phase 5.
+- **A release.** The version bump is the *last* step of plan 01, not a phase of
+  its own — there is nothing to release until the plan is done, and cutting one
+  midway would put a half-ported Architect on `main`, which is the outcome §1
+  exists to prevent.
