@@ -556,4 +556,64 @@ the function was never the thing that was hard to find.
 
 ## §7 — Phase 7: tracing, docs, evals
 
-*Not started.*
+**Shipped 2026-08-04** (`7fb8972`). 1142 pass, 4 skipped, ruff clean,
+`mkdocs build --strict` clean.
+
+### A race that only became real in Phase 1
+
+Tracing was mostly current — the engine port carried most of it — but five files
+still differed, and one difference matters here in a way it did not on `main`:
+
+`Tracer` handed out step ids from a bare `self._counter += 1`. Workflow nodes are
+traced from executor worker threads, and a **`map` node runs its body
+concurrently**, so two steps could be handed the same id. On `main` that was
+theoretical, because `map` did not exist. Phase 1 brought it, which made a latent
+race a live one — and nothing in the port would have flagged it, because the
+file's diff looked like a tidy-up.
+
+Checked rather than assumed: an eight-item `map`, eight concurrent body steps,
+**eight distinct ids**, each attributed to its node.
+
+The other change is `node_id` on a step, which is what turns a run's trace from a
+flat list into a per-node tree.
+
+### One doc was actively wrong, so it was rewritten
+
+`docs/guides/configuration.md` gained a storage-layout section on the studio
+branch, documenting `workspaces/` with one directory per signed-in account. True
+there. **False here** — there are no accounts, for the same reason
+`workspaces.py` was rewritten rather than ported in Phase 4.
+
+Porting it would have shipped documentation describing a layout the code does not
+have, which is worse than having none: nobody checks a doc against the
+filesystem. Rewritten for the real layout, and the rewrite says which directories
+are host-level *on purpose* rather than by omission — `config/mcp.json`, because
+an MCP server is a process the gateway spawns as itself; authored tools, because
+the registry loads them with no scoping argument, so a tool stored anywhere else
+would exist and never be callable.
+
+The control-flow guide and the Architect's self-verification note came across
+unchanged; both were already true of this line once Phases 1 and 5 landed.
+
+### Evals: still not done, and the reason changed
+
+It was deferred because *"nothing above is stable until Phase 5"*. Phase 5 has
+landed, so that reason has expired. It is now a real next piece of work rather
+than a deferral, and it belongs to whatever plan follows this one — with
+`agent/harness.py` as its starting point, since the A/B machinery already exists
+and has never been pointed at anything.
+
+---
+
+## §8 — The release checklist (plan §5)
+
+- [x] **All phases ticked, each with a section here.** Seven phases, seven
+      sections. The two remaining unticked items in the plan are written-down
+      decisions, not omissions: the tool-round budget stays a constant (Phase 6),
+      and evals move to the next plan (above).
+- [ ] **The full suite including the live tests**, run once against OpenAI.
+- [x] **Ruff clean** across `neurosurfer/` and `tests/`.
+- [ ] **Merge to `main`, then bump the version.**
+
+**Where it stands:** 1142 passing, 4 skipped, from a 360 baseline — and the suite
+runs in 24 seconds, which is the number that made the whole port reviewable.

@@ -291,13 +291,16 @@ Architect's own judgement of its output is downstream of them.
       warn on a `base` node holding two tools that must run in sequence — worth
       doing, and a change to the kind specs rather than a bug fix.
 
-### Phase 7 — What the port needs to keep working
+### Phase 7 — What the port needs to keep working ✅
 
-- [ ] Tracing: per-run I/O on workflow and node spans (`6c2c33b`, `3432098`) —
+- [x] Tracing: per-run I/O on workflow and node spans (`6c2c33b`, `3432098`) —
       without it a build cannot be debugged, which is most of what Phases 4–5 need.
-- [ ] Docs: control-flow engine and the self-verifying Architect (`0987dda`).
-- [ ] Evals last, deliberately. Nine runs of two prompts is a bug-finder, not a
-      benchmark, and nothing above is stable until Phase 5 lands.
+- [x] Docs: control-flow engine and the self-verifying Architect (`0987dda`).
+- [ ] **Evals: still not done, and still deliberately.** Nine runs of two prompts
+      is a bug-finder, not a benchmark. Phase 5 has landed, so the precondition is
+      met and this is now a real next piece of work rather than a deferral — it
+      belongs to whatever plan follows this one, with the A/B harness
+      (`agent/harness.py`) as its starting point.
 
 ---
 
