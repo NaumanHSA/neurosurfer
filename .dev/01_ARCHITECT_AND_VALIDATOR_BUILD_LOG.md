@@ -467,9 +467,90 @@ phase is a unit of *reporting* rather than of *delivery*.
 
 ## §6 — Phase 6: the carried defects
 
-*Not started.* All three are reproduced — see the plan's §0.4 and Phase 6. The
-repros are worth re-running rather than trusting: they were built against the
-studio branch's engine, and Phase 1 changes that engine.
+**Shipped 2026-08-04** (`bb8d789`). 1142 pass, 4 skipped, ruff clean. The first
+phase that is code rather than a port.
+
+### Re-reproducing first paid off — by confirming nothing had changed
+
+The note above said the repros were written against the studio branch's engine
+and were worth re-running rather than trusting. Re-run, all three reproduce
+byte-for-byte on the ported engine.
+
+For the prompt defect there was a stronger check available and it is the one
+worth recording: `git diff origin/main studio/architect-v2 --
+graph/engine/manager.py` is **zero lines**. The file is identical on both
+branches, so no amount of porting could have fixed it, and the defect was never
+the studio's — it was always here.
+
+### 1. The prompt was written for the Architect's own graph
+
+`compose_user_prompt` opened with a hardcoded `user_intent`, set in exactly one
+place in the codebase. Every other workflow got:
+
+```
+User request: (not specified)          ← it was specified
+Additional inputs:                      ← it is the only input, not an extra
+  intake: visit https://example.com …
+Context from previous nodes:            ← and now a third time
+--- intake ---
+visit https://example.com …
+```
+
+Three statements, two false. The third repetition is structural rather than
+careless: `_run_input_node` writes the value it collected under its own id, so an
+input node's output *is* a graph input, arriving twice through two different
+doors.
+
+Fixed by making the header conditional, renaming `Additional inputs` to `Inputs`
+when there is nothing for them to be additional to, and dropping a dependency
+whose value is already shown as an input.
+
+**The de-duplication keys on the value, not on "it is a dependency"** — which is
+the part that needed care. Keying on the relationship would have swallowed
+genuine upstream context, so there is a test for exactly that
+(`test_a_genuine_upstream_result_is_still_shown`).
+
+### 2. A cut-short step stopped claiming success
+
+`base` gets one tool round. "Fetch the page then write it to a file" needs two:
+the model spends the round on the fetch, is refused the second, and its final
+turn is tool calls with no prose. `response.text()` is `""`, and
+`RunFinished("completed", "")` reported that as a finished run.
+
+`OneShotAgent` now sets `cut_short`, and the flag is **keyed on pending tool
+calls rather than on an empty string** — a model that returns nothing for its own
+reasons is a different problem and must not be diagnosed as truncation.
+
+### The line is *empty*, not *cut short*
+
+The judgement worth defending. A truncated step that still produced text produced
+a **partial answer**, and a partial answer is sometimes exactly what was wanted —
+failing it would break runs that are useful today. What is never useful is
+nothing at all. So:
+
+| | outcome |
+|---|---|
+| cut short, no text | **error**, naming the tools it called and pointing at `react` |
+| cut short, some text | kept |
+| finished normally | kept, including a legitimately empty answer |
+
+### …and what it taught
+
+**Three defects, one shape: each produced a plausible success.** A prompt that
+reads fine, a green run, a blank answer. Nothing raised, nothing logged, nothing
+red — which is why all three survived a year and a full port. The tests for them
+are named after the *symptom a person would notice*, not the function, because
+the function was never the thing that was hard to find.
+
+### Deliberately not done
+
+- **The tool-round budget is still a constant** (`max_tool_rounds=1` inside
+  `run_base_node`) rather than a declared property of the kind. Phase 6 made its
+  exhaustion loud; it did not make the limit *visible*. As a spec field the card
+  could say "one round of tools" and validation could warn on a `base` node
+  holding two tools that must run in sequence. That is a change to the kind specs
+  and a design question, not a bug fix — and the silent failure it was hiding
+  behind is now gone, which was the urgent half.
 
 ---
 

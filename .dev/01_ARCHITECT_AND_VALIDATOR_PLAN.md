@@ -270,21 +270,26 @@ package is not divisible by `git checkout`. Worth remembering when phasing the
 *next* plan: **phase by package, or accept that the boundary is a reporting
 convention rather than a sequencing one.**
 
-### Phase 6 — The defects the port would otherwise carry across
+### Phase 6 — The defects the port would otherwise carry across ✅
 
 Known, reproduced, and unfixed on both branches. They belong here because the
 Architect's own judgement of its output is downstream of them.
 
-- [ ] **`user_intent` is hardcoded** (§0.4). Lead with the request the graph
+- [x] **`user_intent` is hardcoded** (§0.4). Lead with the request the graph
       actually declares; never print one value three times.
-- [ ] **A `base` node with tools runs one round and stops silently.** When the
+- [x] **A `base` node with tools runs one round and stops silently.** When the
       budget is exhausted while the model still wants a tool, its last message is
       tool calls with no text, so the node returns `""` — and the run reports
       *succeeded*. Reproduced with a fake provider on the studio branch.
-- [ ] **An empty output from an LLM node is not a failure anywhere**, so the above
+- [x] **An empty output from an LLM node is not a failure anywhere**, so the above
       surfaces as a green run with a blank answer.
-- [ ] Decide whether the tool-round budget becomes a declared property of the kind
-      rather than a constant inside `run_base_node`.
+- [ ] **Not done: the tool-round budget is still a constant** inside
+      `run_base_node` (`max_tool_rounds=1`), not a declared property of the kind.
+      Phase 6 made its exhaustion *loud* rather than making it *visible*, which
+      fixes the silent failure without answering the design question. Making it a
+      spec field would let the card say "one round of tools" and let validation
+      warn on a `base` node holding two tools that must run in sequence — worth
+      doing, and a change to the kind specs rather than a bug fix.
 
 ### Phase 7 — What the port needs to keep working
 

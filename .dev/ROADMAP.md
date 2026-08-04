@@ -9,12 +9,12 @@
 > tests** — has been run once deliberately, it merges to `main` **with a version
 > bump**. See the plan's §5 for the checklist and the `1.1.0`-vs-`2.0.0` argument.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–5
-are in**. The Architect grounds every capability against a declared tag, refuses
-what nothing provides, and verifies by *running* what it built — with a
-fingerprinted record so an unchanged design is not re-run. 1134 tests pass from a
-360 baseline, ruff clean (2026-08-04). Phase 6 next — the three defects the port
-carried across.
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–6
+are in**. The Architect grounds and refuses, verifies by running what it built,
+and the three defects the port carried across are fixed: a step now says what it
+was actually given, and one cut off mid-plan stops reporting success with a blank
+answer. 1142 tests pass from a 360 baseline, ruff clean (2026-08-04). Phase 7
+next — tracing and docs, then the release checklist in the plan's §5.
 
 **Running the suite:** 24s offline with
 `NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`. Without it, the live tests
