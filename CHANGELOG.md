@@ -11,6 +11,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Control flow in graphs.** Six new node kinds — `router`, `loop`, `map`,
+  `subgraph`, `input`, `output` — with typed workflow state, a safe expression
+  evaluator, error routing (`on_error`), retries, and a `GraphBuilder` fluent API.
+  A workflow can now branch on a classification, iterate until a judge is
+  satisfied, fan out over a collection, and pause for a person. See the
+  [control-flow guide](guides/graph-workflows.md).
+- **A tool registry, and self-knowledge built from it.** Tools declare a `title`,
+  an icon, `capabilities`, `secret_inputs` and `credential_help`, and are grouped
+  by domain under `neurosurfer/registry/core/`. On top of that sits a
+  content-hash-versioned capability manifest and a `KnowledgeBase`, so a need
+  resolves against a **declared tag** — `file.write` → `write_file` — rather than
+  against words a description happens to share.
+- **The Architect plans first, grounds, and refuses.** It writes a plan, checks
+  every capability against what actually exists, and reports a request it cannot
+  build *before* designing a node for it. What it builds is then verified by
+  being **run**, with branch coverage over the paths a test exercised, and the
+  verification is fingerprinted so an unchanged design is not re-run.
+- **Validation is a rule table.** Each rule declares which node kinds it speaks
+  about and at what severity, so "what can go wrong with an input node" is a
+  query rather than a read. Messages are plain sentences; field names, import
+  paths and parser errors live in a separate `detail`.
+- **Execution and Architect HTTP surfaces** — `/v1/workflows`, `/v1/runs` (with
+  SSE), and `/v1/architect/*`, including a build that parks to ask a person and
+  resumes when answered.
+
+
 - **Observability: pluggable trace exporters.** Agent runs can now be shipped to an
   external monitoring backend — **Langfuse** (traces, token cost, sessions) and
   **OpenTelemetry** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog /
@@ -27,7 +53,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `session_id` so all their runs group into one Langfuse session — the CLI sets one
   per conversation (reset on `/clear`).
 
+### Changed
+
+- **Built-in tools moved** from `neurosurfer/tools/builtin/` to
+  `neurosurfer/registry/core/<domain>/`. `from neurosurfer.tools.builtin import
+  ReadFileTool` still works — the package re-exports every tool — but **importing
+  a tool by submodule path does not**: `from neurosurfer.tools.builtin.search
+  import SearchTool` is now `from neurosurfer.registry.core.filesystem.search
+  import SearchTool`.
+- **A node's prompt leads with what the workflow actually declares.** It used to
+  open with a hardcoded `user_intent`, set by the Architect's own graph and
+  nothing else — so every other workflow began "User request: (not specified)"
+  and then repeated its real input twice more under headings that disagreed about
+  what it was.
+
 ### Fixed
+
+- **A `base` step cut off mid-plan no longer reports success.** It gets one round
+  of tool calls; asked to fetch a page and then write a file, it spent the round
+  on the fetch, was refused the second, and returned an empty answer that the run
+  recorded as a success. It now fails, naming the tools it did call and pointing
+  at `react`. A truncated step that still produced text keeps it.
+- **Trace step ids are unique under concurrency.** A `map` node runs its body
+  concurrently and step ids came from an unguarded counter, so two steps could
+  share one. Steps also carry `node_id`, which is what lets a reader group a run
+  into a per-node tree.
+- **A validator no longer scolds a correct two-step workflow.** The "fewer than
+  three LLM nodes is almost certainly under-designed" heuristic sat in the gate
+  that decides whether a package may register, and has been removed.
+
 
 - **`.env` loader** now strips trailing inline comments on unquoted values
   (`KEY=val   # note` → `val`), while preserving `#` inside quoted values. Prevents

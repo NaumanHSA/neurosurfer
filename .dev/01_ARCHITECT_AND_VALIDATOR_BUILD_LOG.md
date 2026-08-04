@@ -611,9 +611,46 @@ and has never been pointed at anything.
       sections. The two remaining unticked items in the plan are written-down
       decisions, not omissions: the tool-round budget stays a constant (Phase 6),
       and evals move to the next plan (above).
-- [ ] **The full suite including the live tests**, run once against OpenAI.
-- [x] **Ruff clean** across `neurosurfer/` and `tests/`.
-- [ ] **Merge to `main`, then bump the version.**
+- [x] **The full suite including the live tests**, run once against OpenAI
+      `gpt-4o-mini`: **1145 passed, 1 failed** in 3m54s. See below — the failure
+      is a model-capability boundary, not a defect.
+- [x] **Ruff clean** across `neurosurfer/` and `tests/`; `mkdocs build --strict`
+      clean.
+- [x] **CHANGELOG drafted** under `[Unreleased]`, with the submodule-import break
+      called out under *Changed* — the one thing that decides `1.1.0` vs `2.0.0`.
+- [ ] **Merge to `main`, then bump the version.** Awaiting the call.
 
-**Where it stands:** 1142 passing, 4 skipped, from a 360 baseline — and the suite
-runs in 24 seconds, which is the number that made the whole port reviewable.
+**Where it stands:** 1145 passing from a 360 baseline. The offline suite runs in
+24 seconds, which is the number that made the whole port reviewable.
+
+### The one live failure, and why it is not a blocker
+
+`test_agent_designs_branching_workflow_with_real_llm` failed on `gpt-4o-mini`.
+The other three live tests passed.
+
+What happened is the system working:
+
+```
+VERIFICATION FAILED (run ok, 1 graph run)
+  ✗ [urgent_ticket_response] The workflow did not generate an
+    escalation notice for an urgent ticket.
+```
+
+The Architect designed a branching workflow, **ran it**, judged the result
+against acceptance criteria it had derived, found the urgent branch did not
+escalate, tried to repair it, ran out of step budget, and **refused to register a
+workflow that does not work**. Every one of those steps is Phase 4 and Phase 5
+doing their job. Before this port the same build would have validated clean and
+registered.
+
+The test asserts the *build succeeds*, which makes it a test of the model as much
+as of the code — and `gpt-4o-mini` is under the bar for a branching design. The
+Architect's own docs, ported in Phase 7, say so in as many words: *"generated-graph
+quality still tracks the model you give it: strong tool-calling models (e.g.
+`gpt-5-mini` and up) produce solid, branching designs; smaller models occasionally
+emit a simpler-than-ideal graph."*
+
+**Not fixed, and not silenced.** Making it pass would mean either running the
+release check on a bigger model or weakening the assertion, and only the first is
+honest. Recorded here so the next person meeting a red live suite knows to check
+the model before the code.
