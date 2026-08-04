@@ -25,6 +25,8 @@ from neurosurfer.llm.base import Provider
 from neurosurfer.llm.types import GenerationConfig, ToolUseBlock, Usage
 from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext, ToolPool
 
+from .errors import GraphConfigurationError
+
 # ── async→sync bridge ────────────────────────────────────────────────────────
 
 def run_coro_blocking(coro: Any) -> Any:
@@ -149,6 +151,29 @@ def run_base_node(
             output_schema=output_schema,
         )
         out = await agent.complete(user_prompt)
+
+        # A cut-short run that produced nothing is a failure, not a result.
+        #
+        # `base` gets one round of tool calls. A model asked to "fetch the page
+        # then write it to a file" spends that round on the fetch, is refused the
+        # second, and its last turn is tool calls with no prose — so `out` is `""`.
+        # Reported as success, that is a green run, three green nodes, and a blank
+        # answer, with nothing anywhere saying the plan was truncated.
+        #
+        # **Empty is the line, not cut-short.** A truncated run that still produced
+        # text produced a partial answer, and a partial answer is sometimes exactly
+        # what was wanted; refusing it would fail runs that are useful today. What
+        # is never useful is nothing at all.
+        if getattr(agent, "cut_short", False) and not str(out or "").strip():
+            names = ", ".join(dict.fromkeys(_tool_names(agent))) or "its tools"
+            raise GraphConfigurationError(
+                "This step ran out of tool calls before it finished. It called "
+                f"{names}, still wanted to call more, and returned nothing. A "
+                "`base` step gets one round of tool calls, so it cannot use one "
+                "tool's result to decide the next — use kind `react` for work "
+                "that needs a sequence."
+            )
+
         return NodeCall(output=out, usage=agent.usage, tool_calls=_tool_names(agent))
 
     return run_coro_blocking(_run())

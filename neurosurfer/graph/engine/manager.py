@@ -45,29 +45,52 @@ class ManagerAgent:
         temperature: float | None = None,
         max_new_tokens: int | None = None,
     ) -> str:
-        user_intent = str(graph_inputs.get("user_intent", "(not specified)"))
+        # `user_intent` is the Architect's own graph's key, and for a long time it
+        # was the *only* one this method looked for — so every workflow that was
+        # not the Architect opened its prompt with "User request: (not
+        # specified)". Optional now: a graph that declares it gets the header, a
+        # graph that does not is simply given its inputs.
+        user_intent = graph_inputs.get("user_intent")
 
-        # Other graph inputs (clarifying answers, etc.) listed separately.
-        # Skip internal plumbing keys that are surfaced elsewhere (e.g.
-        # `available_tools` is interpolated into the system prompt already).
+        # Skip internal plumbing surfaced elsewhere (`available_tools` is already
+        # interpolated into the system prompt).
         _internal = {"user_intent", "available_tools"}
-        extra_lines = [
-            f"  {k}: {v}"
-            for k, v in graph_inputs.items()
-            if k not in _internal
-        ]
 
         # Only include deps this node declared.
         depends_on = getattr(node, "depends_on", None) or []
         if depends_on:
             dependency_results = {k: v for k, v in dependency_results.items() if k in depends_on}
 
+        # **An input node's output is a graph input.** `_run_input_node` writes the
+        # value it collected under its own id, so the same string arrived here
+        # twice — once as an input and once as "context from a previous node" —
+        # and was printed twice under headings that disagreed about what it was.
+        # Shown once, as the input it is, because that is the name the author
+        # gave it and the name any placeholder refers to.
+        echoed = {
+            dep_id
+            for dep_id, value in dependency_results.items()
+            if any(value is v or value == v for k, v in graph_inputs.items() if k not in _internal)
+        }
+        dependency_results = {
+            k: v for k, v in dependency_results.items() if k not in echoed
+        }
+
+        input_lines = [
+            f"  {k}: {v}" for k, v in graph_inputs.items() if k not in _internal
+        ]
+
         mode = node.mode.value if hasattr(node.mode, "value") else str(node.mode)
 
-        parts: list[str] = [f"User request: {user_intent}"]
+        parts: list[str] = []
+        if user_intent:
+            parts.append(f"User request: {user_intent}")
 
-        if extra_lines:
-            parts.append("Additional inputs:\n" + "\n".join(extra_lines))
+        if input_lines:
+            # "Additional" only when there is something for it to be additional
+            # *to*. On a hand-built workflow these are the whole request.
+            heading = "Additional inputs:" if user_intent else "Inputs:"
+            parts.append(heading + "\n" + "\n".join(input_lines))
 
         if mode == "structured":
             parts.append(

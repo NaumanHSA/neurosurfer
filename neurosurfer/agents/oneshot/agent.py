@@ -41,6 +41,19 @@ class Agent(BaseAgent):
         self.max_tool_rounds = max_tool_rounds
         # The result of the last run: a BaseModel (structured) or str (text).
         self.result: Any = None
+        #: The round budget ran out while the model was still asking for tools.
+        #:
+        #: Distinct from finishing, and it used to be indistinguishable. The loop
+        #: stops on `rounds >= max_tool_rounds` and takes `response.text()` — but
+        #: a turn that is *only* tool calls has no text, so a model cut off
+        #: mid-plan returned `""` and the caller reported success. "Fetch the page
+        #: then write it to a file" is two rounds and gets one, so the commonest
+        #: two-step request produced a green run with a blank answer.
+        #:
+        #: Set here rather than raised: the agent's job is to report what
+        #: happened, and whether a partial answer is acceptable belongs to whoever
+        #: asked. `run_base_node` is the one that decides.
+        self.cut_short: bool = False
 
     async def complete(self, user_input: str) -> Any:
         """Run to completion and return the result directly.
@@ -86,11 +99,17 @@ class Agent(BaseAgent):
 
             tool_uses = response.tool_uses()
             if not tool_uses or rounds >= self.max_tool_rounds:
+                # Two different endings share this branch: the model was done, and
+                # the model still wanted tools but has no rounds left. Only the
+                # second is a truncation, and telling them apart needs `tool_uses`
+                # — which is why the flag is set here rather than inferred later
+                # from an empty string.
+                self.cut_short = bool(tool_uses)
                 text = response.text()
                 self.result = text
                 if text:
                     yield events.TextDelta(text)
-                yield events.RunFinished("completed", text)
+                yield events.RunFinished("cut_short" if self.cut_short else "completed", text)
                 return
 
             rounds += 1
