@@ -383,14 +383,15 @@ mistake easy:
 Not before: the plan's own argument is that these pieces only make sense on top of
 each other, and a half-ported Architect on `main` is the thing §1 exists to avoid.
 
-- [ ] All phases ticked, and the build log has a section for each — a ticked box
+- [x] All phases ticked, and the build log has a section for each — a ticked box
       with an empty log section is the discrepancy the README's convention exists
       to catch.
-- [ ] The **full suite including the live tests**, run once, deliberately, against
-      OpenAI. Everything up to here has been run with the live provider pointed
+- [x] The **full suite including the live tests**, run once, deliberately, against
+      OpenAI. Done 2026-08-04 on `gpt-4o-mini`: 1145 passed, 1 failed — a
+      model-capability boundary, not a defect. See the build log's §8. Everything up to here has been run with the live provider pointed
       away so the loop stays at 24s; that is a working convenience and not a
       release check.
-- [ ] Ruff clean, which it currently is.
+- [x] Ruff clean, and `mkdocs build --strict` clean.
 - [ ] Merge to `main`, then **bump the version**.
 
 ### The bump
