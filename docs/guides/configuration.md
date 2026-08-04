@@ -30,8 +30,34 @@ See [Providers](../guides/providers.md) for the routing details and provider pro
 |---|---|---|
 | `NEUROSURFER_LOG_LEVEL` | `INFO` | Log verbosity. |
 | `NEUROSURFER_STATE_DIR` | `./.neurosurfer` | Per-run transcripts / state directory. |
-| `NEUROSURFER_HOME` | `~/.neurosurfer` | User config home (profiles, MCP servers). |
+| `NEUROSURFER_HOME` | `./.neurosurfer` | **The single data root** — see [Storage layout](#storage-layout). |
 | `NEUROSURFER_SERVICE_NAME` | `neurosurfer` | Service name surfaced to trace backends. |
+
+### Storage layout
+
+Everything neurosurfer writes lives under one root — `NEUROSURFER_HOME`, or
+`./.neurosurfer` beside wherever you launched, which is deliberate: the files sit
+next to the work while you are debugging.
+
+```
+.neurosurfer/
+  config/mcp.json     MCP servers you have configured
+  workflows/          registered workflow packages
+  runs/               durable run records, one directory each
+  traces/             per-run traces
+  tools/              tools the Architect authored
+  projects/           an Architect build's staging area
+```
+
+There is **one** of each. Registered workflows, runs and authored tools are
+host-level, so anything that can reach this installation can see all of them —
+which is the right model for a CLI and a library, and worth stating plainly rather
+than leaving to be discovered.
+
+Two of these are shared on purpose rather than by omission. `config/mcp.json` is
+host-level because an MCP server is a process the gateway spawns as its own OS
+user. Authored tools are host-level because the tool registry loads them with no
+scoping argument — a tool written anywhere else would exist and never be callable.
 
 ## Observability
 

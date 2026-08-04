@@ -69,7 +69,7 @@ result = WorkflowRunner(provider, cwd=".").run(pkg, inputs={"user_intent": "…"
 
 ## Recommended workflow
 
-Given the module is [experimental](index.md), the reliable path is:
+Because [output quality tracks the model](index.md), the reliable path is:
 
 1. **Bootstrap** — let the Architect design a first draft from a *narrow, specific* intent.
 2. **Review** — open the generated package; read the graph and any authored tool.

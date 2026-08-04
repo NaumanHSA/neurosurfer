@@ -11,13 +11,21 @@ It lives in `neurosurfer.architect`:
 from neurosurfer.architect import ArchitectBuilder, ArchitectConversation, WorkflowInfeasible
 ```
 
-!!! warning "Experimental — not yet production-grade"
-    The Architect is the newest and least settled module in Neurosurfer. It works for well-scoped,
-    single-purpose workflows, but **generated graphs vary in quality**, complex or ambiguous intents
-    can produce brittle or infeasible designs, and the authored-tool path is best treated as a
-    starting point you review — not code to ship unread. The APIs on these pages are stable enough to
-    build on, but expect the behaviour and prompts behind them to keep changing. Use it to
-    *bootstrap* a workflow, then refine the generated package by hand.
+!!! note "Maturing — output quality tracks the model"
+    The Architect is the most demanding agent in Neurosurfer. It now **runs and LLM-judges its own
+    builds** before finishing (closed-loop self-verification), which sharply improves reliability —
+    but **generated-graph quality still tracks the model you give it**: strong tool-calling models
+    (e.g. `gpt-5-mini` and up) produce solid, branching designs; smaller models occasionally emit a
+    simpler-than-ideal graph and may need a re-run or the gated `verify="required"` loop. Treat the
+    **authored-tool path** as a reviewed starting point, not code to ship unread. APIs on these pages
+    are stable; the prompts and heuristics behind them keep improving.
+
+!!! tip "The current entrypoint: `ArchitectAgent`"
+    These pages document the original `ArchitectBuilder` pipeline. The recommended path is now the
+    **ReAct `ArchitectAgent`** — a single planner with a validate/test/register toolbelt and
+    closed-loop verification (`ArchitectAgent(provider).build(intent)`). See
+    **[tutorial 06 — The Architect](https://github.com/NaumanHSA/neurosurfer/blob/main/tutorials/06_architect.ipynb)**
+    for the end-to-end walkthrough.
 
 ## The idea
 

@@ -149,7 +149,13 @@ class MemoryExporter(TraceExporter):
         self._rec("error", trace_id=ctx.trace_id, message=message)
 
     def on_run_finish(self, ctx, *, status, output=None):
-        self._rec("run_finish", trace_id=ctx.trace_id, status=status, output=output)
+        self._rec(
+            "run_finish",
+            trace_id=ctx.trace_id,
+            span_id=ctx.span_id,
+            status=status,
+            output=output,
+        )
 
     def flush(self):
         self._rec("flush")
