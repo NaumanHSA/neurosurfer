@@ -74,7 +74,7 @@ def test_runtime_leaves_undeclared_reference_literal_and_validation_says_so(tmp_
     ]
     graph = _pkg(nodes, tmp_path, outputs=["a", "b"]).graph
     provider = _RecordingProvider([("out", "")] * 4)
-    GraphExecutor(graph=graph, provider=provider).run({})
+    GraphExecutor(graph=graph, provider=provider, validate=False).run({})
 
     assert any("uses {a}" in s for s in provider.systems), "executor rendered it after all"
 
@@ -294,7 +294,7 @@ def test_routes_router_literal_stays_literal_at_runtime(tmp_path):
         GraphNode(id="x", kind="base", depends_on=["r"], goal="go"),
     ]
     provider = _RecordingProvider([("go", ""), ("only", ""), ("done", "")])
-    GraphExecutor(graph=_pkg(nodes, tmp_path, outputs=["x"]).graph, provider=provider).run({})
+    GraphExecutor(graph=_pkg(nodes, tmp_path, outputs=["x"]).graph, provider=provider, validate=False).run({})
     # The classifier's instruction is the user turn, and it still carries the braces.
     assert any("given {research}, route it" in u for u in provider.users)
 

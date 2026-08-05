@@ -144,7 +144,7 @@ def test_a_node_keeps_its_good_values_when_one_name_is_wrong(tmp_path):
         outputs=["a"],
     )
     provider = _RecordingProvider([("out", "")] * 2)
-    GraphExecutor(graph=graph, provider=provider).run({"topic": "cats", "audience": "vets"})
+    GraphExecutor(graph=graph, provider=provider, validate=False).run({"topic": "cats", "audience": "vets"})
 
     assert any("brief on cats for vets in the style of {styel}" in s
                for s in provider.systems)
@@ -194,7 +194,7 @@ def test_router_keeps_its_graph_inputs_when_a_node_id_is_referenced(tmp_path):
             async for ev in super().stream(messages, system, tools, config):
                 yield ev
 
-    GraphExecutor(graph=graph, provider=_Router([("go", ""), ("only", ""), ("done", "")])) \
+    GraphExecutor(graph=graph, provider=_Router([("go", ""), ("only", ""), ("done", "")]), validate=False) \
         .run({"depth_hint": "go deep"})
 
     assert any("steer: go deep. evidence: {research}" in u for u in users)

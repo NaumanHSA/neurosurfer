@@ -32,7 +32,10 @@ INFEASIBLE_MARKER = "__WORKFLOW_INFEASIBLE__:"
 
 
 def validate_package(
-    pkg: WorkflowPackage, *, known_providers: set[str] | None = None
+    pkg: WorkflowPackage,
+    *,
+    known_providers: set[str] | None = None,
+    extra_tools: set[str] | None = None,
 ) -> ValidationReport:
     """Validate *pkg* beyond structural loading. Returns a :class:`ValidationReport`.
 
@@ -40,13 +43,20 @@ def validate_package(
     ``None`` says "do not ask". Most callers genuinely do not know what a given
     deployment has configured, and guessing would reject valid graphs on a
     machine that simply has not been set up yet.
+
+    *extra_tools* are names available to **this caller** that the global registry
+    does not know about. A `GraphExecutor` can be handed an explicit `ToolPool` —
+    an embedder wiring its own tools, a test injecting a fake — and those tools
+    are as real as any registered one for the graph about to run. Without this,
+    validating at execution time reported "nothing provides it" about a tool the
+    executor was holding.
     """
     report = ValidationReport()
     ctx = ValidationContext(
         package=pkg,
         graph=pkg.graph,
         known_providers=known_providers,
-        registered_tools=registered_tool_names(),
+        registered_tools=registered_tool_names() | set(extra_tools or ()),
     )
 
     # Import resolution needs the package directory on `sys.path` — a package may

@@ -121,16 +121,22 @@ class GraphExecutor:
         log_traces: bool = True,
         parallelism: int = 1,
         provider_resolver: Any = None,
+        validate: bool = True,
     ) -> None:
         self.graph = graph
+        # Validation is the first step of every run — see `_validate_before_running`.
+        # The escape hatch exists for the validator's own tests and for
+        # deliberately running a graph you know is broken; it is not a
+        # performance switch, and nothing in the library sets it.
+        self.validate = validate
         self.provider = provider
         # Per-node provider selection. Without one, every node runs on `provider`
         # and `node.model` rebinds a copy of it — so a graph that names a model
         # finally gets that model rather than a trace that merely claims it.
         if provider_resolver is None:
             from neurosurfer.llm.resolver import ProviderResolver
-
             provider_resolver = ProviderResolver(provider)
+
         self.providers = provider_resolver
         self.native_tools = native_tools
         self._tool_ctx = tool_ctx
@@ -164,6 +170,66 @@ class GraphExecutor:
     @staticmethod
     def _topo_layers_static(nodes) -> list[list[str]]:
         return _topo_layers(nodes)
+
+    def _validate_before_running(self) -> None:
+        """Refuse a graph the validator says cannot run. **The first step of a run.**
+
+        Validation used to be an *optional* gate that only some callers passed
+        through: the Architect ran it, the registry ran it, and a graph handed
+        straight to `GraphExecutor` — which is what the Python API and every
+        tutorial does — ran no checks at all.
+
+        The cost of that was demonstrated by renaming one node: a router still
+        routing to the old name selected a branch that did not exist, a node that
+        depended on the router but was nobody's target ran unconditionally, and
+        the whole thing reported success. Every fact needed to refuse it was
+        available before the first model call.
+
+        **Errors block; warnings do not.** An error means the graph will not run
+        correctly, so starting it only spends tokens on the way to a worse
+        message. A warning means it will run and may surprise you, which is the
+        author's call and not the engine's.
+
+        Validation failing to *run* — no tool registry, an import this
+        deployment cannot resolve — is logged and skipped rather than raised.
+        Refusing to execute because the checker itself broke would make the gate
+        more fragile than the thing it guards.
+        """
+        if not self.validate:
+            return
+        try:
+            from pathlib import Path
+
+            from neurosurfer.graph.workflow.package import WorkflowPackage
+            from neurosurfer.graph.workflow.schema import WorkflowManifest
+            from neurosurfer.graph.workflow.validation import validate_package
+
+            pkg = getattr(self, "_package", None) or WorkflowPackage(
+                manifest=WorkflowManifest(name=self.graph.name or "graph"),
+                graph=self.graph,
+                path=Path("."),
+            )
+            # Tools the executor was *given* are as real as registered ones for
+            # this run — see `validate_package`'s `extra_tools`.
+            pool = self.native_tools
+            given = set(pool.names()) if pool is not None else set()
+            report = validate_package(pkg, extra_tools=given)
+        except Exception as e:  # noqa: BLE001 - see the docstring
+            self.logger.debug("Pre-run validation could not run: %s", e)
+            return
+
+        for issue in report.warnings:
+            self.logger.warning("%s: %s", issue.node_id or self.graph.name, issue.message)
+
+        blocking = report.errors + report.gaps
+        if blocking:
+            lines = "\n".join(f"  - {i.render()}" for i in blocking)
+            raise GraphConfigurationError(
+                f"This workflow cannot run as written:\n{lines}\n\n"
+                f"Validation runs before every graph, so this was caught without "
+                f"spending a model call. Pass `validate=False` to the executor to "
+                f"run it anyway."
+            )
 
     def run(
         self,
@@ -202,6 +268,7 @@ class GraphExecutor:
         GraphExecutionResult
             Contains the graph spec, all node results, and the final outputs.
         """
+        self._validate_before_running()
         graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
         # Typed shared state threaded through the whole run (Phase 1a). Node outputs
         # and explicit `writes` land here so conditional edges / routers / loops can
@@ -917,7 +984,18 @@ class GraphExecutor:
     # Iteration nodes (Phase 1e loop / 1f map)
     # ------------------------------------------------------------------ #
     def _child_executor(self, node: GraphNode) -> GraphExecutor:
-        """Build a nested executor for a loop/map ``body`` sub-graph."""
+        """Build a nested executor for a loop/map ``body`` sub-graph.
+
+        **The body is not re-validated**, and that is not an oversight. A body is
+        not a standalone workflow: `{item}`, `{index}` and `{iteration}` are
+        injected by the container at run time and are *not* graph inputs, so
+        validating the body in isolation reports them as references nothing
+        provides — and a perfectly good `map` fails before its first iteration.
+
+        The parent's validation already covered these nodes: the rule runner
+        walks into `body` (see `validation/context.py::body_nodes`), where it can
+        see the container that supplies the loop variable.
+        """
         body_graph = Graph(
             name=f"{node.id}__body",
             nodes=node.body or [],
@@ -925,6 +1003,7 @@ class GraphExecutor:
         )
         return GraphExecutor(
             body_graph,
+            validate=False,
             provider=self.provider,
             native_tools=self.native_tools,
             tool_ctx=self._tool_ctx,

@@ -75,7 +75,7 @@ class TestCascadingFailure:
                 duration_ms=1,
             )
 
-        executor = GraphExecutor(graph, llm=llm, log_traces=False)
+        executor = GraphExecutor(graph, llm=llm, log_traces=False, validate=False)
         executor._run_node = fake_run_node  # type: ignore[assignment]
         return executor
 

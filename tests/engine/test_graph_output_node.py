@@ -48,9 +48,11 @@ def _payload(**kwargs):
     return {"rows": 3, "ok": True}
 
 
-def _run(spec: dict, inputs: dict | None = None):
+def _run(spec: dict, inputs: dict | None = None, validate: bool = True):
+    """Run a graph. `validate=False` is for the tests that deliberately build a
+    graph the validator refuses, to assert what the *runtime* does with it."""
     graph = load_graph_from_dict(spec)
-    ex = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False)
+    ex = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False, validate=validate)
     return ex.run(inputs or {})
 
 
@@ -206,7 +208,7 @@ def test_an_unresolved_placeholder_is_an_error_not_literal_text():
             {"id": "out", "kind": "output", "depends_on": ["s"],
              "value": "{nothing_called_this}"},
         ],
-    })
+    }, validate=False)
     assert res.nodes["out"].error is not None
     assert "resolved to nothing" in res.nodes["out"].error
 
@@ -215,7 +217,7 @@ def test_no_value_and_no_dependency_is_an_error():
     res = _run({
         "name": "wf",
         "nodes": [{"id": "out", "kind": "output"}],
-    })
+    }, validate=False)
     assert res.nodes["out"].error is not None
     assert "nothing to pass" in res.nodes["out"].error
 

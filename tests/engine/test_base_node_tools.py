@@ -67,10 +67,12 @@ class _ToolThenText:
         )
 
 
-def _run(nodes, provider, tools=None):
+def _run(nodes, provider, tools=None, validate=True):
+    """Run a graph. `validate=False` is for the tests that deliberately build a
+    graph the validator refuses, to assert what the *runtime* does with it."""
     graph = load_graph_from_dict({"name": "t", "nodes": nodes, "outputs": [nodes[-1]["id"]]})
     return GraphExecutor(
-        graph, provider=provider, log_traces=False,
+        graph, provider=provider, log_traces=False, validate=validate,
         **({"native_tools": ToolPool(tools)} if tools else {}),
     ).run({})
 
@@ -113,5 +115,6 @@ def test_a_react_node_still_needs_tools():
     The executor records a node's failure rather than propagating it, so the refusal
     shows up as the node's `error`, which is where a run would report it.
     """
-    res = _run([{"id": "r", "kind": "react", "goal": "act"}], _ToolThenText())
+    res = _run([{"id": "r", "kind": "react", "goal": "act"}], _ToolThenText(),
+               validate=False)  # the graph is invalid on purpose; this asserts the runtime
     assert "no tools" in (res.nodes["r"].error or "")
