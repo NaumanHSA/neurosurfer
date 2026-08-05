@@ -10,6 +10,14 @@ forgotten.
 
 from __future__ import annotations
 
-from . import _common, agent, bindings, io, routing, settings, tools  # noqa: F401  (imported to register)
+from . import (  # noqa: F401  (imported to register)
+    _common,
+    agent,
+    bindings,
+    io,
+    routing,
+    settings,
+    tools,
+)
 
 __all__ = ["_common", "agent", "bindings", "io", "routing", "settings", "tools"]
