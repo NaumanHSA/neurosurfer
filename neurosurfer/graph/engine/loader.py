@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from .errors import GraphConfigurationError
+from .nodes import Container, Loop, Map, Router
 from .schema import Graph, GraphNode
 from .utils import topo_sort  # uses same error type for cycles / unknown deps
 
@@ -243,7 +244,7 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                     f"node '{n.id}' on_error target '{n.on_error}' must list '{n.id}' in "
                     f"its depends_on (so it runs as the fallback)."
                 )
-        if n.kind == "router":
+        if isinstance(n, Router):
             if not n.cases and not n.routes:
                 errors.append(
                     f"router '{n.id}' must declare `routes` (label → target) "
@@ -274,10 +275,10 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                     )
             for c in n.cases or []:
                 _check_expr(c.when, f"router '{n.id}' case → '{c.to}'")
-        elif n.kind in {"loop", "map", "subgraph"}:
+        elif isinstance(n, Container):
             if not n.body:
                 errors.append(f"{n.kind} '{n.id}' must declare a non-empty body.")
-            if n.kind == "loop":
+            if isinstance(n, Loop):
                 if not n.max_iterations or n.max_iterations < 1:
                     errors.append(f"loop '{n.id}' requires max_iterations >= 1 (a hard ceiling).")
                 if n.until and n.break_when:
@@ -289,7 +290,7 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                 if n.until is not None and not n.until.strip():
                     errors.append(f"loop '{n.id}' has an empty `until` condition.")
                 _check_expr(n.break_when, f"loop '{n.id}' break_when")
-            if n.kind == "map":
+            if isinstance(n, Map):
                 if not n.over:
                     errors.append(f"map '{n.id}' requires an 'over' expression.")
                 _check_expr(n.over, f"map '{n.id}' over")

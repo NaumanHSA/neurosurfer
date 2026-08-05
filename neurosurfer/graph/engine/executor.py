@@ -28,6 +28,18 @@ from .errors import (
 from .export import GraphExporter
 from .json_schema import JsonSchemaError, model_from_json_schema
 from .manager import ManagerAgent, ManagerConfig
+from .nodes import (
+    Function,
+    Input,
+    Loop,
+    Map,
+    Output,
+    Python,
+    React,
+    Router,
+    Subgraph,
+    Tool,
+)
 from .schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
 from .secrets import expand_node_secrets, redact
 from .state import WorkflowState
@@ -377,7 +389,7 @@ class GraphExecutor:
             state.set_node_output(nid, result.raw_output)
             if node.writes:
                 state.set_var(node.writes, result.raw_output)
-            if node.kind == "router":
+            if isinstance(node, Router):
                 self._apply_router_pruning(node, result, pruned_ids)
                 selected = result.raw_output
                 label = (result.structured_output or {}).get("label")
@@ -1515,23 +1527,29 @@ class GraphExecutor:
         trace_step: TraceStepContext | None = None,
     ) -> NodeExecutionResult:
 
-        # Non-LLM dispatch — no prompt building, no agent needed
-        if node.kind in {"function", "python"}:
+        # Non-LLM dispatch — no prompt building, no agent needed.
+        #
+        # `isinstance` rather than `node.kind == ...`: `Graph` upgrades every node
+        # to its kind's class on the way in (schema._as_kind_classes), including
+        # nodes that arrived as `kind=` strings or from YAML, so the two are
+        # equivalent — but the class is the thing a reader can follow to a
+        # docstring, and mypy narrows it.
+        if isinstance(node, (Function, Python)):
             return self._run_function_node(node, graph_inputs, dependency_results)
-        if node.kind == "tool":
+        if isinstance(node, Tool):
             return self._run_tool_node(node, graph_inputs, dependency_results)
         _state = state or WorkflowState(inputs=dict(graph_inputs))
-        if node.kind == "router":
+        if isinstance(node, Router):
             return self._run_router_node(node, _state)
-        if node.kind == "loop":
+        if isinstance(node, Loop):
             return self._run_loop_node(node, _state)
-        if node.kind == "map":
+        if isinstance(node, Map):
             return self._run_map_node(node, _state)
-        if node.kind == "subgraph":
+        if isinstance(node, Subgraph):
             return self._run_subgraph_node(node, _state)
-        if node.kind == "input":
+        if isinstance(node, Input):
             return self._run_input_node(node, _state)
-        if node.kind == "output":
+        if isinstance(node, Output):
             return self._run_output_node(node, graph_inputs, dependency_results, _state)
 
         # LLM-based node (base | react)
@@ -1662,7 +1680,7 @@ class GraphExecutor:
             return pool, tool_ctx
 
         def _execute() -> Any:
-            if node.kind == "react":
+            if isinstance(node, React):
                 # A react node is an LLM that calls tools in a loop. With none, it
                 # used to fall through to an empty pool and quietly become a base
                 # node that narrates actions it never took — the failure mode is a
@@ -1861,7 +1879,7 @@ class GraphExecutor:
         """
         ran = {
             n.id for n in self.graph.nodes
-            if n.kind == "output" and n.id in results and not results[n.id].skipped
+            if isinstance(n, Output) and n.id in results and not results[n.id].skipped
         }
         if ran:
             return {nid: results[nid].raw_output for nid in ran}
