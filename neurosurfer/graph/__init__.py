@@ -66,6 +66,23 @@ from .engine import (  # noqa: F401
     topo_sort,
 )
 
+# Node kinds as classes — a second door onto `GraphNode`; see engine/nodes.py.
+from .engine.nodes import (
+    Base,
+    Container,
+    Function,
+    Input,
+    Loop,
+    Map,
+    Output,
+    Python,
+    React,
+    Router,
+    Subgraph,
+    Tool,
+    for_kind,
+)
+
 
 def __getattr__(name: str) -> Any:
     # Lazy access to the workflow subpackage so importing the engine stays cheap
@@ -75,7 +92,22 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+
 __all__ = [
+    "Base",
+    "React",
+    "Tool",
+    "Function",
+    "Python",
+    "Router",
+    "Loop",
+    "Map",
+    "Subgraph",
+    "Input",
+    "Output",
+    "Container",
+    "for_kind",
+
     # ── engine primitives (re-exported) ──
     "AgentError",
     "ArtifactStore",

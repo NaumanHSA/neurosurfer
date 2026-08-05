@@ -488,6 +488,32 @@ class Graph(BaseModel):
     outputs: list[str] = Field(default_factory=list)
 
     @field_validator("nodes")
+    def _as_kind_classes(cls, v: list[GraphNode]) -> list[GraphNode]:
+        """Give every node the class its `kind` names — see `engine/nodes.py`.
+
+        This is what makes `isinstance(node, Router)` mean something. Without it
+        the answer would depend on how the node was *built*: `Router(...)` would
+        pass and `GraphNode(kind="router")` — which is what YAML loading and 204
+        existing call sites produce — would not. A type check that silently
+        depends on the construction path is worse than no type check.
+
+        Bodies are upgraded too, recursively, so a node inside a `map` is as
+        identifiable as one at the top level.
+
+        Imported here rather than at module scope: `nodes.py` imports `GraphNode`
+        from this module, so a top-level import would be a cycle.
+        """
+        from .nodes import upgrade  # noqa: PLC0415 - see the docstring
+
+        def _walk(node: GraphNode) -> GraphNode:
+            out = upgrade(node)
+            if out.body:
+                out.body = [_walk(b) for b in out.body]
+            return out
+
+        return [_walk(n) for n in v]
+
+    @field_validator("nodes")
     def _unique_node_ids(cls, v: list[GraphNode]) -> list[GraphNode]:
         ids = [n.id for n in v]
         if len(ids) != len(set(ids)):
