@@ -172,3 +172,54 @@ def test_a_step_that_never_wanted_tools_is_not_called_cut_short():
     that returns nothing for its own reasons is a different problem."""
     call = run_base_node(_provider([[TextBlock(text="")]]), "s", "answer")
     assert call.output == ""
+
+
+# ── a react node's answer can arrive by either channel ───────────────────────
+
+
+def _finish_pool():
+    from neurosurfer.registry.core.agent.finish import FinishTool
+
+    return ToolPool([FinishTool()])
+
+
+def _react(turns):
+    from pathlib import Path
+
+    from neurosurfer.graph.engine.node_runner import run_react_node
+    from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext
+    from tests.fakes import ScriptedProvider
+
+    ctx = ToolContext(cwd=Path("."), io=AutoApproveIOHandler())
+    return run_react_node(ScriptedProvider(turns=turns), _finish_pool(), ctx, "sys", "go")
+
+
+def test_an_answer_given_to_finish_is_the_nodes_output():
+    """Found in tutorial 03, against a real model.
+
+    `RunResult` has two channels — `final_text` accumulates text deltas, `report`
+    carries what `RunFinished` was given. A model that does its work and then
+    calls `finish(summary=…)` emits no text deltas at all, so reading
+    `final_text` alone returned `""` from a node that had just written the answer
+    down.
+
+    Nothing failed: the node was green, its tool calls were in the trace, and the
+    *next* node was handed an empty string and improvised — "I don't have the
+    scout findings above to summarise." One node's silence became the next node's
+    invention.
+    """
+    call = _react([("", [("finish", {"summary": "Neurosurfer is an agent framework.",
+                                     "status": "success"})])])
+    assert call.output == "Neurosurfer is an agent framework."
+
+
+def test_a_prose_answer_still_wins_when_there_is_no_report():
+    call = _react([("A plain prose answer.", [])])
+    assert call.output == "A plain prose answer."
+
+
+def test_a_react_node_that_produced_nothing_at_all_is_an_error():
+    """Empty is the line here too — same rule as `run_base_node`."""
+    with pytest.raises(GraphConfigurationError) as e:
+        _react([("", [("finish", {"summary": "", "status": "success"})])])
+    assert "finish" in str(e.value)

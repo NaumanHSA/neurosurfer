@@ -209,8 +209,39 @@ def run_react_node(
             mode="bypass",
         )
         result = await agent.run_collect(user_prompt)
+
+        # **An agent that ends with `finish()` puts its answer in `report`.**
+        #
+        # `RunResult` has two channels: `final_text` accumulates text deltas, and
+        # `report` carries what `RunFinished` was given. A model that does its
+        # work and then calls `finish(summary=…)` — which is the shape the finish
+        # tool exists to encourage — produces *no* text deltas at all, so reading
+        # `final_text` alone returned `""` from a node that had just done the
+        # work and written the answer down.
+        #
+        # Nothing failed. The node was green, its tool calls were in the trace,
+        # and the *next* node was handed an empty string and improvised around
+        # it: "I don't have the scout findings above to summarise." One node's
+        # silence became the next node's invention.
+        #
+        # `subagents/runner.py` had this right already (`report or final_text or
+        # …`); this is the same rule, in the place a workflow reads it.
+        output = (result.report or "").strip() or (result.final_text or "").strip()
+
+        # Empty is the line, exactly as it is for `base` — see `run_base_node`. A
+        # react node that ran tools and produced no answer has not succeeded at
+        # anything a downstream node can use.
+        if not output:
+            names = ", ".join(dict.fromkeys(_tool_names(agent))) or "no tools"
+            raise GraphConfigurationError(
+                f"This step finished without producing an answer. It called "
+                f"{names} and returned nothing, so anything downstream would be "
+                f"working from an empty result. Check that the step's "
+                f"instructions ask for an answer, not only for actions."
+            )
+
         return NodeCall(
-            output=result.final_text,
+            output=output,
             usage=result.usage or Usage(),
             tool_calls=_tool_names(agent),
         )
