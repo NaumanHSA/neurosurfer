@@ -52,33 +52,8 @@ from ..templates import (
     render_template,
 )
 from ..utils import import_string, normalize_and_validate_graph_inputs, topo_sort
-
-_TRACE_TEXT_LIMIT = 4000
-
-
-def _trace_text(value: Any) -> Any:
-    """JSON-safe, length-capped copy of a value for the trace.
-
-    A trace is a debugging artifact, not a second store of every payload: a long
-    map output would otherwise be duplicated in full on disk for every run.
-    """
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
-    text = value if isinstance(value, str) else repr(value)
-    return text if len(text) <= _TRACE_TEXT_LIMIT else text[:_TRACE_TEXT_LIMIT] + "…"
-
-
-def _trace_step(tracer, **kwargs):
-    """Open a trace step, or a no-op context when there's no tracer.
-
-    Keeps call sites free of `if self.tracer is not None` noise; the Tracer's own
-    disabled path already returns a no-op, this covers `tracer=None` too.
-    """
-    if tracer is None:
-        from contextlib import nullcontext
-
-        return nullcontext(None)
-    return tracer(**kwargs)
+from . import iteration
+from ._trace import _trace_step, _trace_text
 
 
 def _input_root(expression: str | None) -> str | None:
@@ -1129,282 +1104,23 @@ class GraphExecutor:
                 names.add(root)
         return frozenset(names)
 
+    # ── iteration: loop / map / subgraph ─────────────────────────────────
+    #
+    # Thin forwarders. The runners live in `iteration.py`; these keep the method
+    # surface a reader (and `_run_node`'s dispatch, and the tests) already knows.
+
     @staticmethod
     def _body_value(result: GraphExecutionResult) -> Any:
-        """Reduce a body run's final outputs to a single value (unwrap 1-key dicts)."""
-        final = result.final or {}
-        if len(final) == 1:
-            return next(iter(final.values()))
-        return final
+        return iteration.body_value(result)
 
     def _run_loop_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
-        """Run ``node.body`` repeatedly until the stop condition or ``max_iterations``.
-
-        Stop conditions (mutually exclusive):
-          - ``until``       — a plain-English condition judged by an internal LLM
-            decision after each iteration. A CONTINUE verdict carries a reason,
-            which the next iteration receives as ``{feedback}`` — directed
-            refinement, not blind retry.
-          - ``break_when``  — a sandboxed expression, evaluated for free.
-
-        Each iteration sees ``index``, the previous output (bound to ``item_var``),
-        and ``feedback``; body node outputs are published back to the parent state.
-        """
-        from ..expressions import safe_bool
-
-        started_at = time.time()
-        try:
-            if not node.body:
-                raise GraphConfigurationError(f"loop node '{node.id}' has no body.")
-            if not node.max_iterations or node.max_iterations < 1:
-                raise GraphConfigurationError(
-                    f"loop node '{node.id}' requires max_iterations >= 1 (a hard ceiling)."
-                )
-            child = self._child_executor(node)
-            acc: list[Any] = []
-            usage = Usage()
-            judge_log: list[dict[str, Any]] = []
-            last_output: Any = None
-            feedback = ""
-            iterations = 0
-            broke = False
-            for i in range(node.max_iterations):
-                iterations = i + 1
-                scope = {"index": i, "iteration": i, node.item_var: last_output,
-                         "acc": list(acc), "feedback": feedback}
-                child_state = state.child_scope(scope)
-                iter_inputs = {**state.inputs, "index": i,
-                               node.item_var: last_output, "feedback": feedback}
-                body_result = child.run(
-                    iter_inputs,
-                    seed_state=child_state,
-                    node_event=self._active_node_event,
-                    event_scope={
-                        "parent": node.id, "kind": "loop",
-                        "iteration": i, "total": node.max_iterations,
-                    },
-                )
-                # Body nodes aren't in the parent's result map, so their tokens
-                # would vanish — fold every iteration into the loop node's usage.
-                usage = usage.add(body_result.total_usage())
-                # Publish body outputs to the parent state (readable by break_when).
-                for nid, r in body_result.nodes.items():
-                    if not r.skipped and r.error is None:
-                        state.set_node_output(nid, r.raw_output)
-                last_output = self._body_value(body_result)
-                acc.append(last_output)
-                if node.accumulate:
-                    state.set_var(node.accumulate, list(acc))
-                if body_result.errors:
-                    # A failing body stops the loop (surface it below).
-                    return self._error_result(
-                        node, started_at,
-                        f"loop body failed on iteration {iterations}: {body_result.errors}",
-                    )
-                if node.until:
-                    stop, reason, judge_usage = self._judge_loop_until(node, last_output, i)
-                    usage = usage.add(judge_usage)
-                    judge_log.append(
-                        {"iteration": iterations, "stop": stop, "reason": reason}
-                    )
-                    self._log(
-                        f"Node {node.id}: iteration {iterations} → "
-                        f"{'stop' if stop else 'continue'}"
-                        + (f" ({reason[:80]})" if reason else ""),
-                        tracer=None, type="info",
-                    )
-                    if stop:
-                        broke = True
-                        break
-                    feedback = reason or feedback
-                elif node.break_when:
-                    ns = state.child_scope(
-                        {"index": i, "iteration": i, node.item_var: last_output, "acc": list(acc)}
-                    ).namespace()
-                    if safe_bool(node.break_when, ns, default=False):
-                        broke = True
-                        break
-            result_value = state.vars.get(node.accumulate) if node.accumulate else last_output
-            structured: dict[str, Any] = {
-                "iterations": iterations, "broke_early": broke, "results": acc,
-            }
-            if judge_log:
-                structured["judge"] = judge_log
-            return NodeExecutionResult(
-                node_id=node.id,
-                mode=node.mode,
-                raw_output=result_value,
-                structured_output=structured,
-                started_at=started_at,
-                duration_ms=int((time.time() - started_at) * 1000),
-                usage=usage,
-            )
-        except Exception as e:  # noqa: BLE001
-            self.logger.exception("Loop node %s failed: %s", node.id, e)
-            return self._error_result(node, started_at, str(e))
-
-    def _judge_loop_until(
-        self, node: GraphNode, body_value: Any, index: int
-    ) -> tuple[bool, str]:
-        """The loop's hidden exit judge: one constrained LLM decision per iteration.
-
-        Returns ``(stop, reason)``. The reason for a CONTINUE verdict becomes the
-        next iteration's ``{feedback}``. Unparseable answers get one corrective
-        retry (when ``repair``), then fail safe to CONTINUE — the mandatory
-        ``max_iterations`` ceiling still bounds the loop.
-        """
-        import json as _json
-        import re as _re
-
-        if self.provider is None:
-            raise GraphConfigurationError(
-                f"loop '{node.id}' uses `until` (LLM-judged) but no provider was "
-                f"given to the executor."
-            )
-        from ..node_runner import run_base_node
-
-        evidence = _json.dumps(body_value, ensure_ascii=False, default=str)[:3000]
-        system = (
-            "You are a loop-exit judge inside a workflow engine. Decide whether the "
-            "stop condition is met. Reply with exactly one word first — STOP or "
-            "CONTINUE — optionally followed by ' - <one short reason>'. On CONTINUE, "
-            "the reason must say what is still lacking: it is handed to the next "
-            "attempt as feedback."
-        )
-        user = (
-            f"Stop condition: {node.until}\n\n"
-            f"Iteration {index + 1} of at most {node.max_iterations}. Its results:\n"
-            f"{evidence}\n\nIs the stop condition met?"
-        )
-
-        def _parse(text: str) -> tuple[bool | None, str]:
-            m = _re.search(r"\b(stop|continue)\b", (text or "").lower())
-            if m is None:
-                return None, ""
-            reason = (text or "")[m.end():].strip(" \t\n-—:.,*")
-            return m.group(1) == "stop", reason
-
-        # The judge is a hidden LLM call per iteration — often a third of a loop's
-        # cost. Report it so it lands on the loop node's usage.
-        usage = Usage()
-        with _trace_step(
-            self.tracer,
-            kind="llm",
-            label="loop.until_judge",
-            node_id=node.id,
-            agent_id=node.id,
-            inputs={"until": node.until, "iteration": index + 1},
-        ) as step:
-            call = run_base_node(self.provider, system, user)
-            if step is not None:
-                step.outputs(verdict=_trace_text(call.output))
-                step.add_meta(usage=call.usage.model_dump() if call.usage else None)
-        usage = usage.add(call.usage)
-        raw = call.output
-        decision, reason = _parse(str(raw))
-        if decision is None and node.repair:
-            retry = (
-                f"{user}\n\nYour previous answer was invalid: {str(raw)[:200]!r}. "
-                f"Reply with exactly STOP or CONTINUE (one word), optionally "
-                f"' - <short reason>'."
-            )
-            call = run_base_node(self.provider, system, retry)
-            usage = usage.add(call.usage)
-            raw = call.output
-            decision, reason = _parse(str(raw))
-        if decision is None:
-            # Fail safe: keep iterating — max_iterations still bounds the loop.
-            self.logger.warning(
-                "loop %s: until-judge answer unparseable (%r); continuing",
-                node.id, str(raw)[:80],
-            )
-            return False, "", usage
-        return decision, reason, usage
+        return iteration.run_loop_node(self, node, state)
 
     def _run_map_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
-        """Fan ``node.body`` out over the collection from the ``over`` expression.
+        return iteration.run_map_node(self, node, state)
 
-        Returns the list of per-item body outputs (implicit gather); a downstream
-        node depending on this map receives that list.
-        """
-        from ..expressions import ExpressionError, evaluate
-
-        started_at = time.time()
-        try:
-            if not node.body:
-                raise GraphConfigurationError(f"map node '{node.id}' has no body.")
-            if not node.over:
-                raise GraphConfigurationError(f"map node '{node.id}' requires an 'over' expression.")
-            try:
-                collection = evaluate(node.over, state.namespace())
-            except ExpressionError as e:
-                raise GraphConfigurationError(
-                    f"map '{node.id}' over-expression {node.over!r} failed: {e}"
-                ) from e
-            if collection is None:
-                collection = []
-            if not isinstance(collection, (list, tuple)):
-                raise GraphConfigurationError(
-                    f"map '{node.id}' over-expression must yield a list, got "
-                    f"{type(collection).__name__}."
-                )
-            items = list(collection)
-            child = self._child_executor(node)
-            results: list[Any] = [None] * len(items)
-            # Items may run concurrently, so each one records its own usage and we
-            # sum afterwards rather than mutating a shared accumulator.
-            item_usage: list[Usage] = [Usage() for _ in items]
-
-            def _run_item(i: int) -> Any:
-                scope = {"index": i, node.item_var: items[i]}
-                child_state = state.child_scope(scope)
-                iter_inputs = {**state.inputs, "index": i, node.item_var: items[i]}
-                body_result = child.run(
-                    iter_inputs,
-                    seed_state=child_state,
-                    node_event=self._active_node_event,
-                    # Passed per call, not stored on the child — map items may run
-                    # concurrently on the same child executor.
-                    event_scope={
-                        "parent": node.id, "kind": "map",
-                        "iteration": i, "total": len(items),
-                    },
-                )
-                item_usage[i] = body_result.total_usage()
-                if body_result.errors:
-                    raise GraphExecutionError(
-                        f"map body failed for item {i}: {body_result.errors}"
-                    )
-                return self._body_value(body_result)
-
-            if node.concurrency > 1 and len(items) > 1:
-                with ThreadPoolExecutor(max_workers=min(node.concurrency, len(items))) as pool:
-                    futures = {
-                        pool.submit(copy_context().run, _run_item, i): i
-                        for i in range(len(items))
-                    }
-                    for fut in futures:
-                        idx = futures[fut]
-                        results[idx] = fut.result()
-            else:
-                for i in range(len(items)):
-                    results[i] = _run_item(i)
-
-            total = Usage()
-            for u in item_usage:
-                total = total.add(u)
-            return NodeExecutionResult(
-                node_id=node.id,
-                mode=node.mode,
-                raw_output=results,
-                structured_output={"count": len(items)},
-                started_at=started_at,
-                duration_ms=int((time.time() - started_at) * 1000),
-                usage=total,
-            )
-        except Exception as e:  # noqa: BLE001
-            self.logger.exception("Map node %s failed: %s", node.id, e)
-            return self._error_result(node, started_at, str(e))
+    def _run_subgraph_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        return iteration.run_subgraph_node(self, node, state)
 
     def _error_result(self, node: GraphNode, started_at: float, message: str) -> NodeExecutionResult:
         return NodeExecutionResult(
@@ -1419,40 +1135,6 @@ class GraphExecutor:
     # ------------------------------------------------------------------ #
     # Sub-workflow (Phase 1h) + human-in-the-loop (Phase 1i)
     # ------------------------------------------------------------------ #
-    def _run_subgraph_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
-        """Run ``node.body`` once as a nested sub-graph (composition).
-
-        The body sees the parent inputs/state; its final outputs become this node's
-        output (unwrapped when there's a single output).
-        """
-        started_at = time.time()
-        try:
-            if not node.body:
-                raise GraphConfigurationError(f"subgraph node '{node.id}' has no body.")
-            child = self._child_executor(node)
-            body_result = child.run(
-                dict(state.inputs),
-                seed_state=state.child_scope({}),
-                node_event=self._active_node_event,
-                event_scope={"parent": node.id, "kind": "subgraph"},
-            )
-            if body_result.errors:
-                return self._error_result(
-                    node, started_at, f"subgraph body failed: {body_result.errors}"
-                )
-            return NodeExecutionResult(
-                node_id=node.id,
-                mode=node.mode,
-                raw_output=self._body_value(body_result),
-                structured_output={"body_nodes": list(body_result.nodes.keys())},
-                started_at=started_at,
-                duration_ms=int((time.time() - started_at) * 1000),
-                usage=body_result.total_usage(),
-            )
-        except Exception as e:  # noqa: BLE001
-            self.logger.exception("Subgraph node %s failed: %s", node.id, e)
-            return self._error_result(node, started_at, str(e))
-
     def _run_input_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
         """Human-in-the-loop node: obtain a value from the user (or a supplied answer).
 
