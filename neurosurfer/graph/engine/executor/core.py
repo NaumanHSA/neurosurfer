@@ -20,15 +20,15 @@ from neurosurfer.tracing import Tracer, TraceStepContext
 if TYPE_CHECKING:
     pass
 
-from .artifacts import ArtifactStore
-from .errors import (
+from ..artifacts import ArtifactStore
+from ..errors import (
     GraphConfigurationError,
     GraphExecutionError,
 )
-from .export import GraphExporter
-from .json_schema import JsonSchemaError, model_from_json_schema
-from .manager import ManagerAgent, ManagerConfig
-from .nodes import (
+from ..export import GraphExporter
+from ..json_schema import JsonSchemaError, model_from_json_schema
+from ..manager import ManagerAgent, ManagerConfig
+from ..nodes import (
     Function,
     Input,
     Loop,
@@ -40,10 +40,10 @@ from .nodes import (
     Subgraph,
     Tool,
 )
-from .schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
-from .secrets import expand_node_secrets, redact
-from .state import WorkflowState
-from .templates import (
+from ..schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
+from ..secrets import expand_node_secrets, redact
+from ..state import WorkflowState
+from ..templates import (
     DEFAULT_NODE_SYSTEM_TEMPLATE,
     NODE_SYSTEM_TEMPLATE,
     node_instruction,
@@ -51,7 +51,7 @@ from .templates import (
     render_scope,
     render_template,
 )
-from .utils import import_string, normalize_and_validate_graph_inputs, topo_sort
+from ..utils import import_string, normalize_and_validate_graph_inputs, topo_sort
 
 _TRACE_TEXT_LIMIT = 4000
 
@@ -470,7 +470,7 @@ class GraphExecutor:
                     continue
                 # 5. Conditional-edge guard.
                 if node.when:
-                    from .expressions import safe_bool
+                    from ..expressions import safe_bool
                     if not safe_bool(node.when, state.namespace(), default=False):
                         _prune(nid, f"condition false: {node.when}")
                         continue
@@ -497,7 +497,7 @@ class GraphExecutor:
                 # The span carries the node's real I/O so the trace UI shows what
                 # went in (graph inputs + upstream outputs) and what came out —
                 # not just on the nested agent generation.
-                from .state import _jsonable
+                from ..state import _jsonable
 
                 span_input: dict[str, Any] = {"graph_inputs": _jsonable(graph_inputs)}
                 if dep_results:
@@ -767,13 +767,13 @@ class GraphExecutor:
             # the call is allowed to land.
             native_tools = self.native_tools
             if node.tool_settings:
-                from .configured_tools import configure_pool
+                from ..configured_tools import configure_pool
 
                 native_tools = configure_pool(
                     native_tools, self._render_tool_settings(node, render_ctx)
                 )
 
-            from .node_runner import run_tool_node
+            from ..node_runner import run_tool_node
             with _trace_step(
                 self.tracer,
                 kind="tool",
@@ -884,7 +884,7 @@ class GraphExecutor:
                 f"router '{node.id}' uses `routes` (LLM classification) but no "
                 f"provider was given to the executor."
             )
-        from .node_runner import run_base_node
+        from ..node_runner import run_base_node
 
         routes: dict[str, str] = node.routes or {}
         labels = list(routes)
@@ -987,7 +987,7 @@ class GraphExecutor:
 
     @staticmethod
     def _route_by_expression(cases, default, state: WorkflowState):
-        from .expressions import safe_bool
+        from ..expressions import safe_bool
 
         ns = state.namespace()
         for case in cases:
@@ -1002,7 +1002,7 @@ class GraphExecutor:
             raise GraphConfigurationError(
                 f"LLM router '{node.id}' needs a provider but none was given."
             )
-        from .node_runner import run_base_node
+        from ..node_runner import run_base_node
 
         labels = [(c.label or c.to) for c in cases]
         purpose = (node.purpose or node.goal or f"Route node {node.id}").strip()
@@ -1150,7 +1150,7 @@ class GraphExecutor:
         Each iteration sees ``index``, the previous output (bound to ``item_var``),
         and ``feedback``; body node outputs are published back to the parent state.
         """
-        from .expressions import safe_bool
+        from ..expressions import safe_bool
 
         started_at = time.time()
         try:
@@ -1261,7 +1261,7 @@ class GraphExecutor:
                 f"loop '{node.id}' uses `until` (LLM-judged) but no provider was "
                 f"given to the executor."
             )
-        from .node_runner import run_base_node
+        from ..node_runner import run_base_node
 
         evidence = _json.dumps(body_value, ensure_ascii=False, default=str)[:3000]
         system = (
@@ -1327,7 +1327,7 @@ class GraphExecutor:
         Returns the list of per-item body outputs (implicit gather); a downstream
         node depending on this map receives that list.
         """
-        from .expressions import ExpressionError, evaluate
+        from ..expressions import ExpressionError, evaluate
 
         started_at = time.time()
         try:
@@ -1515,7 +1515,7 @@ class GraphExecutor:
         question = node_instruction(node, f"Input needed for '{node.id}'")
         # Headless auto-approvers are non-interactive — don't fabricate an answer.
         if io is not None and not isinstance(io, AutoApproveIOHandler):
-            from .node_runner import run_coro_blocking
+            from ..node_runner import run_coro_blocking
             try:
                 answer = run_coro_blocking(io.ask(question, node.options or None))
             except Exception as e:  # noqa: BLE001
@@ -1726,7 +1726,7 @@ class GraphExecutor:
         """Execute a base or react node using the native provider + ToolPool stack."""
         from concurrent.futures import ThreadPoolExecutor
 
-        from .node_runner import run_base_node, run_react_node
+        from ..node_runner import run_base_node, run_react_node
 
         # The node's own client when it named one; otherwise the run's.
         provider = provider or self.provider
@@ -1761,7 +1761,7 @@ class GraphExecutor:
                 else ToolPool([])
             )
             if node.tool_args:
-                from .bound_tools import bind_pool
+                from ..bound_tools import bind_pool
 
                 pool = bind_pool(
                     pool,
@@ -1772,7 +1772,7 @@ class GraphExecutor:
             # root has to scope the call that actually happens, and a bound
             # argument is part of that call.
             if node.tool_settings:
-                from .configured_tools import configure_pool
+                from ..configured_tools import configure_pool
 
                 pool = configure_pool(pool, self._render_tool_settings(node, scope or {}))
             tool_ctx = self._tool_ctx
@@ -1781,7 +1781,7 @@ class GraphExecutor:
 
                 from neurosurfer.tools.base import ToolContext
 
-                from .node_runner import _HeadlessIO
+                from ..node_runner import _HeadlessIO
                 tool_ctx = ToolContext(cwd=Path.cwd(), io=_HeadlessIO())
             return pool, tool_ctx
 
