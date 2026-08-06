@@ -71,10 +71,18 @@ anticipation. `assemble.py:299` still describes interpolation as an
 when-guards, but the build must succeed first, and the Architect refuses to
 register a workflow that fails its own verification. §8 attributed the failure to
 the model being unable to design a branch. That is not what the transcripts show:
-`gpt-5-mini` designs the router in its *first* plan and then fails to converge in
-the repair loop — 13+ graph runs without a pass, where `gpt-4o-mini` gave up at
-12. The design step is not the bottleneck; the repair budget is. Worth splitting
-the assertion before treating a red live suite as a model problem.
+`gpt-5-mini` designs the router in its *first* plan, then grinds in the repair
+loop — **17 graph runs across 6 verification rounds without converging**, where
+`gpt-4o-mini` gave up at 12. The run was stopped there rather than carried to
+`max_turns`, so this is "did not converge within 17", not a recorded failure;
+the point stands either way, because the design step produced the router
+immediately and everything after it was repair.
+
+The bottleneck is the repair loop, not the design. Worth splitting the assertion
+— structure (is there a router?) from behaviour (does the built graph satisfy
+its own judge?) — before reading a red live suite as a model problem. Re-run
+with `NEUROSURFER_TEST_MODEL=gpt-5-mini` if the final number is ever wanted;
+budget ~20 minutes and the API spend that goes with it.
 
 ---
 
