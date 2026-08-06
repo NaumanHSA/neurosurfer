@@ -654,3 +654,189 @@ emit a simpler-than-ideal graph."*
 release check on a bigger model or weakening the assertion, and only the first is
 honest. Recorded here so the next person meeting a red live suite knows to check
 the model before the code.
+
+---
+
+## §9 — Past the checklist: classes, the prompt contract, and a package
+
+**Shipped 2026-08-04 → 2026-08-06** (`9051112`..`0579b32`, 23 commits). **1190
+collected — 1171 passed, 4 skipped, 15 failed**, ruff clean. The 15 are
+environmental and fail identically on `main`; see *Running the suite on Windows*.
+
+### Why this is a §9 and not a plan 02
+
+The question was left open, and the answer is in what these commits are. None of
+them starts from a new diagnosis; every one finishes a mechanism this plan
+already owns. Node kinds became classes because §1 built the kinds. Validation
+moved to the front of a run because §3 made it a module worth running. The
+prompt contract changed because §6 fixed the same recitation defect in three
+places and the fourth was the block itself. A plan 02 would need a §0 of its
+own, and there is not one here — there is this plan's floor, finished.
+
+### The prompt contract, and reading the two commits in the right order
+
+`ad393c1` narrowed the ambient `Inputs:` block. `a4a5259` deleted it. **Half of
+what the first commit adds is gone by the second**, and reading `ad393c1` alone
+will mislead: `_hidden_inputs`, `_hidden_body_inputs`, `_input_root`,
+`recited_names` and `NOTHING_FURTHER_PROMPT` all existed to decide what to omit
+from a block that no longer exists.
+
+What survives from `ad393c1` is `render_scope`, and it earned its place: four
+sites assembled a node's template scope by hand, all four disagreed, and none saw
+the container scope — which is why `map` had to smuggle `{item}` in through the
+body's graph inputs.
+
+The contract that holds:
+
+> A node's turn is **what its task text names, plus the outputs of the steps it
+> declared as dependencies.** Nothing ambient.
+
+The task also moved from the system prompt into the user turn. Rendering it into
+the system prompt made that prompt differ per node and, inside a `map`, per item
+— so **prompt caching could never fire**. `NODE_SYSTEM_PROMPT` is now one
+constant, byte-identical for every call.
+
+### The executor is a package
+
+`executor.py` (1,950 lines) → `executor/` (8 files, 2,322). Runners are functions
+taking the executor; `GraphExecutor` keeps a one-line forwarder each, so nothing
+outside the package changed — and nothing outside it imports the package's
+internals by path, which is what made the move safe to publish.
+
+**The previous attempt was reverted and cost a session.** The cause is now known:
+26 relative imports, 14 of them inside methods where no import-time check reaches
+them, which surfaced as thirteen unrelated test modules failing to import. One
+anchored rewrite fixes it. `tests/engine/test_import_boundaries.py` is the only
+thing that notices if the lazy `neurosurfer.agents.*` imports in `node_runner.py`
+are ever "tidied" to the top level — do not delete it.
+
+Ruff's `F` selector was the mechanical net for moving fourteen methods out of a
+class: `F821` fired on six leftovers (`Usage`, `GraphExecutionError`, `React`,
+`copy_context`, `FuturesTimeout`, `import_string`), most on failure paths no
+offline test reaches.
+
+**What F821 cannot see is an attribute access on a parameter**, and that is
+exactly what it missed — see below.
+
+### What the live run found — and it found two things
+
+The handoff recorded the risk plainly: every prompt the framework emits changed,
+and the entire verification was offline against a scripted provider. Running it
+was the right first move, because it did not come back clean.
+
+**1. A bound argument could not reach an agent node.**
+
+```
+AttributeError: 'GraphExecutor' object has no attribute '_render_tool_args'
+  neurosurfer/graph/engine/executor/llm.py:96 in _agent_tools
+```
+
+`_render_tool_args` and `_render_tool_settings` became module-level functions
+taking the executor, like everything else in the split. The two call sites in
+`llm.py` kept calling them as methods. Three things hid it: no offline test
+attaches `tool_args` to a node that calls a model, ruff sees an attribute access
+on a parameter rather than an undefined name, and the path only runs when a node
+carries bound arguments — which is the only way a credential reaches a tool
+without passing through a prompt.
+
+Fixed in `c01894a` with the regression tests that should have existed first;
+they fail with the live error when the fix is reverted.
+
+**2. The new contract silently broke the tutorials.**
+
+Tutorial 03 §4 ran green and answered:
+
+> *Please provide the specific topic you would like me to research and condense
+> into five key bullet points.*
+
+`content_pipeline` declares no inputs, its goals interpolate nothing, and it is
+run with `{"user_intent": …}`. Under the old contract that arrived as
+`Additional inputs:`; now nothing carries the topic. §6, §8, §10 and §11 reuse
+that graph. The capstone's `db_analyst` asked for "the user's question" while
+naming no placeholder for it.
+
+**The validator could not have caught it.**
+`declared_inputs_are_read_by_something` fires on *declared* inputs, and this
+graph declares none — the input arrives at `run()` and is read by nobody. That
+gap is worth a decision: today a run handed inputs no step reads is
+indistinguishable from a correct one until you read the answer.
+
+It is stale documentation, not a missing shim. The `User request:` header the
+notebook described was introduced in `e748c9a` (2026-08-04), an ancestor of
+`a4a5259` (2026-08-06). The prose documented behaviour that had been removed.
+So the examples moved to the contract, in `0579b32`, and were re-run.
+
+### The rule the Architect earned, on the model that could design the branch
+
+The handoff's second open item — teach the Architect that a node which does not
+name an input no longer receives it — was written as anticipation, and
+`_BUILD_RULES` takes one entry per failure seen in a real transcript. On
+`gpt-4o-mini` no such transcript appeared: the workflows it built interpolated
+their inputs, and the live suite's only failure was the branching design.
+
+On `gpt-5-mini` it appeared on the first build:
+
+```
+ticket_urgency_routing_and_reply: The workflow asks for 'ticket_text'
+but no step uses it, so the value a caller passes is ignored.
+```
+
+Five steps, a router among them, and the graph input carrying the ticket named
+by none of them. The warning is doing its job — and a warning is all it does,
+so the workflow was still registerable. That is the evidence the rule needed.
+
+### The measurement §3 of the handoff asked for
+
+The map cell was reported at 51s for four small calls, with prompt bloat as the
+suspect. `res.total_usage()` on that cell, on `gpt-4o-mini`:
+
+```
+input_tokens=1154  output_tokens=20      # four calls: 2 items × 2 body nodes
+```
+
+~290 input tokens per call. **Prompt bloat was not the cause**, and the standing
+hypothesis — a local model's thinking tokens — survives.
+
+### Running the suite on Windows
+
+The offline suite is green on POSIX and shows **15 failures on Windows**. They
+are environmental and every one of them fails identically on `main`, checked by
+running the same modules in a worktree at `4065c2f`:
+
+- `tests/tools/` (13) — fixtures hardcode `ToolContext(cwd=Path("/tmp"))`, which
+  on Windows resolves to a drive-relative `\tmp` that does not exist, so the
+  subprocess launch fails with `[WinError 267] The directory name is invalid`;
+- `test_cli.py::test_file_permissions_are_owner_only` — `chmod` owner-only bits;
+- `test_agent_loop.py::test_write_outside_scope_always_widens_and_persists`.
+
+**Compare failure *lists*, not counts** (the §1 habit): the collected total is
+the same on both platforms, so a count alone would have suggested the branch had
+broken something.
+
+Also: the offline suite is ~45s here, not the 24s recorded in §8, and
+`NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9` is still what keeps it from
+dialling LM Studio for twelve minutes.
+
+### The bump, with the argument settled as far as evidence takes it
+
+§5 of the plan recommends `1.1.0` unless something outside is reaching in by
+submodule path. The prompt-contract work does **not** move that as much as the
+handoff feared, and the reason is worth writing down:
+
+- `_build_system_prompt` is private and gone — not a public break.
+- `compose_user_prompt` changed its second parameter from `graph_inputs` to
+  `task`, but `ManagerAgent` is not exported from `neurosurfer/__init__.py` and
+  the method appears in no user-facing document. Internal.
+- Nothing outside `executor/` imports the package's internals by path.
+
+What *is* a real break is **behavioural, not API**: `main`'s `compose_user_prompt`
+emitted an ambient `Additional inputs:` block, so a `1.0.0` workflow whose step
+relied on being recited an input it never named will now run, go green, and
+answer as though it had been passed nothing. That is the same class of break as
+the submodule imports already recorded under *Changed* — silent rather than
+loud, which is arguably worse for a caller.
+
+**The call is still open**, and it is the last box. Minor is defensible if the
+CHANGELOG entry is prominent — it now leads the *Changed* section and says what
+to check. Major is defensible on the grounds that a silent behavioural change to
+every workflow ever registered is exactly what a major version is for.

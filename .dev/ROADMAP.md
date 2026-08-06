@@ -10,20 +10,27 @@
 > bump**. See the plan's §5 for the checklist and the `1.1.0`-vs-`2.0.0` argument.
 
 Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **all seven
-phases are in**, and §8 records the release checklist with one box left: merge to
-`main` and bump. The Architect grounds and refuses, verifies by running what it
-built, and the three defects the port carried across are fixed.
+phases are in**; §8 records the release checklist and §9 the 23 commits after it.
+The Architect grounds and refuses, verifies by running what it built, and the
+three defects the port carried across are fixed.
 
-**Work has continued past that checklist and the build log does not cover it.**
-Twenty-one commits since — node kinds as classes, validation as the first step of
-every run, the react `finish()` fix, the executor split into a package, and a
-rewritten prompt contract. Whether that is a §9 of plan 01 or the start of a plan
-02 is a call nobody has made, and it is the reason the release is still parked.
+**§9 is written, and the framing call is made: it is a §9, not a plan 02.** None
+of those commits starts from a new diagnosis — each finishes a mechanism this
+plan already owns. Node kinds as classes, validation as the first step of every
+run, the executor as a package, and a rewritten prompt contract.
 
-Until it is written up, **[HANDOFF.md](HANDOFF.md) is the current state of the
-branch** — what changed, what is not verified, and what to do first. 1183 tests
-pass from a 360 baseline, ruff clean (2026-08-06); the live tests have **not**
-been run against the new prompt contract.
+**The live tests have now been run against that contract**, and they found two
+defects that offline testing could not: a bound argument could not reach an agent
+node (`c01894a`), and the contract silently broke the tutorials (`0579b32`).
+Both are fixed, with the first carrying the regression tests it should have had.
+1190 collected from a 360 baseline — 1171 pass, 15 fail only on Windows (they
+fail identically on `main`) — ruff clean.
+
+One box is still open — merge to `main` and bump — and §9 sets out the
+`1.1.0`-vs-`2.0.0` argument with the evidence rather than leaving it to the day.
+
+[HANDOFF.md](HANDOFF.md) is superseded by §9 for everything except its §2, which
+is still the thing to read before touching the executor package.
 
 **Running the suite:** 24s offline with
 `NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`. Without it, the live tests

@@ -35,6 +35,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Execution and Architect HTTP surfaces** — `/v1/workflows`, `/v1/runs` (with
   SSE), and `/v1/architect/*`, including a build that parks to ask a person and
   resumes when answered.
+- **Every node kind is also a class** — `Base`, `React`, `Tool`, `Function`,
+  `Router`, `Loop`, `Map`, `Subgraph`, `Input`, `Output`, plus `Container` for
+  the three that run a nested body. A second door into the same room:
+  `GraphNode(kind="base", …)` is unchanged and still works, YAML on disk is
+  untouched, and `Graph` upgrades whatever it is given — so `isinstance(node,
+  Router)` is true however the node was made. The engine dispatches on the class
+  rather than on a kind string. The classes carry identity only; what a kind
+  *requires* stays declared in `neurosurfer/graph/engine/kinds/` and read from
+  there by the validator.
 
 
 - **Observability: pluggable trace exporters.** Agent runs can now be shipped to an
@@ -61,11 +70,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a tool by submodule path does not**: `from neurosurfer.tools.builtin.search
   import SearchTool` is now `from neurosurfer.registry.core.filesystem.search
   import SearchTool`.
-- **A node's prompt leads with what the workflow actually declares.** It used to
-  open with a hardcoded `user_intent`, set by the Architect's own graph and
-  nothing else — so every other workflow began "User request: (not specified)"
-  and then repeated its real input twice more under headings that disagreed about
-  what it was.
+- **A node is told what it names, and nothing ambient.** *This is the change most
+  likely to affect an existing workflow.* A node's turn is now **what its own
+  task text names, plus the outputs of the steps it declared in `depends_on`** —
+  and that is all. The block that recited every graph input underneath each
+  node's instructions is gone.
+
+  It could not be made correct, only less wrong: a `map` body was handed the
+  whole collection it was iterating, once per item, beside the single item it was
+  working on; a value the instruction had already interpolated was printed again
+  underneath it. And any rule for "which inputs matter to this node" is a worse
+  version of one the author already wrote, in the placeholders of the instruction.
+
+  **What to check in your own workflows:** a step that needs a graph input must
+  interpolate it — `goal="Research {topic}…"`. A step that reads its input only
+  because the engine used to recite it will now run, go green, and answer as
+  though it had been passed nothing. `validate_package` reports a declared input
+  that no step names; it cannot see an input the graph never declared.
+
+- **A node's system prompt is identical for every node of every graph.** The task
+  moved out of it and into the user turn. Rendering the task into the system
+  prompt made it differ per node — and inside a `map`, per item — so **prompt
+  caching could never fire**, a fifty-item map sending fifty distinct system
+  prompts. This also matches the convention every provider documents.
+- **Validation is the first step of every run**, not only of registration. A
+  graph that cannot run is refused before a model is called rather than partway
+  through.
+- **The executor is a package.** `neurosurfer/graph/engine/executor.py` is now
+  `executor/` (scheduler, iteration, routing, deterministic kinds, io, llm).
+  `from neurosurfer.graph.engine.executor import GraphExecutor` is unchanged;
+  reaching into the old module's internals by path is not.
 
 ### Fixed
 
@@ -81,6 +115,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A validator no longer scolds a correct two-step workflow.** The "fewer than
   three LLM nodes is almost certainly under-designed" heuristic sat in the gate
   that decides whether a package may register, and has been removed.
+- **A `react` node that ends with `finish()` returns what it finished with.** It
+  returned the loop's last assistant text instead, so the one kind of node that
+  states its answer explicitly was the one whose answer was discarded.
+- **A bound argument reaches an agent node again.** A `base` or `react` node
+  carrying `tool_args` or `tool_settings` failed with `AttributeError:
+  'GraphExecutor' object has no attribute '_render_tool_args'` — the two helpers
+  became module-level functions when the executor was split and the call sites
+  were not moved with them. This is the only path by which a credential reaches
+  a tool without passing through a prompt, and it now has offline coverage.
+- **A router's branches are checked.** A `routes` target that names a node which
+  does not exist, or one that does not list the router in `depends_on`, is
+  reported instead of pruning the whole branch at run time.
+- **An `.env` asking for OpenAI gets OpenAI.** `LLM_PROVIDER=openai` could be
+  overridden by a stored provider profile, so a notebook demonstrated a model
+  other than the one its own configuration named.
 
 
 - **`.env` loader** now strips trailing inline comments on unquoted values
