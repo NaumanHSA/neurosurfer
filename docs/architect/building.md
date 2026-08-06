@@ -64,7 +64,10 @@ A registered package runs like any other [Workflow](../guides/graph-workflows.md
 from neurosurfer.graph.workflow import WorkflowRegistry, WorkflowRunner
 
 pkg = WorkflowRegistry().get(pkg_path)                 # or load_package(pkg_path)
-result = WorkflowRunner(provider, cwd=".").run(pkg, inputs={"user_intent": "…"})
+
+# The package declares what it takes — pass those names, not a generic intent.
+print([i.name for i in pkg.graph.inputs])              # e.g. ['article']
+result = WorkflowRunner(provider, cwd=".").run(pkg, inputs={"article": "…"})
 ```
 
 ## Recommended workflow

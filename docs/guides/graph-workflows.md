@@ -13,7 +13,11 @@ building and running them directly.
 ## Build a graph
 
 A `Graph` is a set of `GraphNode`s. Each node has an `id`, a `kind`, a `goal`, and optional
-`depends_on` edges — a node receives the outputs of its dependencies as context.
+`depends_on` edges.
+
+**What a node receives is what its own text names, plus the outputs of its
+`depends_on`.** Nothing ambient: the graph's inputs are not appended to every
+node's prompt as a block, so a step that needs one interpolates it by name.
 
 ```python
 from neurosurfer.graph import Graph, GraphNode
@@ -22,7 +26,7 @@ researcher = GraphNode(
     id="researcher",
     kind="base",
     description="Fact-finding node.",
-    goal="Research the topic and produce exactly 5 key bullet points.",
+    goal="Research {topic} and produce exactly 5 key bullet points.",   # names its input
 )
 
 writer = GraphNode(
@@ -30,15 +34,20 @@ writer = GraphNode(
     kind="base",
     description="Turns research notes into prose.",
     goal="Write a clear, 2-paragraph explanation from the research notes above.",
-    depends_on=["researcher"],     # receives researcher's output
+    depends_on=["researcher"],     # names nothing; the edge carries the notes
 )
 
 graph = Graph(
     name="content_pipeline",
     description="Research a topic, then explain it.",
     nodes=[researcher, writer],
+    inputs=[{"name": "topic", "type": "string"}],
 )
 ```
+
+A declared input that no step names is reported by the validator, because the
+run would otherwise go green while the model answers as though it had been
+passed nothing.
 
 ### Node kinds
 
@@ -124,7 +133,7 @@ imports, no attribute access. Read state as `inputs.x`, `nodes.<id>`, `vars.<nam
 from neurosurfer.graph import GraphExecutor
 
 executor = GraphExecutor(graph, provider=provider)
-result = executor.run({"user_intent": "Explain how attention works in Transformers"})
+result = executor.run({"topic": "how attention works in Transformers"})
 
 print(result.execution_summary())
 print("succeeded:", result.succeeded)
@@ -145,7 +154,7 @@ pkg = load_package(pkg_dir)
 print(pkg.name, pkg.version, [n.id for n in pkg.graph.nodes])
 
 runner = WorkflowRunner(provider, cwd=repo_root)   # cwd = working dir for tool contexts
-result = runner.run(pkg, inputs={"user_intent": "Explain gradient descent"})
+result = runner.run(pkg, inputs={"topic": "gradient descent"})
 
 print(result.execution_summary())
 print(result.final.get("writer", "(none)"))        # output of the 'writer' node
@@ -162,7 +171,7 @@ registry = WorkflowRegistry()
 pkg = registry.get("content_pipeline")
 
 result = WorkflowRunner(provider, cwd=repo_root).run(
-    pkg, inputs={"user_intent": "RNNs vs Transformers"},
+    pkg, inputs={"topic": "RNNs vs Transformers"},
 )
 ```
 
