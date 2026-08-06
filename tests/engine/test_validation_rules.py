@@ -304,6 +304,67 @@ def test_a_message_reads_as_a_sentence(tmp_path):
         assert m.rstrip().endswith("."), f"{issue.kind}: {m!r} has no full stop"
 
 
+# ── the router that classifies on nothing ───────────────────────────────────
+
+
+def _routing_graph(router: GraphNode, tmp_path):
+    return pkg(
+        [router,
+         GraphNode(id="a", kind="base", instructions="A.", depends_on=["r"]),
+         GraphNode(id="b", kind="base", instructions="B.", depends_on=["r"])],
+        outputs=["a", "b"], inputs=[GraphInput(name="ticket", type="string")],
+        tmp_path=tmp_path,
+    )
+
+
+def test_a_routes_router_that_is_shown_nothing_is_flagged(tmp_path):
+    """It runs green and takes the wrong branch every time — a `routes` router
+    is not handed the graph inputs, so an instruction that never names one is
+    classifying a request it cannot see."""
+    report = validate_package(_routing_graph(GraphNode(
+        id="r", kind="router", routes={"billing": "a", "bug": "b"},
+        instructions="Decide whether this is a billing question or a bug.",
+    ), tmp_path))
+
+    assert "router.classifies_on_nothing" in kinds_of(report)
+    assert report.ok, "a warning must not fail the workflow"
+
+
+def test_a_routes_router_naming_an_input_is_fine(tmp_path):
+    report = validate_package(_routing_graph(GraphNode(
+        id="r", kind="router", routes={"billing": "a", "bug": "b"},
+        instructions="Classify this ticket: {ticket}",
+    ), tmp_path))
+
+    assert "router.classifies_on_nothing" not in kinds_of(report)
+
+
+def test_a_routes_router_reading_an_upstream_step_is_fine(tmp_path):
+    """Dependency outputs *are* appended to the classifier prompt, so a router
+    with a parent has its evidence even with no placeholder."""
+    report = validate_package(pkg([
+        GraphNode(id="fetch", kind="base", instructions="Fetch it."),
+        GraphNode(id="r", kind="router", depends_on=["fetch"],
+                  routes={"billing": "a", "bug": "b"},
+                  instructions="Decide which it is."),
+        GraphNode(id="a", kind="base", instructions="A.", depends_on=["r"]),
+        GraphNode(id="b", kind="base", instructions="B.", depends_on=["r"]),
+    ], outputs=["a", "b"], tmp_path=tmp_path))
+
+    assert "router.classifies_on_nothing" not in kinds_of(report)
+
+
+def test_a_cases_router_is_not_asked_to_interpolate(tmp_path):
+    """An expression router reads state directly and makes no model call."""
+    report = validate_package(_routing_graph(GraphNode(
+        id="r", kind="router", default="b",
+        cases=[{"when": "inputs.ticket != ''", "to": "a"}],
+        instructions="Route it.",
+    ), tmp_path))
+
+    assert "router.classifies_on_nothing" not in kinds_of(report)
+
+
 # ── the audit ───────────────────────────────────────────────────────────────
 
 

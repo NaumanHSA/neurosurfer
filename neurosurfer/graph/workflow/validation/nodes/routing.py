@@ -22,10 +22,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from neurosurfer.graph.engine.templates import node_instruction
+
 from ..models import Severity, ValidationIssue, ValidationReport
 from ..registry import node_rule
 
-__all__ = ["router_targets_exist", "router_targets_run_after_the_decision"]
+__all__ = [
+    "router_targets_exist",
+    "router_targets_run_after_the_decision",
+    "routes_router_classifies_on_something",
+]
 
 
 def _targets(node: Any) -> list[tuple[str, str]]:
@@ -105,3 +111,49 @@ def router_targets_run_after_the_decision(node, ctx, report: ValidationReport) -
             suggestion=f"Add '{node.id}' to what '{target}' depends on.",
             detail=f"{target}.depends_on does not contain {node.id!r}",
         ))
+
+
+@node_rule(kinds=("router",), severity=Severity.WARNING)
+def routes_router_classifies_on_something(node, ctx, report: ValidationReport) -> None:
+    """A `routes` router with no evidence to classify on.
+
+    The trap this catches was met while writing tutorial 03, and it is the most
+    expensive shape in the engine because **nothing about it looks wrong**. A
+    `routes` router builds its own prompt: the instruction, the allowed labels,
+    and — only if it declared dependencies — their outputs. It is *not* handed
+    the graph inputs as a block the way a base node is.
+
+    So an instruction that never interpolates anything and never wires an
+    upstream node is classifying a request it was never shown. Every answer
+    still maps to a label, so the run is green, the branch is taken, and it is
+    the wrong branch every time. A double-billing complaint and a 500 error went
+    down the same path this way.
+
+    A warning, not an error: a router can legitimately be pure prose when its
+    dependency supplies the evidence, and that case is already excluded here.
+    What is left is a real one, and `{}`-free prose is not proof of a mistake —
+    only of a router with nothing in front of it.
+    """
+    if not getattr(node, "routes", None):
+        return  # `cases` routers evaluate expressions; they read state directly
+    if getattr(node, "depends_on", None):
+        return  # upstream outputs are appended to the classifier prompt
+    if "{" in node_instruction(node, ""):
+        return  # it interpolates something — `templates.py` checks *what*
+
+    report.add(ValidationIssue(
+        severity=Severity.WARNING,
+        kind="router.classifies_on_nothing",
+        node_id=node.id,
+        subject=node.id,
+        message=(
+            "This step decides which branch to take, but nothing tells it what "
+            "it is deciding about — it has no earlier step to read and its "
+            "instruction never mentions an input."
+        ),
+        suggestion=(
+            "Put the value in the instruction (e.g. 'Classify this ticket: "
+            "{ticket}'), or make it depend on the step that produces it."
+        ),
+        detail="routes router with no depends_on and no template placeholder",
+    ))

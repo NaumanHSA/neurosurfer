@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
 from .schema import GraphNode
+
+#: The user turn for a node whose instruction already carries everything it was
+#: given. See the end of `compose_user_prompt` for why it is not simply empty.
+NOTHING_FURTHER_PROMPT = "Carry out your task as instructed."
 
 
 @dataclass
@@ -44,6 +49,7 @@ class ManagerAgent:
         *,
         temperature: float | None = None,
         max_new_tokens: int | None = None,
+        hidden: Collection[str] = (),
     ) -> str:
         # `user_intent` is the Architect's own graph's key, and for a long time it
         # was the *only* one this method looked for — so every workflow that was
@@ -53,8 +59,12 @@ class ManagerAgent:
         user_intent = graph_inputs.get("user_intent")
 
         # Skip internal plumbing surfaced elsewhere (`available_tools` is already
-        # interpolated into the system prompt).
-        _internal = {"user_intent", "available_tools"}
+        # interpolated into the system prompt), plus whatever this run was told
+        # not to recite — a container body's iteration values and the collection
+        # it is iterating over. Hidden from the *prompt* only: every one of these
+        # still resolves in a template and still reaches a function node's
+        # kwargs. See `GraphExecutor._hidden_body_inputs`.
+        _internal = {"user_intent", "available_tools", *hidden}
 
         # Only include deps this node declared.
         depends_on = getattr(node, "depends_on", None) or []
@@ -101,6 +111,19 @@ class ManagerAgent:
         dep_block = self._format_dependency_context(dependency_results)
         if dep_block:
             parts.append(dep_block)
+
+        # A node can now say everything it has to say in its instruction — a
+        # `map` body whose one input is the item it interpolated has nothing
+        # left for this block, which is the point. But "nothing left" must not
+        # become an empty user turn: Anthropic rejects an empty text block
+        # outright, so narrowing the prompt would have turned a working node
+        # into a 400 on one provider and a silent no-op on another.
+        #
+        # A directive rather than a restatement of the task. Repeating the
+        # instruction here would put the same text in both turns, which is the
+        # duplication this whole change exists to remove.
+        if not parts:
+            return NOTHING_FURTHER_PROMPT
 
         return "\n\n".join(parts)
 

@@ -114,15 +114,25 @@ def _interpolation_mode(node) -> str:
 
 
 def _container_bindings(node) -> frozenset[str]:
-    """Names a container binds into its body's *inputs* dict.
+    """Names a container makes reachable inside its body.
 
     Loop and map bodies run through a child executor seeded with
-    ``{**state.inputs, "index": …, item_var: …}`` (plus ``feedback`` for loops).
-    ``iteration`` and ``acc`` live on the child *scope*, which templates never see
-    — only expressions do — so they are deliberately absent here.
+    ``{**state.inputs, "index": …, item_var: …}`` (plus ``feedback`` for loops),
+    **and** with the iteration scope, which `render_scope` now folds into every
+    node's template scope — so ``iteration`` and ``acc`` resolve in a template
+    today. They used to reach expressions only, and this docstring used to say
+    so; the engine widened, and a validator that still refused them would be
+    reporting an error about a placeholder that renders correctly at run time.
+
+    Reachable is not the same as *recited*: the executor hides most of these
+    from the prompt block (see `GraphExecutor._hidden_body_inputs`). That is a
+    question about what a model is told, and none of the validator's business —
+    a hidden name still resolves, which is all a template rule cares about.
     """
     if node.kind == "loop":
-        return frozenset({"index", node.item_var, "feedback"})
+        # `acc` unconditionally: the loop puts the results so far on the scope
+        # every iteration, whether or not `accumulate` gives them a var name.
+        return frozenset({"index", "iteration", "feedback", "acc", node.item_var})
     if node.kind == "map":
         return frozenset({"index", node.item_var})
     return frozenset()  # a subgraph passes the parent inputs through unchanged

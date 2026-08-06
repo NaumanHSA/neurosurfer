@@ -47,8 +47,9 @@ from .templates import (
     DEFAULT_NODE_SYSTEM_TEMPLATE,
     NODE_SYSTEM_TEMPLATE,
     node_instruction,
+    recited_names,
+    render_scope,
     render_template,
-    with_namespaces,
 )
 from .utils import import_string, normalize_and_validate_graph_inputs, topo_sort
 
@@ -78,6 +79,25 @@ def _trace_step(tracer, **kwargs):
 
         return nullcontext(None)
     return tracer(**kwargs)
+
+
+def _input_root(expression: str | None) -> str | None:
+    """The graph input a `map`'s `over` reads, if it reads one.
+
+    `inputs.reviews` and a bare `reviews` both name an input; `nodes.fetch` and
+    `vars.acc` name something else and yield nothing to hide. Anything with an
+    index or a call in it (`inputs.a[0]`, `len(x)`) is left alone rather than
+    guessed at — the cost of missing one is a prompt that is merely verbose,
+    and the cost of guessing wrong is a body that cannot see an input it needs.
+    """
+    text = (expression or "").strip()
+    if not text:
+        return None
+    head, _, rest = text.partition(".")
+    if head in {"nodes", "vars", "state"}:
+        return None
+    name = rest if head == "inputs" else text
+    return name if name.isidentifier() else None
 
 
 def _accepts_scope(callback: Any) -> bool:
@@ -169,6 +189,11 @@ class GraphExecutor:
         # Set for the duration of run(); nested body executors inherit it so their
         # node events reach the same consumer.
         self._active_node_event: Any | None = None
+
+        # Graph inputs this run resolves but does **not** recite to a model. Set
+        # by `_child_executor` for a container body; empty for a top-level run.
+        # See `_hidden_body_inputs` for what earns a place here and why.
+        self._hidden_inputs: frozenset[str] = frozenset()
 
         self._node_map: dict[str, GraphNode] = self.graph.node_map()
         self._order = topo_sort(self.graph.nodes)
@@ -579,6 +604,7 @@ class GraphExecutor:
         node: GraphNode,
         graph_inputs: dict[str, Any],
         dependency_results: dict[str, Any],
+        state: WorkflowState | None = None,
     ) -> NodeExecutionResult:
         started_at = time.time()
         try:
@@ -587,7 +613,12 @@ class GraphExecutor:
                     f"function node '{node.id}' has no 'callable' set."
                 )
             fn = import_string(node.callable)
-            kwargs = {**graph_inputs, **dependency_results}
+            # The container scope is passed **explicitly**. It used to arrive by
+            # being merged into the body's graph inputs, which is the same thing
+            # from the callable's side and a very different thing from a prompt's
+            # — see `render_scope`. Last, so the current `item` wins over a graph
+            # input that happens to share its name.
+            kwargs = {**graph_inputs, **dependency_results, **(state.scope if state else {})}
             # Deterministic nodes belong in the trace too — a run's story is
             # incomplete if only the model calls show up.
             with _trace_step(
@@ -689,6 +720,7 @@ class GraphExecutor:
         node: GraphNode,
         graph_inputs: dict[str, Any],
         dependency_results: dict[str, Any],
+        state: WorkflowState | None = None,
     ) -> NodeExecutionResult:
         started_at = time.time()
         try:
@@ -703,9 +735,22 @@ class GraphExecutor:
             # `tool_args: {path: "{file_path}"}` — hands `read_file` the literal
             # string `{file_path}` and fails as "no such file", which reads like
             # a missing file rather than an unresolved template.
-            scope = {**graph_inputs, **dependency_results}
-            tool_args = self._render_tool_args(node, node.tool_args or {}, scope)
-            kwargs = {**scope, **tool_args}
+            #
+            # Two different things, deliberately not one dict: what a template
+            # may *resolve* against is wide (it includes the `inputs.`/`nodes.`
+            # namespaces and the container scope); what the tool is *called*
+            # with stays the flat mapping it has always been, since every key
+            # here becomes a keyword argument and a `_Namespace` object is not
+            # something any tool signature accepts.
+            iter_scope = state.scope if state else {}
+            render_ctx = render_scope(
+                graph_inputs,
+                nodes=dependency_results,
+                variables=state.vars if state else None,
+                scope=iter_scope,
+            )
+            tool_args = self._render_tool_args(node, node.tool_args or {}, render_ctx)
+            kwargs = {**graph_inputs, **dependency_results, **iter_scope, **tool_args}
 
             if self.native_tools is None:
                 raise GraphConfigurationError(
@@ -725,7 +770,7 @@ class GraphExecutor:
                 from .configured_tools import configure_pool
 
                 native_tools = configure_pool(
-                    native_tools, self._render_tool_settings(node, scope)
+                    native_tools, self._render_tool_settings(node, render_ctx)
                 )
 
             from .node_runner import run_tool_node
@@ -844,16 +889,28 @@ class GraphExecutor:
         routes: dict[str, str] = node.routes or {}
         labels = list(routes)
 
+        # **Graph inputs only, still** — no dependency outputs and no `vars`. That
+        # narrowness is a contract, not an oversight: `validation/templates.py`
+        # raises an *error* on a router referencing a node id or a write, on the
+        # grounds that upstream results are already appended to the classifier
+        # prompt below. Widening here would leave the validator rejecting graphs
+        # the engine had quietly started running.
+        #
+        # The container scope is the one addition, and it is not a widening: a
+        # router inside a `map` body has always seen `{item}` — the container
+        # merged it into the body's inputs, which is exactly what the validator
+        # models in `_container_bindings`. It arrives by its own door now.
+        route_scope = render_scope(state.inputs, scope=state.scope)
+
         def tmpl(text: str) -> str:
-            rendered, unresolved = render_template(text, state.inputs)
+            rendered, unresolved = render_template(text, route_scope)
             if unresolved:
                 self.logger.warning(
-                    "Router %s: left %s unresolved in %r — a `routes` router "
-                    "interpolates graph inputs only (available: %s)",
+                    "Router %s: left %s unresolved in %r (available: %s)",
                     node.id,
                     ", ".join(f"{{{u}}}" for u in unresolved),
                     text,
-                    sorted(state.inputs),
+                    sorted(route_scope),
                 )
             return rendered
 
@@ -1013,7 +1070,7 @@ class GraphExecutor:
             nodes=node.body or [],
             outputs=list(node.body_outputs or []),
         )
-        return GraphExecutor(
+        child = GraphExecutor(
             body_graph,
             validate=False,
             provider=self.provider,
@@ -1027,6 +1084,50 @@ class GraphExecutor:
             # resolver per iteration would rebuild a client on every pass.
             provider_resolver=self.providers,
         )
+        # Inherited, then extended: a `map` nested inside a `loop` hides both
+        # containers' plumbing, since both are still in the body's inputs.
+        child._hidden_inputs = self._hidden_inputs | self._hidden_body_inputs(node)
+        return child
+
+    @staticmethod
+    def _hidden_body_inputs(node: GraphNode) -> frozenset[str]:
+        """Names a container puts in its body's inputs that no body node should be *told*.
+
+        A container binds its iteration values into the body's graph inputs
+        (`{**state.inputs, "index": i, item_var: …}`), and every LLM node prints
+        every graph input. So a two-item `map` told each body node the item it
+        was on, the index it was at, **and the entire collection both came
+        from** — the same list, once per item, in every prompt. At fifty items
+        that is fifty copies of fifty reviews.
+
+        Three kinds of name are hidden, and none of them stops *resolving* —
+        `{item}` renders, `inputs.index` evaluates, a function node still
+        receives them as kwargs. They are only not recited:
+
+        - **the iteration values** (`index`, the item, a loop's `feedback`) —
+          already interpolated into the instruction by the author who used them,
+          and meaningless plumbing to a model that did not;
+        - **the collection being mapped over** — a body handles one element, and
+          the list it was drawn from is the parent's business. This is the one
+          that was quadratic;
+        - nothing else. A shared input a body genuinely reads (`{criteria}`) is
+          untouched, because narrowing to "only what this node references" would
+          silently starve every workflow that leans on the inputs block instead
+          of placeholders.
+
+        A `subgraph` hides nothing: it is composition, not iteration — its body
+        is meant to see the parent's inputs, and there is no per-item anything.
+        """
+        if isinstance(node, Subgraph):
+            return frozenset()
+        names = {"index", node.item_var}
+        if isinstance(node, Loop):
+            names.add("feedback")
+        if isinstance(node, Map):
+            root = _input_root(node.over)
+            if root:
+                names.add(root)
+        return frozenset(names)
 
     @staticmethod
     def _body_value(result: GraphExecutionResult) -> Any:
@@ -1484,11 +1585,11 @@ class GraphExecutor:
             # rather than picking one, which would be a guess.
             return done({d: dependency_results[d] for d in deps}, "merged")
 
-        scope = with_namespaces(
-            {**graph_inputs, **dependency_results, **state.vars},
-            inputs=graph_inputs,
+        scope = render_scope(
+            graph_inputs,
             nodes=dependency_results,
             variables=state.vars,
+            scope=state.scope,
         )
         rendered, unresolved = render_template(node.value, scope)
         if unresolved:
@@ -1534,11 +1635,11 @@ class GraphExecutor:
         # nodes that arrived as `kind=` strings or from YAML, so the two are
         # equivalent — but the class is the thing a reader can follow to a
         # docstring, and mypy narrows it.
-        if isinstance(node, (Function, Python)):
-            return self._run_function_node(node, graph_inputs, dependency_results)
-        if isinstance(node, Tool):
-            return self._run_tool_node(node, graph_inputs, dependency_results)
         _state = state or WorkflowState(inputs=dict(graph_inputs))
+        if isinstance(node, (Function, Python)):
+            return self._run_function_node(node, graph_inputs, dependency_results, _state)
+        if isinstance(node, Tool):
+            return self._run_tool_node(node, graph_inputs, dependency_results, _state)
         if isinstance(node, Router):
             return self._run_router_node(node, _state)
         if isinstance(node, Loop):
@@ -1553,6 +1654,22 @@ class GraphExecutor:
             return self._run_output_node(node, graph_inputs, dependency_results, _state)
 
         # LLM-based node (base | react)
+        #
+        # The system prompt is built **first**, because what it says decides what
+        # the user prompt should not repeat.
+        #
+        # Interpolate templates over graph inputs *and* upstream state — a node's
+        # `goal`/`purpose` commonly references an upstream node's output by its
+        # `writes` name (e.g. "…based on the summary: {summary}"). `writes` vars are
+        # in `_state.vars`; dependency outputs are also exposed by node id. Explicit
+        # `writes` take precedence over a same-named graph input.
+        interp_scope = render_scope(
+            graph_inputs,
+            nodes=dependency_results,
+            variables=_state.vars,
+            scope=_state.scope,
+        )
+        system_prompt, recited = self._build_system_prompt(node, interp_scope)
         user_prompt = self.manager.compose_user_prompt(
             node=node,
             graph_inputs=graph_inputs,
@@ -1560,19 +1677,8 @@ class GraphExecutor:
             previous_result=previous_result,
             temperature=manager_temperature,
             max_new_tokens=manager_max_new_tokens,
+            hidden=self._hidden_inputs | recited,
         )
-        # Interpolate templates over graph inputs *and* upstream state — a node's
-        # `goal`/`purpose` commonly references an upstream node's output by its
-        # `writes` name (e.g. "…based on the summary: {summary}"). `writes` vars are
-        # in `_state.vars`; dependency outputs are also exposed by node id. Explicit
-        # `writes` take precedence over a same-named graph input.
-        interp_scope = with_namespaces(
-            {**graph_inputs, **dependency_results, **_state.vars},
-            inputs=graph_inputs,
-            nodes=dependency_results,
-            variables=_state.vars,
-        )
-        system_prompt = self._build_system_prompt(node, interp_scope)
         output_schema = self._load_output_schema_if_needed(node)
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
 
@@ -1795,7 +1901,9 @@ class GraphExecutor:
                 error=str(e),
             )
 
-    def _build_system_prompt(self, node: GraphNode, scope: dict[str, Any]) -> str:
+    def _build_system_prompt(
+        self, node: GraphNode, scope: dict[str, Any]
+    ) -> tuple[str, frozenset[str]]:
         """
         Build the system prompt for a node, interpolating available scope
         (graph inputs + upstream `writes` vars + dependency outputs) using
@@ -1812,6 +1920,14 @@ class GraphExecutor:
         Example:
             instructions: "Research {company_title} and write a title based on
                            the summary: {summary}"
+
+        Returns the prompt **and the names it recited**, so the user prompt can
+        avoid saying the same thing again. The two are returned together because
+        which fields get rendered is this method's rule — `instructions` winning
+        outright means a name mentioned only in `purpose` was never stated, and a
+        second copy of that rule elsewhere is a second copy that can fall out of
+        date. It is the field precedence in `node_instruction`'s docstring that
+        already went wrong twice this way.
         """
         def tmpl(text: str | None) -> str:
             if not text:
@@ -1828,15 +1944,23 @@ class GraphExecutor:
             return rendered
 
         if node.instructions and node.instructions.strip():
-            return NODE_SYSTEM_TEMPLATE.format(instructions=tmpl(node.instructions))
+            return (
+                NODE_SYSTEM_TEMPLATE.format(instructions=tmpl(node.instructions)),
+                recited_names(node.instructions),
+            )
 
         purpose = tmpl(node.purpose or node.description or f"Node {node.id}")
         goal = tmpl(node.goal or "Follow the instructions in the user prompt.")
         expected = tmpl(node.expected_result or "A useful, correct, and concise answer.")
-        return DEFAULT_NODE_SYSTEM_TEMPLATE.format(
-            purpose=purpose,
-            goal=goal,
-            expected_result=expected,
+        return (
+            DEFAULT_NODE_SYSTEM_TEMPLATE.format(
+                purpose=purpose,
+                goal=goal,
+                expected_result=expected,
+            ),
+            recited_names(
+                node.purpose or node.description, node.goal, node.expected_result
+            ),
         )
 
     def _load_output_schema_if_needed(self, node: GraphNode) -> type[PydModel] | None:

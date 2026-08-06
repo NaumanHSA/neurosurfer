@@ -159,6 +159,62 @@ def with_namespaces(
     return out
 
 
+def render_scope(
+    inputs: Mapping[str, Any] | None = None,
+    *,
+    nodes: Mapping[str, Any] | None = None,
+    variables: Mapping[str, Any] | None = None,
+    scope: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Everything a node's `{placeholders}` may resolve against — built once.
+
+    Four sites used to assemble this by hand and **all four disagreed**: a
+    base/react node saw graph inputs, dependency outputs and `writes` vars; an
+    output node saw the same; a `tool` node saw no vars; and a `routes` router
+    saw graph inputs and nothing else. None of them saw the container scope.
+
+    That last omission is why a `map` body had to be handed the *parent's whole
+    input dict* — it was the only door `{item}` could arrive through, since the
+    iteration scope was not part of any node's template scope. Widening here is
+    what lets the container stop doing that.
+
+    Layered most-general to most-local, so **the innermost name wins**: a graph
+    input called `item` does not shadow the item a `map` is currently on.
+    """
+    flat: dict[str, Any] = {}
+    for layer in (inputs, nodes, variables, scope):
+        if layer:
+            flat.update(layer)
+    return with_namespaces(flat, inputs=inputs, nodes=nodes, variables=variables)
+
+
+def recited_names(*texts: str | None) -> frozenset[str]:
+    """Names whose **whole value** the given templates already state.
+
+    A node whose instruction is ``"Summarise this review: {item}"`` has the
+    review in its system prompt. Printing `item: …` underneath it is the same
+    text a second time — the shape Phase 6 found stating one value three times
+    under three headings that disagreed about what it was.
+
+    Only a bare ``{name}`` counts. ``{reviews[0]}``, ``{doc.title}`` and
+    ``{n:>4}`` each state *part* of a value or a formatting of it, so the value
+    itself has not been recited and hiding it would remove something the reader
+    does not have.
+    """
+    out: set[str] = set()
+    for text in texts:
+        if not text:
+            continue
+        try:
+            parts = list(_FORMATTER.parse(text))
+        except ValueError:  # unpaired brace — no placeholders to speak of
+            continue
+        for _literal, field, spec, conversion in parts:
+            if field and field.isidentifier() and not spec and not conversion:
+                out.add(field)
+    return frozenset(out)
+
+
 def render_template(text: str, scope: Mapping[str, Any]) -> tuple[str, list[str]]:
     """Fill every `{name}` that resolves in *scope*; leave the rest exactly as written.
 

@@ -192,12 +192,17 @@ def test_loop_body_honours_a_renamed_item_var(tmp_path):
     assert errors[0].subject == "item"
 
 
-def test_iteration_and_acc_are_expression_only_not_template_visible(tmp_path):
-    """A subtle one: the loop puts `iteration`/`acc` on the child *scope*, which
-    expressions read and `interp_scope` does not."""
+def test_iteration_and_acc_are_template_visible_now_that_scope_is_in_scope(tmp_path):
+    """This used to assert the opposite, and the engine is why it changed.
+
+    The loop has always put `iteration`/`acc` on the child *scope*, and the
+    scope used to reach expressions only — `interp_scope` was assembled from
+    inputs, dependency outputs and vars, and simply did not include it. It does
+    now (`render_scope`), so `{iteration}` renders, and a rule still calling it
+    unresolvable would be an error about a placeholder that works.
+    """
     nodes = [_loop(body=[GraphNode(id="w", kind="base", goal="{iteration} {acc}")])]
-    errors, _ = _validate(nodes, tmp_path)
-    assert sorted(e.subject for e in errors) == ["acc", "iteration"]
+    assert _validate(nodes, tmp_path) == ([], [])
 
 
 def test_map_body_binds_item_and_index_but_not_feedback(tmp_path):
