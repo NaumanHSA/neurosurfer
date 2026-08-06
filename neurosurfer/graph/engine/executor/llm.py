@@ -90,10 +90,11 @@ def run_node_native(
         )
         if node.tool_args:
             from ..bound_tools import bind_pool
+            from .deterministic import _render_tool_args
 
             pool = bind_pool(
                 pool,
-                ex._render_tool_args(node, dict(node.tool_args), scope or {}),
+                _render_tool_args(ex, node, dict(node.tool_args), scope or {}),
             )
         # Settings are applied **after** binding, so a configured tool wraps a
         # bound one rather than the other way round. The order matters: the
@@ -101,8 +102,9 @@ def run_node_native(
         # argument is part of that call.
         if node.tool_settings:
             from ..configured_tools import configure_pool
+            from .deterministic import _render_tool_settings
 
-            pool = configure_pool(pool, ex._render_tool_settings(node, scope or {}))
+            pool = configure_pool(pool, _render_tool_settings(ex, node, scope or {}))
         tool_ctx = ex._tool_ctx
         if tool_ctx is None:
             from pathlib import Path

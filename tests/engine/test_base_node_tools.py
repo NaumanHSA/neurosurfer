@@ -108,6 +108,70 @@ def test_the_tool_calls_are_recorded_on_the_node_result():
     assert "echo" in (res.nodes["step"].tool_calls or [])
 
 
+class TestBoundArgumentsReachAnAgentNode:
+    """`tool_args` and `tool_settings` on a node that calls a model.
+
+    These two lines are the only route by which an agent node can be handed a
+    credential — a secret reaches a tool as `${NAME}` in `tool_args`, never
+    through a prompt — and until the executor became a package they were methods
+    on `GraphExecutor`. The split moved them to module-level functions taking the
+    executor, and the two call sites in `llm.py` kept calling them as methods.
+
+    Nothing offline caught it: every existing test here attaches `tools` without
+    `tool_args`, so the branch never ran. It surfaced as `AttributeError:
+    'GraphExecutor' object has no attribute '_render_tool_args'` on a live
+    Architect build — a failure path, one directory away from any import-time
+    check, which is the same shape as the relative-import breakage that cost the
+    first attempt at this split.
+    """
+
+    def test_a_bound_argument_is_substituted_and_hidden(self):
+        echo = _Echo()
+        res = _run(
+            [{
+                "id": "step", "kind": "base", "goal": "echo", "tools": ["echo"],
+                "tool_args": {"text": "bound"},
+            }],
+            _ToolThenText(), [echo],
+        )
+        assert res.nodes["step"].error is None, res.nodes["step"].error
+        # The model asked for text="hi"; the bound value wins and it never had
+        # the chance to choose — that is what makes this safe for a credential.
+        assert echo.calls == [{"text": "bound"}]
+
+    def test_a_bound_argument_interpolates_the_graph_scope(self):
+        """`{name}` in `tool_args` resolves the same way it does on a tool node."""
+        echo = _Echo()
+        graph = load_graph_from_dict({
+            "name": "t",
+            "inputs": [{"name": "who", "type": "string"}],
+            "nodes": [{
+                "id": "step", "kind": "base", "goal": "echo", "tools": ["echo"],
+                "tool_args": {"text": "hello {who}"},
+            }],
+            "outputs": ["step"],
+        })
+        res = GraphExecutor(
+            graph, provider=_ToolThenText(), log_traces=False,
+            native_tools=ToolPool([echo]),
+        ).run({"who": "world"})
+        assert res.nodes["step"].error is None, res.nodes["step"].error
+        assert echo.calls == [{"text": "hello world"}]
+
+    def test_tool_settings_are_applied(self, tmp_path):
+        """The other call site, broken the same way and for the same reason."""
+        echo = _Echo()
+        res = _run(
+            [{
+                "id": "step", "kind": "base", "goal": "echo", "tools": ["echo"],
+                "tool_settings": {"echo": {"root": str(tmp_path)}},
+            }],
+            _ToolThenText(), [echo],
+        )
+        assert res.nodes["step"].error is None, res.nodes["step"].error
+        assert echo.calls == [{"text": "hi"}]
+
+
 def test_a_react_node_still_needs_tools():
     """`base` taking tools must not make `react` with none suddenly legal — an
     agent loop with nothing to call invents the actions it reports.
