@@ -735,9 +735,17 @@ class GraphExecutor:
                 f"Node '{node.id}' is a base/react node but no provider was given to the executor."
             )
 
-        print("-------------------------------------")
-        print(f"System Prompt: {system_prompt}")
-        print(f"User Prompt: {user_prompt}")
+        # Reading the two halves of a turn is how the prompt-assembly defects of
+        # the last few days were all found, so the view stays — as logging, not
+        # as `print`. A library writing to stdout on every node makes it the
+        # caller's problem to filter, and there is no filtering a `print`.
+        #
+        #     logging.getLogger("neurosurfer.graph").setLevel(logging.DEBUG)
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                "node %s prompts\n--- system ---\n%s\n--- user ---\n%s",
+                node.id, system_prompt, user_prompt,
+            )
         return self._run_node_native(
             node=node,
             system_prompt=system_prompt,

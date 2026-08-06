@@ -198,8 +198,9 @@ def run_node_native(
                     )
 
         raw = call.output
-        print(f"Node {node.id} raw output: {raw}")
-        print("------------------ END OF CALL----------------------")
+        # The other half of the debugging view — see the prompt log in
+        # `core._run_node` for why this is `debug` and not `print`.
+        ex.logger.debug("node %s output: %s", node.id, _trace_text(raw))
         # Structured output: native stack returns a Pydantic model directly.
         structured = raw if (output_schema and isinstance(raw, output_schema)) else None
         duration_ms = int((time.time() - started_at) * 1000)

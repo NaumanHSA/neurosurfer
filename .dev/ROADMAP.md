@@ -9,12 +9,21 @@
 > tests** — has been run once deliberately, it merges to `main` **with a version
 > bump**. See the plan's §5 for the checklist and the `1.1.0`-vs-`2.0.0` argument.
 
-Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **Phases 1–6
-are in**. The Architect grounds and refuses, verifies by running what it built,
-and the three defects the port carried across are fixed: a step now says what it
-was actually given, and one cut off mid-plan stops reporting success with a blank
-answer. 1142 tests pass from a 360 baseline, ruff clean (2026-08-04). Phase 7
-next — tracing and docs, then the release checklist in the plan's §5.
+Latest: [01's build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) — **all seven
+phases are in**, and §8 records the release checklist with one box left: merge to
+`main` and bump. The Architect grounds and refuses, verifies by running what it
+built, and the three defects the port carried across are fixed.
+
+**Work has continued past that checklist and the build log does not cover it.**
+Twenty-one commits since — node kinds as classes, validation as the first step of
+every run, the react `finish()` fix, the executor split into a package, and a
+rewritten prompt contract. Whether that is a §9 of plan 01 or the start of a plan
+02 is a call nobody has made, and it is the reason the release is still parked.
+
+Until it is written up, **[HANDOFF.md](HANDOFF.md) is the current state of the
+branch** — what changed, what is not verified, and what to do first. 1183 tests
+pass from a 360 baseline, ruff clean (2026-08-06); the live tests have **not**
+been run against the new prompt contract.
 
 **Running the suite:** 24s offline with
 `NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`. Without it, the live tests
