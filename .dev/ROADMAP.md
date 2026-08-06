@@ -38,6 +38,46 @@ default to LM Studio on `:1234` and take twelve minutes if it happens to be up.
 
 ---
 
+## Where the Architect stands — 2026-08-06
+
+Parked deliberately, with the graph the current focus. What is known today, so
+the next person does not re-derive it:
+
+**It works end to end on a real model.** Three of the four live tests pass on
+`gpt-4o-mini`: it builds a workflow, derives acceptance criteria, runs what it
+built, judges the output, and refuses an impossible request. Its own
+`package/graph.yaml` already follows the new prompt contract — all eleven node
+prompts interpolate `{user_intent}` — which is why the contract rewrite did not
+disturb it.
+
+**Open — it writes inputs no step reads.** On `gpt-5-mini` the first build of the
+branching intent produced:
+
+```
+ticket_urgency_routing_and_reply: The workflow asks for 'ticket_text'
+but no step uses it, so the value a caller passes is ignored.
+```
+
+Five steps, a router among them, and the graph input carrying the ticket named
+by none of them. `declared_inputs_are_read_by_something` catches it but only
+**warns**, so the workflow stays registerable, and today's backstop is Phase 5
+verification noticing the answer ignores the parameter. That is the transcript
+`_BUILD_RULES` requires — the rule can now be written from evidence rather than
+anticipation. `assemble.py:299` still describes interpolation as an
+*authored-tool* concern, which is an understatement under the current contract.
+
+**Open — the branching test measures two things at once.**
+`test_agent_designs_branching_workflow_with_real_llm` asserts a router or two
+when-guards, but the build must succeed first, and the Architect refuses to
+register a workflow that fails its own verification. §8 attributed the failure to
+the model being unable to design a branch. That is not what the transcripts show:
+`gpt-5-mini` designs the router in its *first* plan and then fails to converge in
+the repair loop — 13+ graph runs without a pass, where `gpt-4o-mini` gave up at
+12. The design step is not the bottleneck; the repair budget is. Worth splitting
+the assertion before treating a red live suite as a model problem.
+
+---
+
 ## 01 — The Architect and the validator ⬅ **current**
 
 **[01_ARCHITECT_AND_VALIDATOR_PLAN.md](01_ARCHITECT_AND_VALIDATOR_PLAN.md)**
