@@ -123,12 +123,72 @@ def input_node_keys(graph: Graph) -> dict[str, str]:
 
 
 # Normalize and Validate Graph Inputs
+#: Kinds handed the whole inputs mapping as keyword arguments, so any key at all
+#: could be the one they take — see `executor/deterministic.py`. Nothing here can
+#: tell which, and a warning that fires on a working graph is worse than one that
+#: misses, so their presence silences the check entirely.
+_KINDS_TAKING_INPUTS_AS_KWARGS = {"function", "python", "tool"}
+
+
+def _warn_about_keys_nothing_reads(
+    graph: Graph, provided: dict[str, Any], node_keys: set[str]
+) -> None:
+    """Say so when a run is handed a value no step could be reading.
+
+    The declared path already warns about undeclared extras. This is the *other*
+    path — a graph that declares no inputs at all, where the mapping was taken
+    as-is and never looked at again.
+
+    That is not hypothetical. Tutorial 03's `content_pipeline` declared no
+    inputs, its goals interpolated nothing, and it was run with
+    `{"user_intent": …}`. The run went green and the model replied "please
+    provide the specific topic you would like me to research" — a broken
+    flagship tutorial that sat in the repo because nothing anywhere was in a
+    position to notice. `declared_inputs_are_read_by_something` could not: it
+    inspects *declared* inputs, and there were none.
+
+    A warning, not a refusal. The engine cannot prove a key is unused — only
+    that no template, expression or argument names it — and a graph mid-edit
+    should not be stopped at the door.
+    """
+    if not provided:
+        return
+    try:
+        from neurosurfer.graph.workflow.validation.context import (
+            ValidationContext,
+            body_nodes,
+        )
+        from neurosurfer.graph.workflow.validation.graph import _names_read_anywhere
+
+        all_nodes = [*graph.nodes, *body_nodes(graph.nodes)]
+        if any(
+            getattr(n, "kind", None) in _KINDS_TAKING_INPUTS_AS_KWARGS
+            for n in all_nodes
+        ):
+            return
+        read = _names_read_anywhere(ValidationContext(package=None, graph=graph))
+    except Exception:  # noqa: BLE001 — a diagnostic must never fail a run
+        return
+
+    unread = sorted(set(provided) - read - set(node_keys))
+    if unread:
+        logger.warning(
+            "Graph %r was given %s, but no step names %s and the graph declares "
+            "no inputs — the value will not reach any node. Interpolate it as "
+            "{%s} in a step, or declare it in the graph's inputs.",
+            graph.name,
+            ", ".join(repr(k) for k in unread),
+            "them" if len(unread) > 1 else "it",
+            unread[0],
+        )
+
+
 def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> dict[str, Any]:
     """
     Enforce graph-level input spec if declared.
 
     - If `graph.inputs` is empty:
-        - dict -> used as-is
+        - dict -> used as-is, with keys nothing reads warned about
         - anything else -> wrapped under the sole input node's key, else `query`
     - If `graph.inputs` is non-empty:
         - inputs must be a dict
@@ -142,6 +202,7 @@ def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> dict[str, 
     # No spec: be permissive
     if not specs:
         if isinstance(inputs, dict):
+            _warn_about_keys_nothing_reads(graph, inputs, node_keys)
             return dict(inputs)
         # A bare value is an ergonomic shortcut, and it used to be wrapped as
         # `{"query": ...}` unconditionally — a key nothing reads. A graph whose

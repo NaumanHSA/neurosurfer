@@ -96,6 +96,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Validation is the first step of every run**, not only of registration. A
   graph that cannot run is refused before a model is called rather than partway
   through.
+- **A run handed a value no step reads now says so.** Passing
+  `{"user_intent": …}` to a graph that declares no inputs and interpolates
+  nothing used to be accepted in silence, and the run would go green while the
+  model answered "please provide the topic". It logs a warning naming the key
+  and the fix. Deliberately quiet where it cannot know: a `function`, `python`
+  or `tool` node is handed the whole mapping as keyword arguments, so any key
+  could be the one it takes, and their presence silences the check rather than
+  risk crying wolf on a working graph.
 - **The executor is a package.** `neurosurfer/graph/engine/executor.py` is now
   `executor/` (scheduler, iteration, routing, deterministic kinds, io, llm).
   `from neurosurfer.graph.engine.executor import GraphExecutor` is unchanged;
