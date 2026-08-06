@@ -87,9 +87,9 @@ class _ReachableScope(Mapping):
 def node_instruction(node: Any, default: str = "") -> str:
     """The one line saying what *node* should do, whichever way it was written.
 
-    ``_build_system_prompt`` already knows this precedence — ``instructions``
-    wins outright, the older ``purpose``/``goal`` are still read so graphs on
-    disk keep running. But two kinds build their prompt by hand instead of going
+    ``render_task`` already knows this precedence — ``instructions`` wins
+    outright, the older ``purpose``/``goal`` are still read so graphs on disk
+    keep running. But two kinds build their prompt by hand instead of going
     through it, and when ``instructions`` arrived both were missed:
 
     * an **LLM router** classified with ``purpose or goal``, so a router whose
@@ -186,33 +186,6 @@ def render_scope(
         if layer:
             flat.update(layer)
     return with_namespaces(flat, inputs=inputs, nodes=nodes, variables=variables)
-
-
-def recited_names(*texts: str | None) -> frozenset[str]:
-    """Names whose **whole value** the given templates already state.
-
-    A node whose instruction is ``"Summarise this review: {item}"`` has the
-    review in its system prompt. Printing `item: …` underneath it is the same
-    text a second time — the shape Phase 6 found stating one value three times
-    under three headings that disagreed about what it was.
-
-    Only a bare ``{name}`` counts. ``{reviews[0]}``, ``{doc.title}`` and
-    ``{n:>4}`` each state *part* of a value or a formatting of it, so the value
-    itself has not been recited and hiding it would remove something the reader
-    does not have.
-    """
-    out: set[str] = set()
-    for text in texts:
-        if not text:
-            continue
-        try:
-            parts = list(_FORMATTER.parse(text))
-        except ValueError:  # unpaired brace — no placeholders to speak of
-            continue
-        for _literal, field, spec, conversion in parts:
-            if field and field.isidentifier() and not spec and not conversion:
-                out.add(field)
-    return frozenset(out)
 
 
 def render_template(text: str, scope: Mapping[str, Any]) -> tuple[str, list[str]]:
@@ -318,10 +291,25 @@ Return ONLY the instruction text — no preamble, no meta-commentary.
 #: is set. The framing around it stays, because it is the part an author should
 #: not have to repeat on every node: that this step sits inside a larger
 #: workflow, and how to behave while running.
-NODE_SYSTEM_TEMPLATE = """You are a specialized agent in a larger workflow.
+#: What a node's model is told about *being* a node, and nothing about the job.
+#:
+#: Identical for every node of every graph, on purpose. The task used to be
+#: rendered into it — `"Your task:\n{instructions}"` — which made the system
+#: prompt different for every node and, inside a `map`, different for every
+#: item. Two consequences, one of them measurable:
+#:
+#: - **prompt caching cannot fire.** A cache is keyed on a stable prefix, and a
+#:   fifty-item map sent fifty system prompts differing only in the item;
+#: - it inverts the convention every provider documents, and that LangChain
+#:   follows in `create_agent` — a `SystemMessage` built once at construction
+#:   and prepended unchanged to `state["messages"]`, with the task in the turn.
+#:
+#: The task now lives in the user turn. See `ManagerAgent.compose_user_prompt`.
+NODE_SYSTEM_PROMPT = """You are a specialized agent in a larger workflow.
 
-Your task:
-{instructions}
+Each turn states the task to carry out, and — when earlier steps fed into it —
+their results under "Context from previous nodes". Work from what the turn
+gives you; there is no other context you are expected to remember.
 
 General behaviour:
 - Be precise and concise unless the task requires extended output.
@@ -329,22 +317,18 @@ General behaviour:
 - If you are calling tools, interpret their outputs carefully and explain your reasoning.
 """
 
+#: The task block for a node written with `instructions`.
+NODE_TASK_TEMPLATE = """Your task:
+{instructions}"""
 
-#: The three-field system prompt, for nodes written before ``instructions``.
+
+#: The three-field task block, for nodes written before ``instructions``.
 #:
 #: Kept, not deprecated-and-deleted: every workflow already registered names its
 #: job under ``purpose`` / ``goal`` / ``expected_result``, and a graph that ran
 #: yesterday has to run today. New nodes should set ``instructions`` instead —
 #: see ``GraphNode.instructions`` for why one field replaced three.
-DEFAULT_NODE_SYSTEM_TEMPLATE = """You are a specialized agent in a larger workflow.
-
-Your role:
+DEFAULT_NODE_TASK_TEMPLATE = """Your task:
 - PURPOSE: {purpose}
 - GOAL: {goal}
-- EXPECTED_RESULT: {expected_result}
-
-General behaviour:
-- Be precise and concise unless the task requires extended output.
-- Use clear structure (headings/bullets) when helpful.
-- If you are calling tools, interpret their outputs carefully and explain your reasoning.
-"""
+- EXPECTED_RESULT: {expected_result}"""

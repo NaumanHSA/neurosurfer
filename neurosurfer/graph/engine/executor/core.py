@@ -38,30 +38,9 @@ from ..nodes import (
 )
 from ..schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
 from ..state import WorkflowState
-from ..templates import (
-    render_scope,
-)
+from ..templates import NODE_SYSTEM_PROMPT, render_scope
 from ..utils import normalize_and_validate_graph_inputs, topo_sort
 from . import deterministic, io_nodes, iteration, llm, routing
-
-
-def _input_root(expression: str | None) -> str | None:
-    """The graph input a `map`'s `over` reads, if it reads one.
-
-    `inputs.reviews` and a bare `reviews` both name an input; `nodes.fetch` and
-    `vars.acc` name something else and yield nothing to hide. Anything with an
-    index or a call in it (`inputs.a[0]`, `len(x)`) is left alone rather than
-    guessed at — the cost of missing one is a prompt that is merely verbose,
-    and the cost of guessing wrong is a body that cannot see an input it needs.
-    """
-    text = (expression or "").strip()
-    if not text:
-        return None
-    head, _, rest = text.partition(".")
-    if head in {"nodes", "vars", "state"}:
-        return None
-    name = rest if head == "inputs" else text
-    return name if name.isidentifier() else None
 
 
 def _accepts_scope(callback: Any) -> bool:
@@ -153,11 +132,6 @@ class GraphExecutor:
         # Set for the duration of run(); nested body executors inherit it so their
         # node events reach the same consumer.
         self._active_node_event: Any | None = None
-
-        # Graph inputs this run resolves but does **not** recite to a model. Set
-        # by `_child_executor` for a container body; empty for a top-level run.
-        # See `_hidden_body_inputs` for what earns a place here and why.
-        self._hidden_inputs: frozenset[str] = frozenset()
 
         self._node_map: dict[str, GraphNode] = self.graph.node_map()
         self._order = topo_sort(self.graph.nodes)
@@ -646,55 +620,7 @@ class GraphExecutor:
             # resolver per iteration would rebuild a client on every pass.
             provider_resolver=self.providers,
         )
-        # Inherited, then extended: a `map` nested inside a `loop` hides both
-        # containers' plumbing, since both are still in the body's inputs.
-        child._hidden_inputs = self._hidden_inputs | self._hidden_body_inputs(node)
         return child
-
-    @staticmethod
-    def _hidden_body_inputs(node: GraphNode) -> frozenset[str]:
-        """Names a container puts in its body's inputs that no body node should be *told*.
-
-        A container binds its iteration values into the body's graph inputs
-        (`{**state.inputs, "index": i, item_var: …}`), and every LLM node prints
-        every graph input. So a two-item `map` told each body node the item it
-        was on, the index it was at, **and the entire collection both came
-        from** — the same list, once per item, in every prompt. At fifty items
-        that is fifty copies of fifty reviews.
-
-        Three kinds of name are hidden, and none of them stops *resolving* —
-        `{item}` renders, `inputs.index` evaluates, a function node still
-        receives them as kwargs. They are only not recited:
-
-        - **the iteration values** (`index`, the item, a loop's `feedback`) —
-          already interpolated into the instruction by the author who used them,
-          and meaningless plumbing to a model that did not;
-        - **the collection being mapped over** — a body handles one element, and
-          the list it was drawn from is the parent's business. This is the one
-          that was quadratic;
-        - nothing else. A shared input a body genuinely reads (`{criteria}`) is
-          untouched, because narrowing to "only what this node references" would
-          silently starve every workflow that leans on the inputs block instead
-          of placeholders.
-
-        A `subgraph` hides nothing: it is composition, not iteration — its body
-        is meant to see the parent's inputs, and there is no per-item anything.
-        """
-        if isinstance(node, Subgraph):
-            return frozenset()
-        names = {"index", node.item_var}
-        if isinstance(node, Loop):
-            names.add("feedback")
-        if isinstance(node, Map):
-            root = _input_root(node.over)
-            if root:
-                names.add(root)
-        return frozenset(names)
-
-    # ── iteration: loop / map / subgraph ─────────────────────────────────
-    #
-    # Thin forwarders. The runners live in `iteration.py`; these keep the method
-    # surface a reader (and `_run_node`'s dispatch, and the tests) already knows.
 
     @staticmethod
     def _body_value(result: GraphExecutionResult) -> Any:
@@ -777,29 +703,29 @@ class GraphExecutor:
 
         # LLM-based node (base | react)
         #
-        # The system prompt is built **first**, because what it says decides what
-        # the user prompt should not repeat.
-        #
         # Interpolate templates over graph inputs *and* upstream state — a node's
         # `goal`/`purpose` commonly references an upstream node's output by its
         # `writes` name (e.g. "…based on the summary: {summary}"). `writes` vars are
         # in `_state.vars`; dependency outputs are also exposed by node id. Explicit
         # `writes` take precedence over a same-named graph input.
+        #
+        # **What this scope holds is not what the node is told.** It is what the
+        # node's placeholders may *reach*; the turn carries what they actually
+        # named. That distinction is the whole of `compose_user_prompt`.
         interp_scope = render_scope(
             graph_inputs,
             nodes=dependency_results,
             variables=_state.vars,
             scope=_state.scope,
         )
-        system_prompt, recited = self._build_system_prompt(node, interp_scope)
+        system_prompt = NODE_SYSTEM_PROMPT
         user_prompt = self.manager.compose_user_prompt(
             node=node,
-            graph_inputs=graph_inputs,
+            task=self._render_task(node, interp_scope),
             dependency_results=dependency_results,
             previous_result=previous_result,
             temperature=manager_temperature,
             max_new_tokens=manager_max_new_tokens,
-            hidden=self._hidden_inputs | recited,
         )
         output_schema = self._load_output_schema_if_needed(node)
         timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
@@ -808,6 +734,10 @@ class GraphExecutor:
             raise GraphConfigurationError(
                 f"Node '{node.id}' is a base/react node but no provider was given to the executor."
             )
+
+        print("-------------------------------------")
+        print(f"System Prompt: {system_prompt}")
+        print(f"User Prompt: {user_prompt}")
         return self._run_node_native(
             node=node,
             system_prompt=system_prompt,
@@ -860,10 +790,8 @@ class GraphExecutor:
             scope=scope,
         )
 
-    def _build_system_prompt(
-        self, node: GraphNode, scope: dict[str, Any]
-    ) -> tuple[str, frozenset[str]]:
-        return llm.build_system_prompt(self, node, scope)
+    def _render_task(self, node: GraphNode, scope: dict[str, Any]) -> str:
+        return llm.render_task(self, node, scope)
 
     def _load_output_schema_if_needed(self, node: GraphNode) -> type[PydModel] | None:
         return llm.load_output_schema_if_needed(self, node)

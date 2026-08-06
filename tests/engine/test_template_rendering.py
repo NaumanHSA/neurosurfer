@@ -119,12 +119,17 @@ def test_nested_format_spec_that_cannot_resolve_leaves_the_whole_placeholder():
 # ── through the engine ──────────────────────────────────────────────────────────
 
 class _RecordingProvider(ScriptedProvider):
+    """Keeps the user turn: a node's rendered instruction is *in* the turn now,
+    not in the system prompt, which is identical for every node."""
+
     def __init__(self, turns):
         super().__init__(turns)
         self.systems: list[str] = []
+        self.users: list[str] = []
 
     async def stream(self, messages, system, tools, config):
         self.systems.append(system)
+        self.users.append("\n".join(str(getattr(m, "content", m)) for m in messages))
         async for ev in super().stream(messages, system, tools, config):
             yield ev
 
@@ -147,7 +152,7 @@ def test_a_node_keeps_its_good_values_when_one_name_is_wrong(tmp_path):
     GraphExecutor(graph=graph, provider=provider, validate=False).run({"topic": "cats", "audience": "vets"})
 
     assert any("brief on cats for vets in the style of {styel}" in s
-               for s in provider.systems)
+               for s in provider.users)
 
 
 def test_a_var_from_a_branch_that_did_not_run_costs_only_itself(tmp_path):
@@ -167,7 +172,7 @@ def test_a_var_from_a_branch_that_did_not_run_costs_only_itself(tmp_path):
     provider = _RecordingProvider([("out", "")] * 3)
     GraphExecutor(graph=graph, provider=provider).run({"topic": "cats"})
 
-    assert any("brief on cats, note: {skipped_note}" in s for s in provider.systems)
+    assert any("brief on cats, note: {skipped_note}" in s for s in provider.users)
 
 
 def test_router_keeps_its_graph_inputs_when_a_node_id_is_referenced(tmp_path):

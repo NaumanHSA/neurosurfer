@@ -304,6 +304,74 @@ def test_a_message_reads_as_a_sentence(tmp_path):
         assert m.rstrip().endswith("."), f"{issue.kind}: {m!r} has no full stop"
 
 
+# ── an input nothing reads ──────────────────────────────────────────────────
+
+
+def test_a_declared_input_no_step_names_is_flagged(tmp_path):
+    """The rule that makes the narrowing safe. A node is no longer recited every
+    graph input, so an input nothing names is a parameter that does nothing —
+    the caller passes it, the run is green, and the answer ignores it."""
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="base", instructions="Write a summary.")],
+        outputs=["a"], inputs=[GraphInput(name="article", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    assert "structure" in kinds_of(report)
+    assert any(i.subject == "article" for i in report.warnings)
+    assert report.ok, "a warning must not fail the workflow"
+
+
+def test_an_input_a_step_interpolates_is_not_flagged(tmp_path):
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="base", instructions="Summarise {article}.")],
+        outputs=["a"], inputs=[GraphInput(name="article", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    assert not [i for i in report.warnings if i.subject == "article"]
+
+
+def test_an_input_read_only_by_an_expression_is_not_flagged(tmp_path):
+    """A `map`'s `over` reads its collection without a placeholder anywhere. A
+    rule that only looked at templates would call a working fan-out broken."""
+    report = validate_package(pkg([
+        GraphNode(
+            id="fan", kind="map", over="inputs.reviews", **{"as": "item"},
+            body=[GraphNode(id="s", kind="base", instructions="Summarise {item}.")],
+            body_outputs=["s"],
+        ),
+    ], outputs=["fan"], inputs=[GraphInput(name="reviews", type="array")], tmp_path=tmp_path))
+
+    assert not [i for i in report.warnings if i.subject == "reviews"]
+
+
+def test_an_input_read_only_inside_a_container_body_is_not_flagged(tmp_path):
+    """The walk has to descend: the only reader is two levels down."""
+    report = validate_package(pkg([
+        GraphNode(
+            id="fan", kind="map", over="inputs.reviews", **{"as": "item"},
+            body=[GraphNode(id="s", kind="base",
+                            instructions="In {house_style}, summarise {item}.")],
+            body_outputs=["s"],
+        ),
+    ], outputs=["fan"],
+        inputs=[GraphInput(name="reviews", type="array"),
+                GraphInput(name="house_style", type="string")],
+        tmp_path=tmp_path))
+
+    assert not [i for i in report.warnings if i.subject == "house_style"]
+
+
+def test_an_input_read_only_by_a_tool_argument_is_not_flagged(tmp_path):
+    report = validate_package(pkg([
+        GraphNode(id="t", kind="tool", tools=["read_file"],
+                  tool_args={"path": "{doc_path}"}),
+    ], outputs=["t"], inputs=[GraphInput(name="doc_path", type="string")], tmp_path=tmp_path))
+
+    assert not [i for i in report.warnings if i.subject == "doc_path"]
+
+
 # ── the router that classifies on nothing ───────────────────────────────────
 
 

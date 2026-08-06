@@ -1,18 +1,26 @@
 """What a node is *told*, as distinct from what it can resolve.
 
-Every LLM node prints every graph input. Inside a `map` that meant each body
-node was handed the item it was on, the index it was at, **and the whole
-collection both were drawn from** — the same list, once per item, in every
-prompt. Two reviews made it merely odd; fifty make it quadratic, and a model
-reading "reviews: [all fifty]" next to "item: <one>" has no statement of which
-one it is supposed to be working on.
+Every LLM node used to be printed every graph input under an `Inputs:` heading.
+Inside a `map` that meant each body node was handed the item it was on, the
+index it was at, **and the whole collection both were drawn from** — the same
+list, once per item, in every prompt. Two reviews made it merely odd; fifty make
+it quadratic, and a model reading "reviews: [all fifty]" next to "item: <one>"
+has no statement of which one it is supposed to be working on.
 
-These tests hold the two halves apart, because the fix is only safe if the
-second half is untouched:
+The block is gone. A node's turn carries **what its task text names, plus the
+outputs of the steps it declared as dependencies** — the same contract a
+LangGraph node gets, where nothing formats state into a prompt on the author's
+behalf.
 
-  * **display** — what appears in the user prompt (narrowed here);
+These tests hold apart the two things that are easy to conflate, because the
+change is only safe if the second is untouched:
+
+  * **display** — what appears in the turn (narrowed to the above);
   * **resolution** — what `{placeholders}`, expressions and function kwargs can
     reach (unchanged, and asserted to be unchanged).
+
+The system prompt is a third thing again, and `test_the_system_prompt_is_the_same`
+is the one that would fail first if the task ever crept back into it.
 """
 
 from __future__ import annotations
@@ -45,7 +53,7 @@ REVIEWS = [
 ]
 
 
-# ── what a map body is told ───────────────────────────────────────────────────
+# ── what a node is told ───────────────────────────────────────────────────────
 
 def test_a_map_body_is_not_handed_the_collection_it_is_iterating_over():
     """The quadratic one. A body handles one element; the list it came from is
@@ -58,16 +66,15 @@ def test_a_map_body_is_not_handed_the_collection_it_is_iterating_over():
     GraphExecutor(graph, provider=provider, validate=False).run({"reviews": REVIEWS})
 
     assert len(provider.prompts) == 2
-    for prompt in provider.prompts:
-        assert "reviews:" not in prompt
-        # …and not merely renamed: neither review's text appears in the block.
-        assert REVIEWS[1] not in prompt.split("Summarise")[-1] or REVIEWS[0] not in prompt
+    for i, prompt in enumerate(provider.prompts):
+        assert REVIEWS[i] in prompt          # the one it is working on
+        assert REVIEWS[1 - i] not in prompt  # and not the other
 
 
 def test_a_map_body_is_not_told_its_own_plumbing():
     """`index` and the item variable are how the container talks to itself. A
-    node that used `{item}` already has it interpolated; one that did not has no
-    use for it."""
+    node that used `{item}` has it in the task text already; one that did not
+    has no use for it."""
     graph = _reviews_graph([
         Base(id="summarise", instructions="Summarise this review: {item}"),
     ])
@@ -80,56 +87,104 @@ def test_a_map_body_is_not_told_its_own_plumbing():
         assert "item:" not in prompt
 
 
-def test_a_shared_input_a_body_did_not_iterate_over_is_still_shown():
-    """The line the narrowing must not cross. Hiding "everything the body did
-    not reference" would starve every workflow that leans on the inputs block
-    instead of placeholders, so only the container's own names are hidden."""
-    graph = Map(
-        id="per_review",
-        over="inputs.reviews",
-        item_var="item",
-        body=[Base(id="summarise", instructions="Summarise: {item}")],
-        body_outputs=["summarise"],
-    )
-    g = Graph(
-        name="t",
-        nodes=[graph],
-        inputs=[
-            {"name": "reviews", "type": "array"},
-            {"name": "house_style", "type": "string"},
-        ],
-        outputs=["per_review"],
-    )
-    provider = ScriptedProvider([("short", []), ("short", [])])
-
-    GraphExecutor(g, provider=provider, validate=False).run(
-        {"reviews": REVIEWS, "house_style": "terse"}
-    )
-
-    for prompt in provider.prompts:
-        assert "house_style: terse" in prompt
-
-
-def test_a_top_level_node_still_sees_every_graph_input():
-    """Nothing is hidden outside a container body — a plain graph is unchanged."""
+def test_an_input_the_task_does_not_name_is_not_recited():
+    """The rule, at the top level rather than inside a container: a graph input
+    is available to interpolate, not something every node is read out."""
     graph = Graph(
         name="t",
-        nodes=[Base(id="a", instructions="do it")],
-        inputs=[{"name": "topic", "type": "string"}],
+        nodes=[Base(id="a", instructions="Write the report.")],
+        inputs=[
+            {"name": "topic", "type": "string"},
+            {"name": "house_style", "type": "string"},
+        ],
         outputs=["a"],
     )
     provider = ScriptedProvider([("done", [])])
 
-    GraphExecutor(graph, provider=provider, validate=False).run({"topic": "otters"})
+    GraphExecutor(graph, provider=provider, validate=False).run(
+        {"topic": "otters", "house_style": "terse"}
+    )
 
-    assert "topic: otters" in provider.prompts[0]
+    assert "otters" not in provider.prompts[0]
+    assert "terse" not in provider.prompts[0]
+
+
+def test_an_input_the_task_does_name_arrives_in_the_task():
+    graph = Graph(
+        name="t",
+        nodes=[Base(id="a", instructions="Write about {topic} in a {house_style} voice.")],
+        inputs=[
+            {"name": "topic", "type": "string"},
+            {"name": "house_style", "type": "string"},
+        ],
+        outputs=["a"],
+    )
+    provider = ScriptedProvider([("done", [])])
+
+    GraphExecutor(graph, provider=provider, validate=False).run(
+        {"topic": "otters", "house_style": "terse"}
+    )
+
+    assert "Write about otters in a terse voice." in provider.prompts[0]
+
+
+def test_a_declared_dependency_still_arrives_whole():
+    """Narrowing the inputs must not reach the dependency block — that is what
+    `depends_on` is *for*, and it is the one thing a node is entitled to."""
+    graph = Graph(
+        name="t",
+        nodes=[
+            Base(id="research", instructions="Research it."),
+            Base(id="write", depends_on=["research"], instructions="Write it up."),
+        ],
+        outputs=["write"],
+    )
+    provider = ScriptedProvider([("FINDINGS", []), ("done", [])])
+
+    GraphExecutor(graph, provider=provider, validate=False).run({})
+
+    assert "Context from previous nodes:" in provider.prompts[1]
+    assert "FINDINGS" in provider.prompts[1]
+
+
+# ── the system prompt is now the same one every time ──────────────────────────
+
+def test_the_system_prompt_is_the_same_for_every_node_and_every_item():
+    """The whole point of moving the task into the turn.
+
+    A system prompt that differs per node — and per *item* inside a map — is a
+    prompt-cache prefix that can never be reused. Two body nodes over two
+    reviews is four calls and, before this, four distinct system prompts.
+    """
+    graph = _reviews_graph([
+        Base(id="summarise", instructions="Summarise this review: {item}"),
+        Base(id="verdict", depends_on=["summarise"], instructions="One word."),
+    ])
+    provider = ScriptedProvider([("s", []), ("v", []), ("s", []), ("v", [])])
+
+    GraphExecutor(graph, provider=provider, validate=False).run({"reviews": REVIEWS})
+
+    assert len(provider.systems) == 4
+    assert len(set(provider.systems)) == 1
+
+
+def test_the_system_prompt_carries_no_task():
+    graph = Graph(
+        name="t",
+        nodes=[Base(id="a", instructions="Summarise the quarterly report.")],
+        outputs=["a"],
+    )
+    provider = ScriptedProvider([("done", [])])
+
+    GraphExecutor(graph, provider=provider, validate=False).run({})
+
+    assert "quarterly report" not in provider.systems[0]
+    assert "quarterly report" in provider.prompts[0]
 
 
 # ── what a map body can still reach ───────────────────────────────────────────
 
-def test_the_item_still_interpolates_into_the_instruction():
-    """Hidden from the prompt block, not from the template. This is the whole
-    reason the value is still in the body's inputs at all."""
+def test_the_item_still_interpolates_into_the_task():
     graph = _reviews_graph([
         Base(id="summarise", instructions="Summarise this review: {item}"),
     ])
@@ -137,14 +192,13 @@ def test_the_item_still_interpolates_into_the_instruction():
 
     GraphExecutor(graph, provider=provider, validate=False).run({"reviews": REVIEWS})
 
-    systems = " ".join(provider.systems)
-    for review in REVIEWS:
-        assert review in systems
+    for i, prompt in enumerate(provider.prompts):
+        assert f"Summarise this review: {REVIEWS[i]}" in prompt
 
 
 def test_a_body_can_still_interpolate_the_collection_if_it_asks_for_it():
-    """Hiding is about what is *recited*, so a node that names `{reviews}` still
-    gets it — the author asked, and the value resolves as it always did."""
+    """Hidden is not the mechanism — *unnamed* is. A node that names `{reviews}`
+    gets it, because the author asked and the value resolves as it always did."""
     graph = _reviews_graph([
         Base(id="summarise", instructions="Of {reviews} this one is: {item}"),
     ])
@@ -152,19 +206,14 @@ def test_a_body_can_still_interpolate_the_collection_if_it_asks_for_it():
 
     GraphExecutor(graph, provider=provider, validate=False).run({"reviews": REVIEWS})
 
-    assert all(REVIEWS[0] in s and REVIEWS[1] in s for s in provider.systems)
+    assert all(REVIEWS[0] in p and REVIEWS[1] in p for p in provider.prompts)
 
 
 def test_a_function_node_in_a_body_still_receives_the_item_as_a_kwarg():
-    """A function node is called with the inputs dict as kwargs, so `item` had
-    to keep arriving — by an explicit door now rather than by being merged into
-    the graph's inputs."""
+    """A function node is called with the inputs dict as kwargs. None of this
+    narrowing touches that — it is about what a *model* is told."""
     graph = _reviews_graph([
-        GraphNode(
-            id="count",
-            kind="function",
-            callable=f"{__name__}:_word_count",
-        ),
+        GraphNode(id="count", kind="function", callable=f"{__name__}:_word_count"),
     ])
 
     result = GraphExecutor(graph, validate=False).run({"reviews": REVIEWS})
@@ -175,75 +224,3 @@ def test_a_function_node_in_a_body_still_receives_the_item_as_a_kwarg():
 
 def _word_count(item: str, **_: object) -> int:
     return len(item.split())
-
-
-# ── saying it once ────────────────────────────────────────────────────────────
-
-def test_an_input_the_instruction_already_states_is_not_stated_again():
-    """The third instance of the shape Phase 6 found: one value, printed twice,
-    under two headings that do not agree about what it is."""
-    graph = Graph(
-        name="t",
-        nodes=[Base(id="a", instructions="Summarise this: {article}")],
-        inputs=[{"name": "article", "type": "string"}],
-        outputs=["a"],
-    )
-    provider = ScriptedProvider([("done", [])])
-
-    GraphExecutor(graph, provider=provider, validate=False).run({"article": "Otters hold hands."})
-
-    assert "Otters hold hands." in provider.systems[0]
-    assert "article:" not in provider.prompts[0]
-
-
-def test_an_input_the_instruction_only_reaches_into_is_still_shown():
-    """`{reviews[0]}` states one element, not the list, so the list has not been
-    recited and hiding it would take away something the model does not have."""
-    graph = Graph(
-        name="t",
-        nodes=[Base(id="a", instructions="The first is: {reviews[0]}")],
-        inputs=[{"name": "reviews", "type": "array"}],
-        outputs=["a"],
-    )
-    provider = ScriptedProvider([("done", [])])
-
-    GraphExecutor(graph, provider=provider, validate=False).run({"reviews": REVIEWS})
-
-    assert "reviews:" in provider.prompts[0]
-
-
-def test_a_name_only_the_unused_field_mentions_is_still_shown():
-    """`instructions` wins outright over `purpose`, so a name that appears only
-    in `purpose` was never rendered into anything and must still be shown."""
-    graph = Graph(
-        name="t",
-        nodes=[GraphNode(
-            id="a", kind="base",
-            instructions="Write the summary.",
-            purpose="something about {article}",
-        )],
-        inputs=[{"name": "article", "type": "string"}],
-        outputs=["a"],
-    )
-    provider = ScriptedProvider([("done", [])])
-
-    GraphExecutor(graph, provider=provider, validate=False).run({"article": "Otters."})
-
-    assert "article: Otters." in provider.prompts[0]
-
-
-def test_a_node_with_nothing_left_to_say_still_gets_a_user_turn():
-    """Narrowing can empty the block completely — a `map` body whose only input
-    is the item it interpolated. An empty user turn is a 400 on Anthropic, so
-    the floor is a directive rather than nothing."""
-    graph = _reviews_graph([
-        Base(id="summarise", instructions="Summarise this review: {item}"),
-    ])
-    provider = ScriptedProvider([("short", []), ("short", [])])
-
-    GraphExecutor(graph, provider=provider, validate=False).run({"reviews": REVIEWS})
-
-    for prompt in provider.prompts:
-        assert prompt.strip()
-        # …and it is a directive, not the instruction said a second time.
-        assert "Summarise this review" not in prompt

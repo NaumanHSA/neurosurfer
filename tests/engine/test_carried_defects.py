@@ -24,23 +24,27 @@ from neurosurfer.tools.base import Tool, ToolPool, ToolResult
 # ── the prompt assembler ─────────────────────────────────────────────────────
 
 
-def _prompt(node, graph_inputs, dependency_results):
+def _prompt(node, task, dependency_results):
     return ManagerAgent().compose_user_prompt(
         node=node,
-        graph_inputs=graph_inputs,
+        task=task,
         dependency_results=dependency_results,
-        previous_result=None,
     )
 
 
 def test_a_workflow_that_is_not_the_architect_is_not_told_its_request_is_unspecified():
-    """`user_intent` is the Architect's own graph's key, and was the only one read.
+    """`user_intent` was the Architect's own graph's key, and was the only one read.
 
     So every hand-built workflow opened with "User request: (not specified)" —
     on a run that then succeeded and answered plausibly, which is why it lasted.
+
+    It cannot recur, and not because the header was made conditional: there is
+    **no header**, and no ambient block for one to sit above. A node is given
+    its task and the steps it declared, so there is nothing left that could
+    describe a request the graph never had.
     """
     node = GraphNode(id="a", kind="base", instructions="Do it.", depends_on=["intake"])
-    out = _prompt(node, {"intake": "summarise the report"}, {"intake": "summarise the report"})
+    out = _prompt(node, "Your task:\nDo it.", {"intake": "summarise the report"})
 
     assert "(not specified)" not in out
     assert "User request:" not in out
@@ -49,33 +53,55 @@ def test_a_workflow_that_is_not_the_architect_is_not_told_its_request_is_unspeci
 
 def test_an_input_node_value_is_shown_once_not_three_times():
     """`_run_input_node` writes what it collected under its own id, so the same
-    string arrives as a graph input *and* as a dependency result."""
+    string arrived as a graph input *and* as a dependency result — under two
+    headings that disagreed about what it was, plus a third time in the header.
+
+    One door now. It is a dependency result, because that is what an upstream
+    node's output is, and the ambient inputs block that was the other two doors
+    is gone.
+    """
     msg = "visit https://example.com and write your findings"
     node = GraphNode(id="a", kind="base", instructions="Do it.", depends_on=["intake"])
 
-    out = _prompt(node, {"intake": msg}, {"intake": msg})
+    out = _prompt(node, "Your task:\nDo it.", {"intake": msg})
 
     assert out.count(msg) == 1, f"value repeated:\n{out}"
-    assert "Context from previous nodes:" not in out
+    assert "Context from previous nodes:" in out
 
 
-def test_the_architect_still_gets_its_header_and_hides_its_plumbing():
+def test_the_architect_is_not_recited_its_own_plumbing():
+    """`user_intent` and `available_tools` are the Architect graph's inputs, and
+    every one of its nodes interpolates `{user_intent}` itself.
+
+    Neither is recited here — nothing is. The check is kept because these two
+    names are the ones that used to be special-cased, and a special case is
+    exactly the sort of thing that grows back.
+    """
     node = GraphNode(id="plan", kind="base", instructions="Plan it.")
-    out = _prompt(node, {"user_intent": "build a PR digest", "available_tools": "<catalog>"}, {})
+    out = _prompt(node, "Your task:\nPlan {user_intent}.", {})
 
-    assert out.startswith("User request: build a PR digest")
-    # `available_tools` is interpolated into the system prompt already.
     assert "<catalog>" not in out
+    assert "available_tools" not in out
 
 
 def test_a_genuine_upstream_result_is_still_shown():
-    """The de-duplication must key on the *value*, not on "it is a dependency" —
-    otherwise the fix for the echo would swallow real upstream context."""
+    """The narrowing must not reach the dependency block. What a node declared
+    as a dependency is the one thing it is unambiguously entitled to."""
     node = GraphNode(id="w", kind="base", instructions="Write it.", depends_on=["summarise"])
-    out = _prompt(node, {"topic": "otters"}, {"summarise": "Otters are mustelids."})
+    out = _prompt(node, "Your task:\nWrite it.", {"summarise": "Otters are mustelids."})
 
     assert "Otters are mustelids." in out
-    assert "topic: otters" in out
+
+
+def test_a_node_is_not_shown_a_dependency_it_never_declared():
+    """`depends_on` is the whole of what a node inherits. A sibling's output
+    reaching it anyway would be the ambient-context problem in a second place."""
+    node = GraphNode(id="w", kind="base", instructions="Write it.", depends_on=["summarise"])
+    out = _prompt(node, "Your task:\nWrite it.",
+                  {"summarise": "Otters are mustelids.", "unrelated": "Badgers are not."})
+
+    assert "Otters are mustelids." in out
+    assert "Badgers are not." not in out
 
 
 # ── the one-round truncation ─────────────────────────────────────────────────

@@ -48,7 +48,7 @@ def _validate(nodes, tmp_path, *, inputs=None, outputs=None, node_id=None):
 # ── the runtime this check models ───────────────────────────────────────────────
 
 class _RecordingProvider(ScriptedProvider):
-    """ScriptedProvider that keeps every system prompt it was handed."""
+    """ScriptedProvider that keeps both halves of every turn it was handed."""
 
     def __init__(self, turns):
         super().__init__(turns)
@@ -76,7 +76,7 @@ def test_runtime_leaves_undeclared_reference_literal_and_validation_says_so(tmp_
     provider = _RecordingProvider([("out", "")] * 4)
     GraphExecutor(graph=graph, provider=provider, validate=False).run({})
 
-    assert any("uses {a}" in s for s in provider.systems), "executor rendered it after all"
+    assert any("uses {a}" in s for s in provider.users), "executor rendered it after all"
 
     errors, _ = _validate(nodes, tmp_path, outputs=["a", "b"], node_id="b")
     assert [e.subject for e in errors] == ["a"]
@@ -93,7 +93,7 @@ def test_declared_dependency_renders_at_runtime_and_validates(tmp_path):
     provider = _RecordingProvider([("out", "")] * 4)
     GraphExecutor(graph=graph, provider=provider).run({"topic": "cats"})
 
-    assert any("uses out, out and cats" in s for s in provider.systems)
+    assert any("uses out, out and cats" in s for s in provider.users)
     assert _validate(nodes, tmp_path, inputs=["topic"]) == ([], [])
 
 
@@ -151,7 +151,7 @@ def test_the_non_ancestor_case_really_does_resolve_at_runtime(tmp_path):
     ]
     provider = _RecordingProvider([("out", "")] * 4)
     GraphExecutor(graph=_pkg(nodes, tmp_path, outputs=["a", "b"]).graph, provider=provider).run({})
-    assert any("title for out" in s for s in provider.systems)
+    assert any("title for out" in s for s in provider.users)
 
 
 def test_attribute_and_index_access_check_the_root_name(tmp_path):
@@ -359,7 +359,7 @@ def test_literal_braces_do_not_disturb_the_vars_beside_them(tmp_path):
     provider = _RecordingProvider([("out", "")] * 2)
     GraphExecutor(graph=_pkg(nodes, tmp_path, inputs=["topic"]).graph,
                   provider=provider).run({"topic": "cats"})
-    assert any('summarise cats as {"t": "x"}' in s for s in provider.systems)
+    assert any('summarise cats as {"t": "x"}' in s for s in provider.users)
 
 
 def test_prose_after_a_colon_reads_as_a_literal_brace(tmp_path):

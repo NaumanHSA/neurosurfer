@@ -27,9 +27,8 @@ from ..json_schema import JsonSchemaError, model_from_json_schema
 from ..nodes import React
 from ..schema import GraphNode, NodeExecutionResult
 from ..templates import (
-    DEFAULT_NODE_SYSTEM_TEMPLATE,
-    NODE_SYSTEM_TEMPLATE,
-    recited_names,
+    DEFAULT_NODE_TASK_TEMPLATE,
+    NODE_TASK_TEMPLATE,
     render_template,
 )
 from ..utils import import_string
@@ -38,7 +37,7 @@ from ._trace import _trace_step, _trace_text
 if TYPE_CHECKING:  # a type hint only — importing `core` here would be a cycle
     from .core import GraphExecutor
 
-__all__ = ["build_system_prompt", "load_output_schema_if_needed", "run_node_native"]
+__all__ = ["load_output_schema_if_needed", "render_task", "run_node_native"]
 
 
 def run_node_native(
@@ -199,6 +198,8 @@ def run_node_native(
                     )
 
         raw = call.output
+        print(f"Node {node.id} raw output: {raw}")
+        print("------------------ END OF CALL----------------------")
         # Structured output: native stack returns a Pydantic model directly.
         structured = raw if (output_schema and isinstance(raw, output_schema)) else None
         duration_ms = int((time.time() - started_at) * 1000)
@@ -231,13 +232,14 @@ def run_node_native(
         )
 
 
-def build_system_prompt(
-    ex: GraphExecutor, node: GraphNode, scope: dict[str, Any]
-) -> tuple[str, frozenset[str]]:
-    """
-    Build the system prompt for a node, interpolating available scope
-    (graph inputs + upstream `writes` vars + dependency outputs) using
-    `{name}` syntax.
+def render_task(ex: GraphExecutor, node: GraphNode, scope: dict[str, Any]) -> str:
+    """What this node is being asked to do, with its `{placeholders}` filled.
+
+    This is the **task block of the user turn**, not the system prompt. It used
+    to be rendered into the system prompt, which made that prompt different for
+    every node and, inside a `map`, different for every item — see
+    `NODE_SYSTEM_PROMPT` for the caching cost of that and for the convention it
+    was on the wrong side of.
 
     Two shapes, and which one is used depends on the node:
 
@@ -251,13 +253,10 @@ def build_system_prompt(
         instructions: "Research {company_title} and write a title based on
                        the summary: {summary}"
 
-    Returns the prompt **and the names it recited**, so the user prompt can
-    avoid saying the same thing again. The two are returned together because
-    which fields get rendered is this method's rule — `instructions` winning
-    outright means a name mentioned only in `purpose` was never stated, and a
-    second copy of that rule elsewhere is a second copy that can fall out of
-    date. It is the field precedence in `node_instruction`'s docstring that
-    already went wrong twice this way.
+    **The placeholders here are the whole of what a node sees from graph
+    state.** There is no ambient block of every graph input any more, so a
+    value this text does not name is a value this node was not given — which is
+    what `agent_has_something_to_work_from` checks before a run starts.
     """
     def tmpl(text: str | None) -> str:
         if not text:
@@ -274,22 +273,13 @@ def build_system_prompt(
         return rendered
 
     if node.instructions and node.instructions.strip():
-        return (
-            NODE_SYSTEM_TEMPLATE.format(instructions=tmpl(node.instructions)),
-            recited_names(node.instructions),
-        )
+        return NODE_TASK_TEMPLATE.format(instructions=tmpl(node.instructions))
 
-    purpose = tmpl(node.purpose or node.description or f"Node {node.id}")
-    goal = tmpl(node.goal or "Follow the instructions in the user prompt.")
-    expected = tmpl(node.expected_result or "A useful, correct, and concise answer.")
-    return (
-        DEFAULT_NODE_SYSTEM_TEMPLATE.format(
-            purpose=purpose,
-            goal=goal,
-            expected_result=expected,
-        ),
-        recited_names(
-            node.purpose or node.description, node.goal, node.expected_result
+    return DEFAULT_NODE_TASK_TEMPLATE.format(
+        purpose=tmpl(node.purpose or node.description or f"Node {node.id}"),
+        goal=tmpl(node.goal or "Follow the instructions in this turn."),
+        expected_result=tmpl(
+            node.expected_result or "A useful, correct, and concise answer."
         ),
     )
 

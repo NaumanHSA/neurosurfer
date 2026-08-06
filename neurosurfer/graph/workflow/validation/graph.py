@@ -90,6 +90,107 @@ def nothing_consumes_this_node(graph, ctx, report) -> None:
 
 
 @graph_rule(severity=Severity.WARNING)
+def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
+    """A graph input nothing reads. **The rule that makes the narrowing safe.**
+
+    A node used to be printed every graph input under an `Inputs:` heading, so
+    an input was consumed by existing: whether or not any step named it, a model
+    somewhere saw it. That block is gone — a node's turn carries what its task
+    text names plus its declared dependencies — which means an input nothing
+    names now genuinely does nothing.
+
+    That is the right contract and the wrong thing to discover at run time. The
+    symptom would be a workflow that accepts a parameter, runs green, and
+    answers as though it had never been passed, which is precisely the class of
+    silent plausible success the rest of this package exists to catch.
+
+    Every way a value can be read counts, not just prompt placeholders: an
+    `over` expression, a `when` predicate, `tool_args`, an output `value`, and
+    bodies as well as the top level. A rule that only looked at `instructions`
+    would report a perfectly good `map` as ignoring its collection.
+    """
+    declared = [
+        getattr(i, "name", None) or (i.get("name") if isinstance(i, dict) else None)
+        for i in (graph.inputs or [])
+    ]
+    declared = [n for n in declared if n]
+    if not declared:
+        return
+
+    read = _names_read_anywhere(ctx)
+    for name in declared:
+        if name in read:
+            continue
+        report.add(ValidationIssue(
+            severity=Severity.WARNING,
+            kind="structure",
+            subject=name,
+            message=(
+                f"The workflow asks for '{name}' but no step uses it, so the "
+                f"value a caller passes is ignored."
+            ),
+            suggestion=(
+                f"Name it in a step's instructions as {{{name}}}, or drop it "
+                f"from the workflow's inputs."
+            ),
+            detail=f"graph input {name!r} appears in no template, expression or argument",
+        ))
+
+
+def _names_read_anywhere(ctx) -> set[str]:
+    """Every name any node reads, by any of the routes a value can travel."""
+    from .templates import _TEMPLATE_FIELDS, _parse_placeholders
+
+    def roots(text) -> set[str]:
+        if not text or not isinstance(text, str) or "{" not in text:
+            return set()
+        return {p.root for p in (_parse_placeholders(text) or [])}
+
+    found: set[str] = set()
+    for node in ctx.all_nodes:
+        for field_name in _TEMPLATE_FIELDS:
+            found |= roots(getattr(node, field_name, None))
+        # Expressions name things directly rather than through `{}`.
+        for expr in (getattr(node, "over", None), getattr(node, "when", None),
+                     getattr(node, "break_when", None)):
+            found.update(_expression_names(expr))
+        for case in getattr(node, "cases", None) or []:
+            found.update(_expression_names(getattr(case, "when", None)))
+        # `tool_args` / `tool_settings` values are templates too.
+        for holder in (getattr(node, "tool_args", None) or {},
+                       getattr(node, "tool_settings", None) or {}):
+            for value in _flatten(holder):
+                found |= roots(value)
+        # A tool node is handed the inputs dict as kwargs, so a parameter name
+        # matching an input is a read even with no template anywhere.
+        if getattr(node, "kind", None) == "tool":
+            found.update(getattr(node, "tool_args", None) or {})
+    return found
+
+
+def _expression_names(expr) -> set[str]:
+    """Bare and `inputs.`-qualified names in a sandboxed expression."""
+    import re
+
+    if not expr or not isinstance(expr, str):
+        return set()
+    out = {m.group(1) for m in re.finditer(r"\binputs\.([A-Za-z_]\w*)", expr)}
+    out.update(re.findall(r"\b([A-Za-z_]\w*)\b", expr))
+    return out
+
+
+def _flatten(value) -> list[str]:
+    """Every string inside a nested dict/list, since `tool_args` nest freely."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _flatten(v)]
+    if isinstance(value, (list, tuple)):
+        return [s for v in value for s in _flatten(v)]
+    return []
+
+
+@graph_rule(severity=Severity.WARNING)
 def steps_are_wired_to_each_other(graph, ctx, report) -> None:
     """Several nodes and no dependencies at all is a bag, not a pipeline."""
     if len(graph.nodes) > 1 and not any(n.depends_on for n in graph.nodes):

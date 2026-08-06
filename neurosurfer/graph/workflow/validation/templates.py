@@ -25,7 +25,15 @@ from .models import Severity, ValidationIssue, ValidationReport
 from .registry import graph_rule
 from .tool_schema import tool_input_schema as _tool_input_schema
 
-_TEMPLATE_FIELDS = ("purpose", "goal", "expected_result")
+#: The fields whose `{placeholders}` are checked.
+#:
+#: `instructions` was **missing** from this tuple, so the one field new nodes
+#: actually set was the one field never template-validated: a typo in `goal`
+#: was an error, the same typo in `instructions` was silence. Survivable while
+#: every graph input was recited to every node anyway — the value still reached
+#: the model, just not where the author put it. Not survivable now that a
+#: placeholder is the only way a node sees graph state.
+_TEMPLATE_FIELDS = ("instructions", "purpose", "goal", "expected_result")
 
 _FORMATTER = string.Formatter()
 
@@ -124,10 +132,11 @@ def _container_bindings(node) -> frozenset[str]:
     so; the engine widened, and a validator that still refused them would be
     reporting an error about a placeholder that renders correctly at run time.
 
-    Reachable is not the same as *recited*: the executor hides most of these
-    from the prompt block (see `GraphExecutor._hidden_body_inputs`). That is a
-    question about what a model is told, and none of the validator's business —
-    a hidden name still resolves, which is all a template rule cares about.
+    Reachable is not the same as *recited*. A node is told what its task text
+    names, so `{item}` reaches a model only when the author writes it — and
+    these names still resolve either way, which is all a template rule cares
+    about. What a model is shown is `ManagerAgent.compose_user_prompt`'s
+    business, not this file's.
     """
     if node.kind == "loop":
         # `acc` unconditionally: the loop puts the results so far on the scope
