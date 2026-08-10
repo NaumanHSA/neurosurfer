@@ -91,14 +91,19 @@ class ValidationContext:
 
     @staticmethod
     def _expressions(node: Any) -> list[str]:
+        """Every sandboxed expression on *node*, for scanning `vars.` references.
+
+        `until` is not among them: it is a function or plain English, never an
+        expression, so a `vars.x` inside it names nothing the evaluator would
+        resolve. Filtered to strings because a `until` holding a live callable
+        would otherwise reach `re.findall`.
+        """
         exprs = [
             getattr(node, "when", None),
-            getattr(node, "until", None),
-            getattr(node, "break_when", None),
             getattr(node, "over", None),
         ]
         exprs += [c.when for c in (getattr(node, "cases", None) or [])]
-        return [e for e in exprs if e]
+        return [e for e in exprs if isinstance(e, str) and e]
 
     def nodes_of_kind(self, *kinds: str) -> list:
         return [n for n in self.graph.nodes if n.kind in kinds]

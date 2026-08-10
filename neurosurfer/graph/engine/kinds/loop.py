@@ -20,19 +20,14 @@ MAX_ITERATIONS = FieldSpec(
 UNTIL = FieldSpec(
     name="until",
     type="string",
-    label="Stop when (plain English)",
-    help="Judged by an internal LLM decision after each iteration. The reason "
-         "it gives for continuing reaches the next iteration as `{feedback}`.",
-    placeholder="e.g. the review approves the draft",
-    group="instruction",
-)
-
-BREAK_WHEN = FieldSpec(
-    name="break_when",
-    type="expression",
-    label="Stop when (expression)",
-    help="Evaluated after each iteration. Deterministic and free — no LLM call.",
-    placeholder="e.g. vars.score >= 8",
+    label="Stop when",
+    help="Either the name of a function in the graph's `functions:` file — it "
+         "receives a LoopIteration and returns True to stop, deterministic and "
+         "free — or a plain-English condition, judged by an internal LLM "
+         "decision after each iteration, whose reason for continuing reaches "
+         "the next iteration as `{feedback}`. Which one it is is looked up, not "
+         "guessed: a name the functions file defines is the function.",
+    placeholder="e.g. the review approves the draft — or: tagline_is_short",
     group="instruction",
 )
 
@@ -53,7 +48,7 @@ SPEC = NodeKindSpec(
     has_body=True,
     data_arrival=("prompt", "expression"),
     fields=(
-        c.BODY, MAX_ITERATIONS, UNTIL, BREAK_WHEN, ACCUMULATE,
+        c.BODY, MAX_ITERATIONS, UNTIL, ACCUMULATE,
         replace(c.ITEM_VAR, label="Bind last output as",
                 help="The name the previous iteration's output is available "
                      "under inside the body."),
@@ -61,8 +56,12 @@ SPEC = NodeKindSpec(
         *c.WIRING,
     ),
     constraints=(
-        "Set `until` or `break_when`, never both. Neither means it runs to the "
-        "ceiling.",
-        "`until` costs one LLM call per iteration; `break_when` costs nothing.",
+        "No `until` means it runs to the ceiling.",
+        "A plain-English `until` costs one LLM call per iteration; a function "
+        "costs nothing. Prefer a function whenever the condition is checkable "
+        "in code.",
+        "A plain-English `until` that is about a different subject than the body "
+        "produces stops the loop with a warning rather than running to the "
+        "ceiling — so the condition must actually describe the body's output.",
     ),
 )

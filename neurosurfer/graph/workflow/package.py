@@ -115,6 +115,14 @@ def load_package(path: Path | str) -> WorkflowPackage:
     except Exception as exc:
         raise PackageLoadError(f"Invalid graph spec — {exc}") from exc
 
+    # `functions:` names a file beside the graph — bind it here, where the
+    # package directory is known. `save_package` copies the tree wholesale, so
+    # the file already travels with the package on export.
+    try:
+        graph.bind_functions(path)
+    except Exception as exc:
+        raise PackageLoadError(f"Invalid graph functions file — {exc}") from exc
+
     return WorkflowPackage(manifest=manifest, graph=graph, path=path)
 
 

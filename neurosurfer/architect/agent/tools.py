@@ -113,7 +113,7 @@ class AddNodeArgs(BaseModel):
     node: dict = Field(
         description="Complete node spec: {id, kind, purpose/goal, depends_on, tools, "
                     "when, writes, cases/default (router), body/max_iterations/"
-                    "break_when (loop), body/over/as (map), callable (function), …}. "
+                    "until (loop), body/over/as (map), callable (function), …}. "
                     "Same schema as a graph.yaml node."
     )
     plan_step_id: str | None = Field(

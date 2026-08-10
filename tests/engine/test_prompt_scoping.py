@@ -25,13 +25,13 @@ is the one that would fail first if the task ever crept back into it.
 
 from __future__ import annotations
 
-from neurosurfer.graph import Base, Graph, GraphExecutor, GraphNode, Map
+from neurosurfer.graph import BaseNode, Graph, GraphExecutor, GraphNode, MapNode
 
 from ..fakes import ScriptedProvider
 
 
 def _reviews_graph(body: list[GraphNode], **map_kwargs) -> Graph:
-    fan = Map(
+    fan = MapNode(
         id="per_review",
         over="inputs.reviews",
         item_var="item",
@@ -59,7 +59,7 @@ def test_a_map_body_is_not_handed_the_collection_it_is_iterating_over():
     """The quadratic one. A body handles one element; the list it came from is
     the parent's business, and reciting it per item is O(n²) in the prompt."""
     graph = _reviews_graph([
-        Base(id="summarise", instructions="Summarise this review: {item}"),
+        BaseNode(id="summarise", instructions="Summarise this review: {item}"),
     ])
     provider = ScriptedProvider([("short", []), ("short", [])])
 
@@ -76,7 +76,7 @@ def test_a_map_body_is_not_told_its_own_plumbing():
     node that used `{item}` has it in the task text already; one that did not
     has no use for it."""
     graph = _reviews_graph([
-        Base(id="summarise", instructions="Summarise this review: {item}"),
+        BaseNode(id="summarise", instructions="Summarise this review: {item}"),
     ])
     provider = ScriptedProvider([("short", []), ("short", [])])
 
@@ -92,7 +92,7 @@ def test_an_input_the_task_does_not_name_is_not_recited():
     is available to interpolate, not something every node is read out."""
     graph = Graph(
         name="t",
-        nodes=[Base(id="a", instructions="Write the report.")],
+        nodes=[BaseNode(id="a", instructions="Write the report.")],
         inputs=[
             {"name": "topic", "type": "string"},
             {"name": "house_style", "type": "string"},
@@ -112,7 +112,7 @@ def test_an_input_the_task_does_not_name_is_not_recited():
 def test_an_input_the_task_does_name_arrives_in_the_task():
     graph = Graph(
         name="t",
-        nodes=[Base(id="a", instructions="Write about {topic} in a {house_style} voice.")],
+        nodes=[BaseNode(id="a", instructions="Write about {topic} in a {house_style} voice.")],
         inputs=[
             {"name": "topic", "type": "string"},
             {"name": "house_style", "type": "string"},
@@ -134,8 +134,8 @@ def test_a_declared_dependency_still_arrives_whole():
     graph = Graph(
         name="t",
         nodes=[
-            Base(id="research", instructions="Research it."),
-            Base(id="write", depends_on=["research"], instructions="Write it up."),
+            BaseNode(id="research", instructions="Research it."),
+            BaseNode(id="write", depends_on=["research"], instructions="Write it up."),
         ],
         outputs=["write"],
     )
@@ -157,8 +157,8 @@ def test_the_system_prompt_is_the_same_for_every_node_and_every_item():
     reviews is four calls and, before this, four distinct system prompts.
     """
     graph = _reviews_graph([
-        Base(id="summarise", instructions="Summarise this review: {item}"),
-        Base(id="verdict", depends_on=["summarise"], instructions="One word."),
+        BaseNode(id="summarise", instructions="Summarise this review: {item}"),
+        BaseNode(id="verdict", depends_on=["summarise"], instructions="One word."),
     ])
     provider = ScriptedProvider([("s", []), ("v", []), ("s", []), ("v", [])])
 
@@ -171,7 +171,7 @@ def test_the_system_prompt_is_the_same_for_every_node_and_every_item():
 def test_the_system_prompt_carries_no_task():
     graph = Graph(
         name="t",
-        nodes=[Base(id="a", instructions="Summarise the quarterly report.")],
+        nodes=[BaseNode(id="a", instructions="Summarise the quarterly report.")],
         outputs=["a"],
     )
     provider = ScriptedProvider([("done", [])])
@@ -186,7 +186,7 @@ def test_the_system_prompt_carries_no_task():
 
 def test_the_item_still_interpolates_into_the_task():
     graph = _reviews_graph([
-        Base(id="summarise", instructions="Summarise this review: {item}"),
+        BaseNode(id="summarise", instructions="Summarise this review: {item}"),
     ])
     provider = ScriptedProvider([("short", []), ("short", [])])
 
@@ -200,7 +200,7 @@ def test_a_body_can_still_interpolate_the_collection_if_it_asks_for_it():
     """Hidden is not the mechanism — *unnamed* is. A node that names `{reviews}`
     gets it, because the author asked and the value resolves as it always did."""
     graph = _reviews_graph([
-        Base(id="summarise", instructions="Of {reviews} this one is: {item}"),
+        BaseNode(id="summarise", instructions="Of {reviews} this one is: {item}"),
     ])
     provider = ScriptedProvider([("short", []), ("short", [])])
 

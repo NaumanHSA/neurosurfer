@@ -24,7 +24,7 @@ from neurosurfer.tools.base import ToolPool
 
 from ..errors import GraphConfigurationError
 from ..json_schema import JsonSchemaError, model_from_json_schema
-from ..nodes import React
+from ..nodes import ReactNode
 from ..schema import GraphNode, NodeExecutionResult
 from ..templates import (
     DEFAULT_NODE_TASK_TEMPLATE,
@@ -116,7 +116,7 @@ def run_node_native(
         return pool, tool_ctx
 
     def _execute() -> Any:
-        if isinstance(node, React):
+        if isinstance(node, ReactNode):
             # A react node is an LLM that calls tools in a loop. With none, it
             # used to fall through to an empty pool and quietly become a base
             # node that narrates actions it never took — the failure mode is a

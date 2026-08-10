@@ -188,8 +188,12 @@ reason reaches the next attempt as {feedback}):
              "goal": "Draft it. Reviewer feedback from last attempt: {feedback}"},
             {"id": "review", "kind": "base", "depends_on": ["draft"],
              "goal": "Review the draft critically."}]}
-(Deterministic loops — budgets, cursors, index checks — use
- "break_when": "<expression>" instead of `until`.)
+(`until` is the only stop condition. For a check that code can make — budgets,
+ cursors, counts, thresholds — write it as a function in the graph's
+ `functions:` file and set "until": "<function_name>": it is free and exact,
+ where plain English costs one LLM call per iteration. Plain English is for
+ judgements only a reader can make. Either way it must describe what the body
+ actually produces: a condition about a different subject stops the loop.)
 
 Map (fan out over a list; the node's output is the ordered per-item results):
   {"id": "per_item", "kind": "map", "over": "inputs.items", "as": "item",

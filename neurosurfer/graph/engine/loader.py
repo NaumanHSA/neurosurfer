@@ -9,7 +9,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from .errors import GraphConfigurationError
-from .nodes import Container, Loop, Map, Router
+from .nodes import ContainerNode, LoopNode, MapNode, RouterNode
 from .schema import Graph, GraphNode
 from .utils import topo_sort  # uses same error type for cycles / unknown deps
 
@@ -244,7 +244,7 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                     f"node '{n.id}' on_error target '{n.on_error}' must list '{n.id}' in "
                     f"its depends_on (so it runs as the fallback)."
                 )
-        if isinstance(n, Router):
+        if isinstance(n, RouterNode):
             if not n.cases and not n.routes:
                 errors.append(
                     f"router '{n.id}' must declare `routes` (label → target) "
@@ -275,22 +275,15 @@ def _validate_control_flow(spec: Graph, node_ids: set[str]) -> None:
                     )
             for c in n.cases or []:
                 _check_expr(c.when, f"router '{n.id}' case → '{c.to}'")
-        elif isinstance(n, Container):
+        elif isinstance(n, ContainerNode):
             if not n.body:
                 errors.append(f"{n.kind} '{n.id}' must declare a non-empty body.")
-            if isinstance(n, Loop):
+            if isinstance(n, LoopNode):
                 if not n.max_iterations or n.max_iterations < 1:
                     errors.append(f"loop '{n.id}' requires max_iterations >= 1 (a hard ceiling).")
-                if n.until and n.break_when:
-                    errors.append(
-                        f"loop '{n.id}' declares both `until` and `break_when` — pick "
-                        f"one (until = plain-English judged condition, break_when = "
-                        f"deterministic expression)."
-                    )
-                if n.until is not None and not n.until.strip():
+                if isinstance(n.until, str) and not n.until.strip():
                     errors.append(f"loop '{n.id}' has an empty `until` condition.")
-                _check_expr(n.break_when, f"loop '{n.id}' break_when")
-            if isinstance(n, Map):
+            if isinstance(n, MapNode):
                 if not n.over:
                     errors.append(f"map '{n.id}' requires an 'over' expression.")
                 _check_expr(n.over, f"map '{n.id}' over")
@@ -391,4 +384,10 @@ def load_graph(path: str | Path) -> Graph:
                 f"Failed to parse JSON graph file {p!s}: {e}"
             ) from e
 
-    return load_graph_from_dict(data)
+    graph = load_graph_from_dict(data)
+    # A `functions:` file is named relative to the graph, so this is the only
+    # place with the directory needed to find it. `load_graph_from_dict` has no
+    # path and leaves the sidecar unbound — a caller building from a dict passes
+    # callables directly instead.
+    graph.bind_functions(p.parent)
+    return graph

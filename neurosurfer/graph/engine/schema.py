@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_serializer,
+    field_validator,
+)
 
 from neurosurfer.llm.types import Usage
 from neurosurfer.tracing import TraceResult
@@ -313,26 +321,40 @@ class GraphNode(BaseModel):
         default_factory=list,
         description="Body node ids whose outputs form the iteration result (default: all).",
     )
-    # loop node. Two stop conditions (mutually exclusive; neither → run to the
-    # ceiling):
-    #   `until`      — plain-English condition judged by a hidden LLM decision
-    #                  after each iteration (stop/continue + a reason; the reason
-    #                  is fed to the next iteration as {feedback}).
-    #   `break_when` — sandboxed expression, no LLM call (deterministic loops:
-    #                  budgets, cursors, index checks).
+    # loop node. ONE stop condition, in one field, because a loop stops for one
+    # reason and asking the author to also pick a mechanism was asking the wrong
+    # question. `until` is either:
+    #   a function — a callable, or the name of one in the graph's `functions:`
+    #                sidecar. Gets a `LoopIteration`, returns True to stop (or
+    #                `(True, "reason")`). Deterministic, free, and strictly more
+    #                capable than the sandboxed expression it replaces.
+    #   plain English — judged by a hidden LLM decision each iteration, which
+    #                also reports a condition it cannot relate to the work at all
+    #                (see `iteration._judge_loop_until`).
+    # Which one is not guessed from the string: a name that the sidecar defines
+    # as a callable is a function, and everything else is prose.
     max_iterations: int | None = Field(
         default=None,
         description="Hard iteration ceiling for loop nodes (always required for loops).",
     )
-    until: str | None = Field(
+    until: str | Callable[..., Any] | None = Field(
         default=None,
-        description="Plain-English stop condition (e.g. 'the review approves the "
-                    "slogan') judged by an internal LLM decision each iteration.",
+        description="Loop stop condition: a callable, the name of one in the graph's "
+                    "`functions:` file, or a plain-English condition judged by an "
+                    "internal LLM decision each iteration.",
     )
-    break_when: str | None = Field(
-        default=None,
-        description="Deterministic stop predicate: expression evaluated after each iteration.",
-    )
+
+    @field_serializer("until")
+    def _serialize_until(self, v: Any) -> str | None:
+        """A live callable dumps as its name — which is what YAML can hold.
+
+        The name only round-trips if the graph also carries a `functions:` file
+        defining it; `save_package` is where that is checked, because only there
+        is there a directory to write the file into.
+        """
+        if v is None or isinstance(v, str):
+            return v
+        return getattr(v, "__name__", None) or str(v)
     accumulate: str | None = Field(
         default=None,
         description="Loop: variable name to append each iteration's body output to (a list).",
@@ -484,16 +506,51 @@ class Graph(BaseModel):
         description="Optional declared graph inputs that runtime 'inputs' must satisfy.",
     )
 
+    functions: str | None = Field(
+        default=None,
+        description="Path to a Python file beside this graph, holding callables the "
+                    "graph refers to by bare name (e.g. a loop's `until`). Resolved "
+                    "relative to the graph file; copied with the package on export.",
+    )
+
     nodes: list[GraphNode]
     outputs: list[str] = Field(default_factory=list)
+
+    #: The imported `functions:` file. Set by the loader, which is the only place
+    #: that knows the graph's directory; stays None for a graph built in memory,
+    #: where callables are passed directly and need no lookup.
+    _sidecar: Any = PrivateAttr(default=None)
+
+    def bind_functions(self, base_dir: Any) -> None:
+        """Import this graph's `functions:` file, resolved against *base_dir*."""
+        if not self.functions:
+            return
+        from .functions import load_sidecar
+
+        self._sidecar = load_sidecar(self.functions, base_dir)
+
+    def function(self, name: str) -> Callable[..., Any] | None:
+        """The sidecar callable *name*, or None when it is not one.
+
+        None means "this string was prose", so every not-a-function case answers
+        the same way — including a graph that declared no sidecar at all.
+        """
+        from .functions import resolve_name
+
+        return resolve_name(self._sidecar, name)
+
+    @property
+    def sidecar(self) -> Any:
+        """The loaded sidecar module, if any — for validators and error messages."""
+        return self._sidecar
 
     @field_validator("nodes")
     def _as_kind_classes(cls, v: list[GraphNode]) -> list[GraphNode]:
         """Give every node the class its `kind` names — see `engine/nodes.py`.
 
-        This is what makes `isinstance(node, Router)` mean something. Without it
-        the answer would depend on how the node was *built*: `Router(...)` would
-        pass and `GraphNode(kind="router")` — which is what YAML loading and 204
+        This is what makes `isinstance(node, RouterNode)` mean something. Without
+        it the answer would depend on how the node was *built*: `RouterNode(...)`
+        would pass and `GraphNode(kind="router")` — which is what YAML loading and 204
         existing call sites produce — would not. A type check that silently
         depends on the construction path is worse than no type check.
 

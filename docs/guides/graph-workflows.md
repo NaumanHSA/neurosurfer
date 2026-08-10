@@ -101,8 +101,46 @@ GraphNode(
 )
 ```
 
-For deterministic loops (budgets, cursors, index checks) use `break_when="<expression>"` instead of
-`until`.
+`until` is the loop's only stop condition, and it reads as one of two things:
+
+- **a function** — a callable, or the name of one in the graph's `functions:` file. It receives a
+  `LoopIteration` (`index`, `iteration`, `output`, `result` — the body's full `GraphExecutionResult`
+  — `history`, `feedback`, `max_iterations`, `vars`, `is_last`) and returns `True` to stop, or
+  `(stop, "reason")` to also set the next iteration's `{feedback}`. Deterministic and free; use it
+  for anything code can check — budgets, cursors, counts, thresholds.
+- **plain English** — judged by an internal LLM decision after each iteration. One call per
+  iteration, so reach for it only when the judgement needs a reader.
+
+Which one a string is, is a **lookup, not a guess**: a name the `functions:` file defines is the
+function; anything else is prose. A graph that declares a `functions:` file and names something
+absent from it is an error, not a prompt — that way a typo does not quietly become an English
+condition sent to a model.
+
+```yaml
+functions: helpers.py          # sits beside graph.yaml, copied with it on export
+nodes:
+  - id: polish
+    kind: loop
+    max_iterations: 4
+    until: tagline_is_short    # ← defined in helpers.py
+```
+
+```python
+# helpers.py — a sidecar is imported by path, so it must stand alone (no relative imports)
+def tagline_is_short(it):
+    words = len(str(it.output).split())
+    if words < 6:
+        return True
+    return False, f"{words} words — cut it to under six"
+```
+
+!!! note "A plain-English condition must describe what the body produces"
+    The judge has a third verdict. Asked to stop "when winter is here" over a body writing coffee
+    taglines, it answers UNRELATED: nothing the loop can produce would ever satisfy that, so
+    continuing would spend the whole ceiling — every iteration plus a judge call each — to learn
+    nothing. The loop stops, logs why, and still returns the work it did, with
+    `structured_output["stopped_reason"] == "condition_unrelated"`. A condition that is merely
+    demanding or not yet met is CONTINUE, not UNRELATED.
 
 **Map — fan out over a list.** Runs `body` once per item of `over` (bound to `item_var`, default
 `item`), up to `concurrency` in parallel; the node's output is the ordered per-item results.
@@ -121,7 +159,7 @@ GraphNode(id="per_item", kind="map", over="inputs.items", item_var="item", concu
 | `writes: "<name>"` | Store the node's output as `{name}` for downstream templates and expressions. |
 | `policy.retries: N` | Re-run a flaky node up to N times before it counts as failed. |
 
-Expressions (in `when`, `cases`, `break_when`, `over`) use a **safe evaluator** — no `eval`, no
+Expressions (in `when`, `cases`, `over`) use a **safe evaluator** — no `eval`, no
 imports, no attribute access. Read state as `inputs.x`, `nodes.<id>`, `vars.<name>`; prefer
 `contains(lower(nodes.x), 'label')` over exact equality against raw LLM text.
 

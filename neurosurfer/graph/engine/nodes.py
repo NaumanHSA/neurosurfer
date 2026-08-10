@@ -1,4 +1,4 @@
-"""A node kind as a class: `Router(...)` beside `GraphNode(kind="router")`.
+"""A node kind as a class: `RouterNode(...)` beside `GraphNode(kind="router")`.
 
 ## Why both
 
@@ -8,12 +8,26 @@ version of "specialised classes" worth breaking those for.
 
 So these are **not a replacement**. They are a second door into the same room:
 
-    Router(id="triage", routes={...})           # says what it is
+    RouterNode(id="triage", routes={...})       # says what it is
     GraphNode(id="triage", kind="router", ...)  # unchanged, still works
 
 and, because `Graph` upgrades whatever it is given (see `schema.Graph`), both
-produce a `Router` instance — so `isinstance(node, Router)` is true regardless of
-which door was used, including for a graph loaded from YAML.
+produce a `RouterNode` instance — so `isinstance(node, RouterNode)` is true
+regardless of which door was used, including for a graph loaded from YAML.
+
+## Why every name ends in `Node`
+
+Because the bare names were not sayable at a call site. `Tool`, `Input`,
+`Output`, `Map`, `Function` and `Python` are all ordinary words a reader of this
+codebase already means something else by — and `Tool` was not merely confusable,
+it was *taken*: `neurosurfer.tools.base.Tool` is the ABC every registered tool
+subclasses. A file importing both had two `Tool`s and no way to say which.
+
+    from neurosurfer.graph import LoopNode, RouterNode   # obviously graph nodes
+    from neurosurfer.graph import Loop, Router           # obviously what?
+
+The suffix is on all twelve rather than the six that collide, because a rule
+with exceptions has to be memorised and this one does not.
 
 ## What they are for
 
@@ -21,15 +35,15 @@ Two things, and it is worth being precise because a class hierarchy that promise
 more than it delivers is worse than none:
 
 - **Reading.** `if node.kind == "router"` scattered through an executor says
-  nothing at the point where a node is *constructed*. `Router(...)` does.
-- **Dispatch.** `isinstance(node, Container)` asks "does this run a nested body"
+  nothing at the point where a node is *constructed*. `RouterNode(...)` does.
+- **Dispatch.** `isinstance(node, ContainerNode)` asks "does this run a nested body"
   once, instead of `node.kind in {"loop", "map", "subgraph"}` in each place that
   needs to know — a set that has been wrong before, because nothing made the
   places agree.
 
 ## What they deliberately do not do yet
 
-**They do not narrow fields.** `Router.routes` is still `dict | None`, inherited,
+**They do not narrow fields.** `RouterNode.routes` is still `dict | None`, inherited,
 not required. Making it required here would put a third source of truth beside
 `GraphNode` and `engine/kinds/`, and the plan's own §0.7 diagnosis is that *six*
 places already had to agree about a kind's fields with nothing forcing them to.
@@ -45,19 +59,19 @@ from typing import Literal
 from .schema import GraphNode
 
 __all__ = [
-    "Base", "React", "Tool", "Function", "Python",
-    "Router", "Loop", "Map", "Subgraph",
-    "Input", "Output",
-    "Container", "for_kind",
+    "BaseNode", "ReactNode", "ToolNode", "FunctionNode", "PythonNode",
+    "RouterNode", "LoopNode", "MapNode", "SubgraphNode",
+    "InputNode", "OutputNode",
+    "ContainerNode", "for_kind",
 ]
 
 
 # ── work ─────────────────────────────────────────────────────────────────────
 
-class Base(GraphNode):
+class BaseNode(GraphNode):
     """One LLM call. Optionally with tools — but only **one round** of them.
 
-    That round limit is the whole difference from `React`: a `Base` step can
+    That round limit is the whole difference from `ReactNode`: a `BaseNode` step can
     "fetch this, then tell me about it" and cannot "fetch this, then decide what
     to fetch next". Asked to do the second it fails rather than half-finishing.
     """
@@ -65,7 +79,7 @@ class Base(GraphNode):
     kind: Literal["base"] = "base"
 
 
-class React(GraphNode):
+class ReactNode(GraphNode):
     """An LLM that calls tools in a loop, until it has an answer.
 
     With no tools it cannot act, so the executor refuses to run one — a react
@@ -75,28 +89,28 @@ class React(GraphNode):
     kind: Literal["react"] = "react"
 
 
-class Tool(GraphNode):
+class ToolNode(GraphNode):
     """One registered tool, called directly. No model, so nothing composes the
     arguments: `tool_args` is the entire instruction."""
 
     kind: Literal["tool"] = "tool"
 
 
-class Function(GraphNode):
+class FunctionNode(GraphNode):
     """A Python callable, imported by path. Deterministic; no model."""
 
     kind: Literal["function"] = "function"
 
 
-class Python(GraphNode):
-    """Alias of `Function` in the engine — both route to the same runner."""
+class PythonNode(GraphNode):
+    """Alias of `FunctionNode` in the engine — both route to the same runner."""
 
     kind: Literal["python"] = "python"
 
 
 # ── control flow ─────────────────────────────────────────────────────────────
 
-class Router(GraphNode):
+class RouterNode(GraphNode):
     """Picks one branch and prunes the rest.
 
     The router **is** the classifier: with `routes`, one LLM call chooses a
@@ -116,8 +130,8 @@ class Router(GraphNode):
     kind: Literal["router"] = "router"
 
 
-class Loop(GraphNode):
-    """Runs its `body` again until `break_when`, `until`, or `max_iterations`.
+class LoopNode(GraphNode):
+    """Runs its `body` again until `until` says stop, or `max_iterations`.
 
     Both bounds matter: the condition is the intent, the ceiling is the
     guarantee that a model which never satisfies it still terminates.
@@ -126,13 +140,13 @@ class Loop(GraphNode):
     kind: Literal["loop"] = "loop"
 
 
-class Map(GraphNode):
+class MapNode(GraphNode):
     """Runs its `body` once per item of `over`, in parallel."""
 
     kind: Literal["map"] = "map"
 
 
-class Subgraph(GraphNode):
+class SubgraphNode(GraphNode):
     """Runs a nested graph as a single node."""
 
     kind: Literal["subgraph"] = "subgraph"
@@ -140,13 +154,13 @@ class Subgraph(GraphNode):
 
 # ── boundaries ───────────────────────────────────────────────────────────────
 
-class Input(GraphNode):
+class InputNode(GraphNode):
     """Declares what the workflow takes, and can pause to ask a person."""
 
     kind: Literal["input"] = "input"
 
 
-class Output(GraphNode):
+class OutputNode(GraphNode):
     """Declares what the workflow returns. Terminal — nothing may depend on it."""
 
     kind: Literal["output"] = "output"
@@ -159,13 +173,13 @@ class Output(GraphNode):
 #: A tuple for `isinstance`, so "does this node have a body" is one question
 #: rather than a `{"loop", "map", "subgraph"}` literal repeated wherever it is
 #: needed — which is the shape that lets one copy fall out of date silently.
-Container = (Loop, Map, Subgraph)
+ContainerNode = (LoopNode, MapNode, SubgraphNode)
 
 
 _BY_KIND: dict[str, type[GraphNode]] = {
     c.model_fields["kind"].default: c
-    for c in (Base, React, Tool, Function, Python,
-              Router, Loop, Map, Subgraph, Input, Output)
+    for c in (BaseNode, ReactNode, ToolNode, FunctionNode, PythonNode,
+              RouterNode, LoopNode, MapNode, SubgraphNode, InputNode, OutputNode)
 }
 
 
@@ -183,7 +197,7 @@ def upgrade(node: GraphNode) -> GraphNode:
     """Return *node* as its kind's class, or unchanged if it already is one.
 
     This is what makes `isinstance` trustworthy: a graph built with
-    `GraphNode(kind="router")`, or loaded from YAML, still yields a `Router`.
+    `GraphNode(kind="router")`, or loaded from YAML, still yields a `RouterNode`.
     Without it the check would silently depend on how the node happened to be
     constructed, which is worse than not having the classes at all.
     """

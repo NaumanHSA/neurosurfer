@@ -130,15 +130,17 @@ class GraphBuilder:
         })
 
     def loop(self, id: str, *, body: list[Any], max_iterations: int,
-             until: str | None = None, break_when: str | None = None,
+             until: Any = None,
              accumulate: str | None = None, depends_on: list[str] | None = None,
              body_outputs: list[str] | None = None, **extra: Any) -> GraphBuilder:
-        """`until` = plain-English stop condition (judged each iteration, CONTINUE
-        reasons become the next iteration's {feedback}); `break_when` = expression."""
+        """`until` is the stop condition, in either of its two forms: a callable
+        (or the name of one in the graph's `functions:` file), which receives a
+        `LoopIteration` and returns True to stop; or a plain-English condition
+        judged each iteration, whose CONTINUE reasons become `{feedback}`."""
         return self._add({
             "id": id, "kind": "loop", "body": _dump_body(body),
             "max_iterations": max_iterations, "until": until,
-            "break_when": break_when, "accumulate": accumulate,
+            "accumulate": accumulate,
             "depends_on": depends_on or [], "body_outputs": body_outputs or [],
             **extra,
         })

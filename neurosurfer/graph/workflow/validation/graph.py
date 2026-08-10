@@ -151,8 +151,7 @@ def _names_read_anywhere(ctx) -> set[str]:
         for field_name in _TEMPLATE_FIELDS:
             found |= roots(getattr(node, field_name, None))
         # Expressions name things directly rather than through `{}`.
-        for expr in (getattr(node, "over", None), getattr(node, "when", None),
-                     getattr(node, "break_when", None)):
+        for expr in (getattr(node, "over", None), getattr(node, "when", None)):
             found.update(_expression_names(expr))
         for case in getattr(node, "cases", None) or []:
             found.update(_expression_names(getattr(case, "when", None)))

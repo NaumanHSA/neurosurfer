@@ -117,7 +117,7 @@ def test_graph_json_round_trip():
         .input("nums", type="array")
         .map("doubled", over="inputs.nums",
              body=[{"id": "d", "kind": "function", "callable": f"{FN}._double"}])
-        .loop("counter", max_iterations=3, break_when="index >= 2",
+        .loop("counter", max_iterations=3, until="the counter has reached two",
               body=[{"id": "s", "kind": "function", "callable": f"{FN}._mark"}])
         .outputs("doubled")
         .build()
@@ -127,7 +127,7 @@ def test_graph_json_round_trip():
     reloaded = load_graph_from_dict(json.loads(as_json))
     assert reloaded.name == "rt"
     assert reloaded.node_map()["counter"].max_iterations == 3
-    assert reloaded.node_map()["counter"].break_when == "index >= 2"
+    assert reloaded.node_map()["counter"].until == "the counter has reached two"
     assert reloaded.node_map()["doubled"].body[0].callable == f"{FN}._double"
 
 

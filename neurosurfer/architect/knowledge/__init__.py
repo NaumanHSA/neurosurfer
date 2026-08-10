@@ -131,7 +131,7 @@ class KnowledgeBase:
         ex = m["expressions"]
         lines += [
             "",
-            "## Expressions (guards, router cases, break_when, over)",
+            "## Expressions (guards, router cases, over)",
             f"- functions: {', '.join(ex['functions'])}",
             f"- namespaces: {', '.join(ex['namespaces'])}",
             f"- {ex['guidance']}",

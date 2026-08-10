@@ -62,7 +62,7 @@ DataArrival = Literal[
     "prompt",       # interpolated into an LLM prompt: `{name}`, `inputs.`, `nodes.`, `vars.`
     "bound_args",   # bound per parameter before the call (`tool_args`)
     "kwargs",       # splatted into a Python signature by name
-    "expression",   # read by an expression the author writes (`over`, `when`, `break_when`)
+    "expression",   # read by an expression the author writes (`over`, `when`)
     "supplied",     # provided from outside the graph — a person, or the caller
     "passthrough",  # its dependency's output, unchanged
 ]
@@ -152,7 +152,7 @@ class NodeKindSpec:
     #: has, stated per kind rather than discovered by reading the executor.
     data_arrival: tuple[DataArrival, ...] = ()
     fields: tuple[FieldSpec, ...] = ()
-    #: Constraints a field list cannot express ("`until` XOR `break_when`").
+    #: Constraints a field list cannot express ("a plain-English `until` costs a call").
     #: Prose, for a human or a model reading the spec; the machine-checkable half
     #: is `required` on the fields themselves.
     constraints: tuple[str, ...] = ()

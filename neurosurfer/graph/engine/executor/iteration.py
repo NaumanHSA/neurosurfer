@@ -13,8 +13,10 @@ lets this module hold no runtime import of `core` at all.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from neurosurfer.llm.types import Usage
@@ -27,7 +29,9 @@ from ._trace import _trace_step, _trace_text
 if TYPE_CHECKING:  # a type hint only — importing `core` here would be a cycle
     from .core import GraphExecutor
 
-__all__ = ["body_value", "run_loop_node", "run_map_node", "run_subgraph_node"]
+__all__ = [
+    "LoopIteration", "body_value", "run_loop_node", "run_map_node", "run_subgraph_node",
+]
 
 
 
@@ -39,21 +43,69 @@ def body_value(result: GraphExecutionResult) -> Any:
     return final
 
 
-def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
-    """Run ``node.body`` repeatedly until the stop condition or ``max_iterations``.
+@dataclass(frozen=True)
+class LoopIteration:
+    """What one pass of a loop looked like — the argument an `until` function gets.
 
-    Stop conditions (mutually exclusive):
-      - ``until``       — a plain-English condition judged by an internal LLM
-        decision after each iteration. A CONTINUE verdict carries a reason,
-        which the next iteration receives as ``{feedback}`` — directed
-        refinement, not blind retry.
-      - ``break_when``  — a sandboxed expression, evaluated for free.
+    The body run's `GraphExecutionResult` is the substance here and is handed
+    over whole as `result`: every node's output, errors, skips and token usage,
+    with nothing hidden behind a reduction. But a stop decision usually needs
+    more than the latest run — "has this stopped improving", "have I tried
+    three times", "did the score go down" are all questions about the *sequence*
+    — and a result object cannot answer them. So it arrives alongside the
+    position and the history rather than on its own.
+
+    One object rather than several arguments, because this contract is public
+    the moment anyone writes an `until` function: adding a field later must not
+    break every one of them.
+
+    Return `True` to stop. Return `(True, "reason")` — or `(False, "reason")` —
+    to also set the next iteration's `{feedback}`, the same channel the
+    plain-English judge uses, so a function can steer the next attempt too.
+    """
+
+    #: 0-based, matching the `index` the body's templates see.
+    index: int
+    #: 1-based — the human count, and what `structured_output["iterations"]` reports.
+    iteration: int
+    #: The reduced output of this pass (`body_value` of `result`).
+    output: Any
+    #: This pass's full body run.
+    result: GraphExecutionResult
+    #: Every iteration's `output` so far, including this one.
+    history: list[Any]
+    #: The reason carried out of the previous iteration; "" on the first.
+    feedback: str
+    #: The loop's ceiling, so a function can tell "last chance" from "keep going".
+    max_iterations: int
+    #: The parent workflow's variables, readable (a copy — writes do not leak).
+    vars: dict[str, Any]
+
+    @property
+    def is_last(self) -> bool:
+        """True when the ceiling will stop the loop after this pass anyway."""
+        return self.iteration >= self.max_iterations
+
+
+def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+    """Run ``node.body`` repeatedly until ``until`` says stop, or ``max_iterations``.
+
+    One stop condition, in one field, read as whichever of two things it is:
+
+      - **a function** — a callable, or the name of one in the graph's
+        ``functions:`` sidecar. Called with a :class:`LoopIteration`; returns
+        ``True`` to stop, or ``(stop, reason)`` to also set ``{feedback}``.
+        Deterministic and free.
+      - **plain English** — judged by an internal LLM decision each iteration,
+        which can also report a condition it cannot relate to the work at all
+        and stop rather than burn the ceiling on it.
+
+    Which one it is is looked up, not guessed: a name the sidecar defines as a
+    callable is a function, anything else is prose.
 
     Each iteration sees ``index``, the previous output (bound to ``item_var``),
     and ``feedback``; body node outputs are published back to the parent state.
     """
-    from ..expressions import safe_bool
-
     started_at = time.time()
     try:
         if not node.body:
@@ -63,6 +115,9 @@ def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> N
                 f"loop node '{node.id}' requires max_iterations >= 1 (a hard ceiling)."
             )
         child = ex._child_executor(node)
+        # Resolved once, before any work: a loop naming a function that does not
+        # exist should say so now, not on iteration one after paying for a body.
+        stop_fn = _resolve_until_function(ex, node)
         acc: list[Any] = []
         usage = Usage()
         judge_log: list[dict[str, Any]] = []
@@ -70,6 +125,7 @@ def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> N
         feedback = ""
         iterations = 0
         broke = False
+        unrelated: str | None = None
         for i in range(node.max_iterations):
             iterations = i + 1
             scope = {"index": i, "iteration": i, node.item_var: last_output,
@@ -89,7 +145,7 @@ def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> N
             # Body nodes aren't in the parent's result map, so their tokens
             # would vanish — fold every iteration into the loop node's usage.
             usage = usage.add(body_result.total_usage())
-            # Publish body outputs to the parent state (readable by break_when).
+            # Publish body outputs to the parent state (readable by `until`).
             for nid, r in body_result.nodes.items():
                 if not r.skipped and r.error is None:
                     state.set_node_output(nid, r.raw_output)
@@ -103,12 +159,53 @@ def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> N
                     node, started_at,
                     f"loop body failed on iteration {iterations}: {body_result.errors}",
                 )
-            if node.until:
-                stop, reason, judge_usage = _judge_loop_until(ex, node, last_output, i)
+            if stop_fn is not None:
+                stop, reason = _call_until_function(
+                    ex, node, stop_fn,
+                    LoopIteration(
+                        index=i,
+                        iteration=iterations,
+                        output=last_output,
+                        result=body_result,
+                        history=list(acc),
+                        feedback=feedback,
+                        max_iterations=node.max_iterations,
+                        vars=dict(state.vars),
+                    ),
+                )
+            elif node.until:
+                stop, reason, related, judge_usage = _judge_loop_until(
+                    ex, node, last_output, i
+                )
                 usage = usage.add(judge_usage)
                 judge_log.append(
-                    {"iteration": iterations, "stop": stop, "reason": reason}
+                    {"iteration": iterations, "stop": stop,
+                     "reason": reason, "related": related}
                 )
+                if not related:
+                    # The condition cannot be judged against this work at all, so
+                    # iterating is spending the ceiling to learn nothing. Stop and
+                    # say why — the loop's own output is still returned.
+                    unrelated = reason
+                    broke = True
+                    ex.logger.warning(
+                        "loop %s: stop condition %r does not relate to what the body "
+                        "produces (%s). Stopped after iteration %d rather than running "
+                        "to max_iterations=%d.",
+                        node.id, node.until, reason or "no reason given",
+                        iterations, node.max_iterations,
+                    )
+                    ex._log(
+                        f"Node {node.id}: stop condition unrelated to the body's work "
+                        f"— stopped at iteration {iterations}"
+                        + (f" ({reason[:80]})" if reason else ""),
+                        tracer=None, type="warning",
+                    )
+                    break
+            else:
+                stop, reason = False, ""      # no condition: run to the ceiling
+
+            if stop_fn is not None or node.until:
                 ex._log(
                     f"Node {node.id}: iteration {iterations} → "
                     f"{'stop' if stop else 'continue'}"
@@ -119,19 +216,15 @@ def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> N
                     broke = True
                     break
                 feedback = reason or feedback
-            elif node.break_when:
-                ns = state.child_scope(
-                    {"index": i, "iteration": i, node.item_var: last_output, "acc": list(acc)}
-                ).namespace()
-                if safe_bool(node.break_when, ns, default=False):
-                    broke = True
-                    break
         result_value = state.vars.get(node.accumulate) if node.accumulate else last_output
         structured: dict[str, Any] = {
             "iterations": iterations, "broke_early": broke, "results": acc,
         }
         if judge_log:
             structured["judge"] = judge_log
+        if unrelated is not None:
+            structured["stopped_reason"] = "condition_unrelated"
+            structured["stopped_detail"] = unrelated
         return NodeExecutionResult(
             node_id=node.id,
             mode=node.mode,
@@ -146,15 +239,104 @@ def run_loop_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> N
         return ex._error_result(node, started_at, str(e))
 
 
+def _resolve_until_function(
+    ex: GraphExecutor, node: GraphNode
+) -> Callable[[LoopIteration], Any] | None:
+    """The callable behind `until`, or None when `until` is prose (or absent).
+
+    Three cases, and only the middle one needs looking anything up:
+
+      * already a callable — a graph built in Python passed the function itself;
+      * a name the graph's `functions:` sidecar defines — that is the function;
+      * anything else — plain English, judged by the LLM.
+
+    The distinction is a lookup, never a guess about the shape of the string. The
+    one case worth stopping for is a graph that *declares* a sidecar and names
+    something absent from it: "is_don" against a file defining `is_done` is a
+    typo, and silently sending it to an LLM judge as though it were English
+    would be a very expensive way to not find out.
+    """
+    until = node.until
+    if until is None:
+        return None
+    if callable(until):
+        return until
+    graph = getattr(ex, "graph", None)
+    sidecar = getattr(graph, "sidecar", None) if graph is not None else None
+    if sidecar is None:
+        return None                       # no sidecar ⇒ it can only be prose
+    fn = graph.function(until)
+    if fn is not None:
+        return fn
+    # A sidecar exists and does not define this name. Prose is still the likely
+    # reading for anything sentence-shaped; a bare identifier is not.
+    if until.isidentifier():
+        raise GraphConfigurationError(
+            f"loop '{node.id}': `until: {until}` names no function in "
+            f"{getattr(sidecar, 'path', 'the functions file')}. "
+            f"It defines: {', '.join(sidecar.names()) or '(nothing)'}. "
+            f"Write a plain-English condition, or define {until}()."
+        )
+    return None
+
+
+def _call_until_function(
+    ex: GraphExecutor,
+    node: GraphNode,
+    fn: Callable[[LoopIteration], Any],
+    it: LoopIteration,
+) -> tuple[bool, str]:
+    """Run the loop's stop function. Returns ``(stop, reason)``.
+
+    Accepts ``True``/``False`` or ``(stop, reason)`` — the reason becomes the
+    next iteration's ``{feedback}``, the same channel the LLM judge uses, so a
+    function can steer the next attempt and not merely end it.
+
+    A raising function stops the loop rather than being swallowed. This is the
+    author's own code stating the exit condition; continuing to iterate past it
+    would be running a loop whose bound has failed, and the ceiling is a
+    backstop for a condition that never comes true, not for one that is broken.
+    """
+    try:
+        verdict = fn(it)
+    except Exception as e:
+        raise GraphExecutionError(
+            f"loop '{node.id}': `until` function {getattr(fn, '__name__', fn)!r} "
+            f"raised on iteration {it.iteration}: {e}"
+        ) from e
+    if isinstance(verdict, tuple):
+        stop, reason = (list(verdict) + [""])[:2]
+        return bool(stop), str(reason or "")
+    return bool(verdict), ""
+
+
 def _judge_loop_until(
     ex: GraphExecutor, node: GraphNode, body_value: Any, index: int
-) -> tuple[bool, str]:
+) -> tuple[bool, str, bool, Usage]:
     """The loop's hidden exit judge: one constrained LLM decision per iteration.
 
-    Returns ``(stop, reason)``. The reason for a CONTINUE verdict becomes the
-    next iteration's ``{feedback}``. Unparseable answers get one corrective
-    retry (when ``repair``), then fail safe to CONTINUE — the mandatory
-    ``max_iterations`` ceiling still bounds the loop.
+    Returns ``(stop, reason, related, usage)``.
+
+    Three verdicts, not two. STOP and CONTINUE are the loop's business as usual —
+    a CONTINUE reason becomes the next iteration's ``{feedback}``. The third,
+    UNRELATED, is for a condition that cannot be judged against this work at
+    all: "stop when winter is here" over a body writing coffee taglines. Nothing
+    the body produces can ever satisfy it, so CONTINUE would be a lie that costs
+    the full ceiling — every iteration, plus a judge call each — to tell.
+
+    It rides on the call that was already being made, so noticing costs nothing,
+    and it is asked *after* an iteration rather than before any: the judge then
+    has the body's real output to compare against, which is far better evidence
+    than the author's description of what the body was supposed to do.
+
+    Deliberately narrow. The judge is told to use UNRELATED only when the
+    condition is about a different subject entirely — "not yet true", "vague"
+    and "hard to tell" are all CONTINUE. A condition that merely *looks*
+    demanding must not be reclassified as nonsense, because the cost of a false
+    UNRELATED is a loop that stops on its first iteration for no reason.
+
+    Unparseable answers get one corrective retry (when ``repair``), then fail
+    safe to CONTINUE — the mandatory ``max_iterations`` ceiling still bounds it.
     """
     import json as _json
     import re as _re
@@ -169,10 +351,15 @@ def _judge_loop_until(
     evidence = _json.dumps(body_value, ensure_ascii=False, default=str)[:3000]
     system = (
         "You are a loop-exit judge inside a workflow engine. Decide whether the "
-        "stop condition is met. Reply with exactly one word first — STOP or "
-        "CONTINUE — optionally followed by ' - <one short reason>'. On CONTINUE, "
-        "the reason must say what is still lacking: it is handed to the next "
-        "attempt as feedback."
+        "stop condition is met. Reply with exactly one word first — STOP, "
+        "CONTINUE or UNRELATED — optionally followed by ' - <one short reason>'.\n"
+        "STOP: the condition is met.\n"
+        "CONTINUE: not met yet. The reason must say what is still lacking — it is "
+        "handed to the next attempt as feedback.\n"
+        "UNRELATED: the condition is about a different subject than the results, "
+        "so no amount of further work could ever satisfy it. Use this ONLY for a "
+        "genuine mismatch of subject. A condition that is merely demanding, "
+        "vague, or not yet satisfied is CONTINUE, not UNRELATED."
     )
     user = (
         f"Stop condition: {node.until}\n\n"
@@ -180,12 +367,16 @@ def _judge_loop_until(
         f"{evidence}\n\nIs the stop condition met?"
     )
 
-    def _parse(text: str) -> tuple[bool | None, str]:
-        m = _re.search(r"\b(stop|continue)\b", (text or "").lower())
+    def _parse(text: str) -> tuple[bool | None, str, bool]:
+        """→ (stop, reason, related). `stop is None` means unparseable."""
+        m = _re.search(r"\b(stop|continue|unrelated)\b", (text or "").lower())
         if m is None:
-            return None, ""
+            return None, "", True
         reason = (text or "")[m.end():].strip(" \t\n-—:.,*")
-        return m.group(1) == "stop", reason
+        verdict = m.group(1)
+        if verdict == "unrelated":
+            return True, reason, False
+        return verdict == "stop", reason, True
 
     # The judge is a hidden LLM call per iteration — often a third of a loop's
     # cost. Report it so it lands on the loop node's usage.
@@ -204,25 +395,27 @@ def _judge_loop_until(
             step.add_meta(usage=call.usage.model_dump() if call.usage else None)
     usage = usage.add(call.usage)
     raw = call.output
-    decision, reason = _parse(str(raw))
+    decision, reason, related = _parse(str(raw))
     if decision is None and node.repair:
         retry = (
             f"{user}\n\nYour previous answer was invalid: {str(raw)[:200]!r}. "
-            f"Reply with exactly STOP or CONTINUE (one word), optionally "
-            f"' - <short reason>'."
+            f"Reply with exactly STOP, CONTINUE or UNRELATED (one word), "
+            f"optionally ' - <short reason>'."
         )
         call = run_base_node(ex.provider, system, retry)
         usage = usage.add(call.usage)
         raw = call.output
-        decision, reason = _parse(str(raw))
+        decision, reason, related = _parse(str(raw))
     if decision is None:
-        # Fail safe: keep iterating — max_iterations still bounds the loop.
+        # Fail safe: keep iterating — max_iterations still bounds the loop. Note
+        # this fails toward CONTINUE, never toward UNRELATED: a judge we could
+        # not read must not be what stops someone's loop.
         ex.logger.warning(
             "loop %s: until-judge answer unparseable (%r); continuing",
             node.id, str(raw)[:80],
         )
-        return False, "", usage
-    return decision, reason, usage
+        return False, "", True, usage
+    return decision, reason, related, usage
 
 
 def run_map_node(ex: GraphExecutor, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:

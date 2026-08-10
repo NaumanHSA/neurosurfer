@@ -7,6 +7,8 @@ concurrent), the implicit gather, and load-time validation.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from neurosurfer.graph import GraphExecutor
@@ -49,15 +51,21 @@ def _echo_index(index=0, **kwargs):
     return index
 
 
+# The `functions:` sidecar these loop tests point at — a standalone file, which
+# is what a sidecar always is (see its docstring).
+FNS_FILE = str((Path(__file__).parent / "loop_fns.py").resolve())
+
+
 # ── loop ────────────────────────────────────────────────────────────────────────
 
 def test_loop_breaks_on_condition():
     _counter["n"] = 0
     spec = {
         "name": "loop_break",
+        "functions": FNS_FILE,
         "nodes": [
             {"id": "count", "kind": "loop", "max_iterations": 10,
-             "break_when": "nodes.step.value >= 3",
+             "until": "stop_at_three",
              "body": [
                  {"id": "step", "kind": "function", "callable": f"{FN}._increment"},
              ]},
@@ -65,6 +73,7 @@ def test_loop_breaks_on_condition():
         "outputs": ["count"],
     }
     graph = load_graph_from_dict(spec)
+    graph.bind_functions(None)      # absolute path, so no base dir needed
     ex = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False)
     res = ex.run({})
     node = res.nodes["count"]
@@ -78,14 +87,16 @@ def test_loop_respects_max_iterations_ceiling():
     _counter["n"] = 0
     spec = {
         "name": "loop_ceiling",
+        "functions": FNS_FILE,
         "nodes": [
             {"id": "count", "kind": "loop", "max_iterations": 4,
-             "break_when": "nodes.step.value >= 999",  # never true
+             "until": "never_stops",           # never true
              "body": [{"id": "step", "kind": "function", "callable": f"{FN}._increment"}]},
         ],
         "outputs": ["count"],
     }
     graph = load_graph_from_dict(spec)
+    graph.bind_functions(None)
     ex = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False)
     res = ex.run({})
     assert res.nodes["count"].structured_output["iterations"] == 4
@@ -274,11 +285,155 @@ def test_until_judge_failure_fails_safe_to_ceiling():
     assert node.structured_output["broke_early"] is False
 
 
-def test_until_and_break_when_together_rejected():
-    spec = _until_spec()
-    spec["nodes"][0]["break_when"] = "index >= 1"
-    with pytest.raises(GraphConfigurationError, match="both"):
-        load_graph_from_dict(spec)
+class TestUnrelatedCondition:
+    """The judge's third verdict, for a condition about a different subject.
+
+    "Stop when winter is here" over a body writing taglines can never be
+    satisfied, so CONTINUE would be a lie costing the full ceiling — every
+    iteration plus a judge call each — to tell. It rides on the call already
+    being made, so noticing is free.
+    """
+
+    def _run(self, first_verdict: str, max_iterations: int = 3):
+        _feedbacks.clear()
+        spec = _until_spec()
+        spec["nodes"][0]["max_iterations"] = max_iterations
+        spec["nodes"][0]["until"] = "winter has arrived"
+        graph = load_graph_from_dict(spec)
+        provider = ScriptedProvider(turns=[
+            (first_verdict, []), ("STOP - fine", []), ("STOP - fine", []),
+        ])
+        res = GraphExecutor(graph, provider=provider, log_traces=False).run({})
+        assert res.nodes["refine"].error is None
+        return res.nodes["refine"].structured_output
+
+    def test_unrelated_stops_at_the_first_iteration(self):
+        out = self._run("UNRELATED - the results are taglines, winter is another subject")
+        assert out["iterations"] == 1, "must not spend the ceiling on it"
+        assert out["broke_early"] is True
+        assert out["stopped_reason"] == "condition_unrelated"
+        assert "winter" in out["stopped_detail"]
+        assert out["judge"][0]["related"] is False
+
+    def test_the_loop_still_returns_its_work(self):
+        """Stopping early is not failing — what ran is still the node's output."""
+        out = self._run("UNRELATED - different subject")
+        assert out["results"], "the completed iteration's output is kept"
+
+    def test_continue_is_unaffected(self):
+        out = self._run("CONTINUE - not yet", max_iterations=2)
+        assert out["judge"][0]["related"] is True
+        assert "stopped_reason" not in out
+
+    def test_an_unreadable_verdict_never_counts_as_unrelated(self):
+        """Failing safe means CONTINUE. A judge we could not parse must not be
+        what stops someone's loop."""
+        out = self._run("mumble mumble", max_iterations=2)
+        assert out["judge"][0]["related"] is True
+        assert "stopped_reason" not in out
+
+
+class TestUntilAsAFunction:
+    """`until` reads as a function or as prose, and which is a lookup.
+
+    The sandboxed `break_when` expression it replaces could only see the parent
+    state through a namespace; a function is handed the body run itself.
+    """
+
+    @staticmethod
+    def _spec(until, **loop):
+        return {
+            "name": "fn_loop",
+            "functions": FNS_FILE,
+            "nodes": [
+                {"id": "count", "kind": "loop", "max_iterations": 5, "until": until,
+                 "body": [{"id": "step", "kind": "function",
+                           "callable": f"{FN}._increment"}], **loop},
+            ],
+            "outputs": ["count"],
+        }
+
+    def _run(self, until, **loop):
+        _counter["n"] = 0
+        graph = load_graph_from_dict(self._spec(until, **loop))
+        graph.bind_functions(None)
+        res = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False).run({})
+        assert res.nodes["count"].error is None, res.nodes["count"].error
+        return res.nodes["count"].structured_output
+
+    def test_a_live_callable_is_used_directly(self):
+        """A graph built in Python hands over the function itself — no lookup."""
+        _counter["n"] = 0
+        from neurosurfer.graph import FunctionNode, Graph, LoopNode  # noqa: PLC0415
+
+        from .loop_fns import stop_at_three  # noqa: PLC0415
+
+        node = LoopNode(
+            id="count", max_iterations=5, until=stop_at_three,
+            body=[FunctionNode(id="step", callable=f"{FN}._increment")],
+        )
+        graph = Graph(name="live", nodes=[node], outputs=["count"])
+        res = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False).run({})
+        assert res.nodes["count"].structured_output["iterations"] == 3
+
+    def test_a_name_in_the_sidecar_is_the_function(self):
+        out = self._run("stop_at_three")
+        assert out["iterations"] == 3
+        assert out["broke_early"] is True
+        assert "judge" not in out, "a function must not call the LLM judge"
+
+    def test_a_function_that_never_stops_hits_the_ceiling(self):
+        out = self._run("never_stops")
+        assert (out["iterations"], out["broke_early"]) == (5, False)
+
+    def test_a_reason_becomes_the_next_feedback(self):
+        out = self._run("stop_with_reason")
+        assert out["iterations"] == 2 and out["broke_early"] is True
+
+    def test_a_raising_function_fails_the_node(self):
+        """The author's own exit condition is broken — iterating past it would be
+        running a loop whose bound has failed."""
+        _counter["n"] = 0
+        graph = load_graph_from_dict(self._spec("explodes"))
+        graph.bind_functions(None)
+        res = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False).run({})
+        assert res.nodes["count"].error is not None
+        assert "this condition is broken" in res.nodes["count"].error
+
+    def test_a_name_the_sidecar_lacks_is_an_error_not_a_prompt(self):
+        """A typo'd identifier must not be silently sent to an LLM as English."""
+        _counter["n"] = 0
+        graph = load_graph_from_dict(self._spec("stop_at_thre"))
+        graph.bind_functions(None)
+        res = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False).run({})
+        err = res.nodes["count"].error or ""
+        assert "names no function" in err and "stop_at_three" in err
+
+    def test_prose_is_still_prose_when_a_sidecar_exists(self):
+        """A sentence is not an identifier, so it never looks like a lookup miss."""
+        from neurosurfer.graph.engine.executor.iteration import (  # noqa: PLC0415
+            _resolve_until_function,
+        )
+
+        graph = load_graph_from_dict(self._spec("the counter has reached three"))
+        graph.bind_functions(None)
+        ex = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False)
+        assert _resolve_until_function(ex, graph.node_map()["count"]) is None
+
+    def test_a_live_callable_serializes_as_its_name(self):
+        """YAML cannot hold a function, so a dump names it — round-tripping via
+        the sidecar that must define it."""
+        from neurosurfer.graph import BaseNode, Graph, LoopNode  # noqa: PLC0415
+
+        from .loop_fns import stop_at_three  # noqa: PLC0415
+
+        graph = Graph(
+            name="dump", functions=FNS_FILE,
+            nodes=[LoopNode(id="l", max_iterations=2, until=stop_at_three,
+                            body=[BaseNode(id="s")], body_outputs=["s"])],
+            outputs=["l"],
+        )
+        assert graph.model_dump()["nodes"][0]["until"] == "stop_at_three"
 
 
 def test_empty_until_rejected():

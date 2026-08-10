@@ -26,15 +26,15 @@ from ..errors import (
 from ..export import GraphExporter
 from ..manager import ManagerAgent, ManagerConfig
 from ..nodes import (
-    Function,
-    Input,
-    Loop,
-    Map,
-    Output,
-    Python,
-    Router,
-    Subgraph,
-    Tool,
+    FunctionNode,
+    InputNode,
+    LoopNode,
+    MapNode,
+    OutputNode,
+    PythonNode,
+    RouterNode,
+    SubgraphNode,
+    ToolNode,
 )
 from ..schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
 from ..state import WorkflowState
@@ -352,7 +352,7 @@ class GraphExecutor:
             state.set_node_output(nid, result.raw_output)
             if node.writes:
                 state.set_var(node.writes, result.raw_output)
-            if isinstance(node, Router):
+            if isinstance(node, RouterNode):
                 self._apply_router_pruning(node, result, pruned_ids)
                 selected = result.raw_output
                 label = (result.structured_output or {}).get("label")
@@ -605,7 +605,12 @@ class GraphExecutor:
             name=f"{node.id}__body",
             nodes=node.body or [],
             outputs=list(node.body_outputs or []),
+            functions=self.graph.functions,
         )
+        # The sidecar module itself, not just its path: a nested loop resolves
+        # its `until` against the same file as the parent, and re-importing per
+        # body would be both wasteful and a second module object for one file.
+        body_graph._sidecar = self.graph.sidecar
         child = GraphExecutor(
             body_graph,
             validate=False,
@@ -684,21 +689,21 @@ class GraphExecutor:
         # equivalent — but the class is the thing a reader can follow to a
         # docstring, and mypy narrows it.
         _state = state or WorkflowState(inputs=dict(graph_inputs))
-        if isinstance(node, (Function, Python)):
+        if isinstance(node, (FunctionNode, PythonNode)):
             return self._run_function_node(node, graph_inputs, dependency_results, _state)
-        if isinstance(node, Tool):
+        if isinstance(node, ToolNode):
             return self._run_tool_node(node, graph_inputs, dependency_results, _state)
-        if isinstance(node, Router):
+        if isinstance(node, RouterNode):
             return self._run_router_node(node, _state)
-        if isinstance(node, Loop):
+        if isinstance(node, LoopNode):
             return self._run_loop_node(node, _state)
-        if isinstance(node, Map):
+        if isinstance(node, MapNode):
             return self._run_map_node(node, _state)
-        if isinstance(node, Subgraph):
+        if isinstance(node, SubgraphNode):
             return self._run_subgraph_node(node, _state)
-        if isinstance(node, Input):
+        if isinstance(node, InputNode):
             return self._run_input_node(node, _state)
-        if isinstance(node, Output):
+        if isinstance(node, OutputNode):
             return self._run_output_node(node, graph_inputs, dependency_results, _state)
 
         # LLM-based node (base | react)
@@ -823,7 +828,7 @@ class GraphExecutor:
         """
         ran = {
             n.id for n in self.graph.nodes
-            if isinstance(n, Output) and n.id in results and not results[n.id].skipped
+            if isinstance(n, OutputNode) and n.id in results and not results[n.id].skipped
         }
         if ran:
             return {nid: results[nid].raw_output for nid in ran}

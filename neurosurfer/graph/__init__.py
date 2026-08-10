@@ -68,18 +68,18 @@ from .engine import (  # noqa: F401
 
 # Node kinds as classes — a second door onto `GraphNode`; see engine/nodes.py.
 from .engine.nodes import (
-    Base,
-    Container,
-    Function,
-    Input,
-    Loop,
-    Map,
-    Output,
-    Python,
-    React,
-    Router,
-    Subgraph,
-    Tool,
+    BaseNode,
+    ContainerNode,
+    FunctionNode,
+    InputNode,
+    LoopNode,
+    MapNode,
+    OutputNode,
+    PythonNode,
+    ReactNode,
+    RouterNode,
+    SubgraphNode,
+    ToolNode,
     for_kind,
 )
 
@@ -94,18 +94,18 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "Base",
-    "React",
-    "Tool",
-    "Function",
-    "Python",
-    "Router",
-    "Loop",
-    "Map",
-    "Subgraph",
-    "Input",
-    "Output",
-    "Container",
+    "BaseNode",
+    "ReactNode",
+    "ToolNode",
+    "FunctionNode",
+    "PythonNode",
+    "RouterNode",
+    "LoopNode",
+    "MapNode",
+    "SubgraphNode",
+    "InputNode",
+    "OutputNode",
+    "ContainerNode",
     "for_kind",
 
     # ── engine primitives (re-exported) ──
