@@ -799,6 +799,15 @@ hypothesis — a local model's thinking tokens — survives.
 
 ### Running the suite on Windows
 
+> **Superseded — 2026-08-10.** What follows was accurate when written and is no
+> longer what happens: `D:\tmp` has since been created on that machine, so the
+> `/tmp` fixtures now land somewhere real and those thirteen failures resolved
+> into a different, smaller set. The current list is
+> [WINDOWS_TEST_FAILURES.md](WINDOWS_TEST_FAILURES.md), where ten of sixteen
+> turn out to be library bugs the `/tmp` failures were masking. Left here
+> unedited: that the diagnosis depended on an undeclared directory existing is
+> the useful part of it.
+
 The offline suite is green on POSIX and shows **15 failures on Windows**. They
 are environmental and every one of them fails identically on `main`, checked by
 running the same modules in a worktree at `4065c2f`:

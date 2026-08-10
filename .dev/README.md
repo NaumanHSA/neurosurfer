@@ -21,6 +21,12 @@ decide what to do next.
 |---|---|---|
 | [01 — The Architect and the validator](01_ARCHITECT_AND_VALIDATOR_PLAN.md) · [build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) | Bringing the matured Architect and validator onto the stable line, with the engine floor they stand on — and without the studio. | Current |
 
+Beside them, one note that belongs to no plan:
+**[WINDOWS_TEST_FAILURES.md](WINDOWS_TEST_FAILURES.md)** — what the sixteen
+Windows-only test failures actually are. It exists because the count had been
+handed on three times without anyone opening them, and ten of the sixteen turn
+out to be library bugs rather than test-environment noise.
+
 ## Where the work happens
 
 All of it is on `architect-validator/enhancement`. **`main` is left alone** until

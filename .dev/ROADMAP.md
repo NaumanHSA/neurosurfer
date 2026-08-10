@@ -23,8 +23,17 @@ run, the executor as a package, and a rewritten prompt contract.
 defects that offline testing could not: a bound argument could not reach an agent
 node (`c01894a`), and the contract silently broke the tutorials (`0579b32`).
 Both are fixed, with the first carrying the regression tests it should have had.
-1190 collected from a 360 baseline — 1171 pass, 15 fail only on Windows (they
-fail identically on `main`) — ruff clean.
+1227 collected from a 360 baseline — **1207 pass, 16 fail only on Windows** —
+ruff clean.
+
+Those sixteen now have a file rather than a number:
+**[WINDOWS_TEST_FAILURES.md](WINDOWS_TEST_FAILURES.md)**. Reading them changed
+what they mean — seven are a single library bug (subprocess output decoded with
+the ANSI codepage, so the tool author cannot verify a tool it wrote on Windows,
+and the import-boundary guard is not guarding anything there), and three more
+are `os.killpg` called unconditionally, which leaves `python_exec` and
+`run_command` unable to time out or kill a child. Neither is this branch's, and
+neither blocks the merge; both should be their own work.
 
 One box is still open — merge to `main` and bump — and §9 sets out the
 `1.1.0`-vs-`2.0.0` argument with the evidence rather than leaving it to the day.
