@@ -35,15 +35,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Execution and Architect HTTP surfaces** — `/v1/workflows`, `/v1/runs` (with
   SSE), and `/v1/architect/*`, including a build that parks to ask a person and
   resumes when answered.
-- **Every node kind is also a class** — `Base`, `React`, `Tool`, `Function`,
-  `Router`, `Loop`, `Map`, `Subgraph`, `Input`, `Output`, plus `Container` for
-  the three that run a nested body. A second door into the same room:
+- **Every node kind is also a class** — `BaseNode`, `ReactNode`, `ToolNode`,
+  `FunctionNode`, `PythonNode`, `RouterNode`, `LoopNode`, `MapNode`,
+  `SubgraphNode`, `InputNode`, `OutputNode`, plus `ContainerNode` for the three
+  that run a nested body. A second door into the same room:
   `GraphNode(kind="base", …)` is unchanged and still works, YAML on disk is
   untouched, and `Graph` upgrades whatever it is given — so `isinstance(node,
-  Router)` is true however the node was made. The engine dispatches on the class
-  rather than on a kind string. The classes carry identity only; what a kind
-  *requires* stays declared in `neurosurfer/graph/engine/kinds/` and read from
-  there by the validator.
+  RouterNode)` is true however the node was made. The engine dispatches on the
+  class rather than on a kind string. The classes carry identity only; what a
+  kind *requires* stays declared in `neurosurfer/graph/engine/kinds/` and read
+  from there by the validator. Every name carries the `Node` suffix because the
+  bare ones were not sayable at a call site — `Tool`, `Input`, `Output`, `Map`,
+  `Function` and `Python` all already mean something else here, and `Tool` was
+  an outright collision with `neurosurfer.tools.base.Tool`, the ABC every
+  registered tool subclasses.
 
 
 - **Observability: pluggable trace exporters.** Agent runs can now be shipped to an
@@ -64,6 +69,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **A loop has one stop condition, `until`, and `break_when` is gone.** Asking an
+  author to pick a *mechanism* — plain English or sandboxed expression — was
+  asking the wrong question; a loop stops for one reason, so it gets one field.
+  `until` is read as whichever of two things it is: a **function** (a callable,
+  or the name of one in the graph's new `functions:` file), which receives a
+  `LoopIteration` and returns `True` to stop or `(stop, "reason")` to also set
+  the next iteration's `{feedback}`; or **plain English**, judged by an internal
+  LLM decision each iteration. The function form subsumes the expression it
+  replaces and goes well past it — it gets the body's whole
+  `GraphExecutionResult` plus the iteration index, history and loop vars, where
+  an expression could only reach the parent state through a namespace, and it is
+  real Python rather than a restricted evaluator. Which form a string is, is a
+  **lookup, not a heuristic**: a name the sidecar defines is the function,
+  anything else is prose. A graph that declares a sidecar and names something
+  absent from it is an error rather than a prompt, so a typo cannot quietly
+  become an English condition sent to a model.
+- **Graphs can carry a Python sidecar: `functions: helpers.py`.** Named at the top
+  of the graph, resolved relative to the graph file, and copied with the package
+  on export — the same self-containment `nodes/<id>.py` already gives `function`
+  nodes, but declared once so YAML can then use bare names. A sidecar is imported
+  by path and therefore stands alone: no relative imports.
+- **The loop's exit judge has a third verdict, UNRELATED.** A plain-English
+  condition about a different subject than the body produces — "stop when winter
+  is here" over a body writing coffee taglines — can never be satisfied, so
+  CONTINUE would be a lie that costs the full ceiling, every iteration plus a
+  judge call each, to tell. The loop stops, logs why, and still returns the work
+  it did, with `structured_output["stopped_reason"] == "condition_unrelated"`.
+  It rides on the call already being made, so noticing costs nothing, and it is
+  asked *after* an iteration so the judge has real output rather than a
+  description of intent. Deliberately narrow: merely demanding, vague or not-yet
+  conditions are CONTINUE, and an unparseable verdict fails safe to CONTINUE —
+  a judge that could not be read must not be what stops a loop.
 - **Built-in tools moved** from `neurosurfer/tools/builtin/` to
   `neurosurfer/registry/core/<domain>/`. `from neurosurfer.tools.builtin import
   ReadFileTool` still works — the package re-exports every tool — but **importing
@@ -111,6 +148,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Trace export never runs on the agent's thread.** Every exporter hook, and
+  the `flush()` at each run finish, ran inline on whatever thread the agent was
+  on — so a run waited on the monitoring backend's network. `flush()` is not the
+  cheap thing its name suggests: OpenTelemetry's `BatchSpanProcessor` already
+  owns a queue and a worker, and `force_flush` exists to *bypass* them and drain
+  on the caller. All exporter calls now go to a single daemon worker over a
+  bounded FIFO (`neurosurfer/observability/dispatch.py`); the agent thread
+  enqueues and returns. With tracing on and no collector listening, nine spans
+  blocked the run for **0.116s instead of 74s**. Order is preserved (one worker,
+  FIFO), which also serialises exporter state that concurrent `map` bodies used
+  to mutate from several threads at once. Delivery is best-effort by design: the
+  queue is bounded and drops rather than growing without limit, and an `atexit`
+  drain lets a script that ends right after a run still ship what it has. Tests
+  and shutdown paths that need to observe delivery can call
+  `neurosurfer.observability.dispatch.drain()`.
+- **An exporter that is named but not configured is skipped, not built.**
+  `NEUROSURFER_EXPORTERS=otel` with no `OTEL_EXPORTER_OTLP_ENDPOINT` set built
+  the exporter anyway, and the OTel SDK filled in its own
+  `http://localhost:4318` — so an install that had pointed at no collector still
+  opened one, and paid to find out nothing was there. Auto-detection never had
+  this problem: it turns `otel` on *because* the endpoint is set. The explicit
+  list now applies the same requirement and warns what is missing. Passing a
+  constructed instance to `register_exporter` still bypasses the check, since
+  that is a deliberate choice by the caller.
+- **An unreachable OTLP collector no longer costs ~8s per node, and no longer
+  prints a traceback per batch.** With tracing on and nothing listening on the
+  endpoint, two things went wrong. It was *loud*: `OTLPSpanExporter.export`
+  re-raised the transport error and `BatchSpanProcessor` logged it with
+  `logger.exception`, so a workflow's own output disappeared under stacks whose
+  frames all named `urllib3` and none named neurosurfer. And it was *slow*,
+  which mattered more: `force_flush` is a blocking export on the calling thread
+  and runs at every run finish, and on Windows a connect to a closed port is not
+  refused instantly the way it is on Linux — ~2s of SYN retry, doubled because
+  `localhost` resolves to both `::1` and `127.0.0.1`, doubled again by the
+  exporter's blind retry. **8.2s per flush, measured**; tutorial 03's router
+  cell took 74s against a model answering in under two. The exporter is now
+  wrapped so the first failure logs one warning — naming the endpoint, the root
+  cause, what the attempt cost, and both ways to stop it — and then **disables
+  tracing for the session**, so later spans are dropped without touching the
+  network. Same misconfiguration on Linux was always ~0ms, which is why this
+  only ever showed up on Windows. A reachable collector is unaffected.
 - **A `base` step cut off mid-plan no longer reports success.** It gets one round
   of tool calls; asked to fetch a page and then write a file, it spent the round
   on the fetch, was refused the second, and returned an empty answer that the run
