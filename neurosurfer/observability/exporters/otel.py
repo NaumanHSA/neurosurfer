@@ -21,6 +21,8 @@ async ``await`` boundaries where OTel's implicit context vars don't hold.
 from __future__ import annotations
 
 import json
+import logging
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -30,6 +32,8 @@ if TYPE_CHECKING:
 
 from .base import TraceExporter
 
+logger = logging.getLogger("neurosurfer.observability")
+
 
 def _short(value: Any, limit: int = 2000) -> str:
     try:
@@ -37,6 +41,93 @@ def _short(value: Any, limit: int = 2000) -> str:
     except Exception:  # noqa: BLE001
         s = str(value)
     return s if len(s) <= limit else s[: limit - 1] + "…"
+
+
+def _root_cause(exc: BaseException) -> str:
+    """The innermost exception, named. What a caller can act on.
+
+    A refused connection arrives wrapped four deep — ``requests.ConnectionError``
+    over ``MaxRetryError`` over ``NewConnectionError`` over the ``OSError`` — and
+    only the last one says *why*. The chain mixes ``__cause__`` (``raise … from``)
+    with ``__context__`` (a bare ``raise`` inside ``except``), so both are followed.
+    """
+    seen: set[int] = {id(exc)}
+    root = exc
+    while (nxt := root.__cause__ or root.__context__) is not None and id(nxt) not in seen:
+        seen.add(id(nxt))
+        root = nxt
+    return f"{type(root).__name__}: {root}"
+
+
+class _QuietSpanExporter:
+    """Wraps the OTLP exporter so an absent collector costs one warning, once.
+
+    Two problems, both of which only appear when nothing is listening.
+
+    **It was loud.** ``OTLPSpanExporter.export`` lets a transport error
+    propagate — it retries a ``ConnectionError`` once and then re-raises — and
+    ``BatchSpanProcessor`` turns that into ``logger.exception``, a full
+    traceback *per batch*. A graph run emits a span per node, so the run's own
+    output vanished under stacks that name no neurosurfer frame.
+
+    **It was slow, which was the worse half.** ``force_flush`` is a *blocking*
+    export on the calling thread, and the exporters are flushed at every run
+    finish. On Windows a connect to a closed port is not refused instantly the
+    way it is on Linux — the stack retries the SYN for ~2s. ``localhost``
+    resolves to both ``::1`` and ``127.0.0.1``, so one attempt costs ~4s, and
+    the exporter's blind retry doubles it: **~8.2s per flush, measured**, on a
+    machine where the same misconfiguration costs ~0ms on Linux. Tutorial 03's
+    router cell took 74s against a model that answered in under two.
+
+    So the first failure **disables the exporter for the session**. Continuing
+    to try was the original choice — on the theory that a collector might come
+    up later — and 8.2s of dead air per node is far too much to pay for that
+    chance. A run is not the place to keep probing a socket nobody answered.
+
+    Deliberately not a ``SpanExporter`` subclass: that would need OpenTelemetry
+    imported at module level, and this module keeps the SDK out of a base
+    install's import path. ``BatchSpanProcessor`` duck-types its exporter —
+    ``export``, ``force_flush``, ``shutdown``, nothing else.
+    """
+
+    def __init__(self, inner: Any, failure_result: Any) -> None:
+        self._inner = inner
+        self._failure = failure_result
+        self._dead = False
+
+    def _disable(self, exc: BaseException, seconds: float) -> None:
+        if self._dead:
+            return
+        self._dead = True
+        logger.warning(
+            "Trace exporter 'otel': the OTLP collector at %s is not reachable (%s). "
+            "That attempt blocked the run for %.1fs, so tracing is now disabled for "
+            "this session and later spans are dropped without touching the network. "
+            "Point OTEL_EXPORTER_OTLP_ENDPOINT at a running collector, or set "
+            "NEUROSURFER_EXPORTERS=none to keep it off from the start.",
+            getattr(self._inner, "_endpoint", "the configured endpoint"),
+            _root_cause(exc),
+            seconds,
+        )
+
+    def _attempt(self, call: Any, on_dead: Any) -> Any:
+        if self._dead:
+            return on_dead
+        started = perf_counter()
+        try:
+            return call()
+        except Exception as e:  # noqa: BLE001 — a dead collector must never break a run
+            self._disable(e, perf_counter() - started)
+            return on_dead
+
+    def export(self, spans: Any) -> Any:
+        return self._attempt(lambda: self._inner.export(spans), self._failure)
+
+    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+        return self._attempt(lambda: self._inner.force_flush(timeout_millis), False)
+
+    def shutdown(self) -> None:
+        self._attempt(self._inner.shutdown, None)
 
 
 class OtelExporter(TraceExporter):
@@ -48,13 +139,16 @@ class OtelExporter(TraceExporter):
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExportResult
 
         self._trace_api = __import__("opentelemetry.trace", fromlist=["trace"])
         provider = TracerProvider(
             resource=Resource.create({"service.name": service_name})
         )
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        # Wrapped, so an absent collector is one warning rather than a traceback
+        # per batch — see :class:`_QuietSpanExporter`.
+        exporter = _QuietSpanExporter(OTLPSpanExporter(), SpanExportResult.FAILURE)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
         self._provider = provider
         self._tracer = provider.get_tracer("neurosurfer")
         # per-run state: span_id → {"root": Span, "ctx": Context, "tools": {call_id: Span}}

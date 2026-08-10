@@ -27,6 +27,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from neurosurfer.observability import dispatch
 from neurosurfer.observability.context import (
     TraceContext,
     current_trace_context,
@@ -88,11 +89,21 @@ def traced_run(
         ctx = TraceContext(session_id=session_id, metadata=metadata or {})
 
     def _fan(hook: str, **kw: Any) -> None:
+        """Queue the hook for every exporter — never run it on this thread.
+
+        See `neurosurfer/observability/dispatch.py`: an exporter call inline here
+        made the run wait on the monitoring backend's network.
+        """
         for exp in exporters:
-            try:
-                getattr(exp, hook)(ctx, **kw)
-            except Exception:  # noqa: BLE001 — an exporter must never break the run
-                logger.debug("trace exporter %s.%s failed", exp.name, hook, exc_info=True)
+            def _call(exp: Any = exp, hook: str = hook, kw: dict = kw) -> None:
+                try:
+                    getattr(exp, hook)(ctx, **kw)
+                except Exception:  # noqa: BLE001 — an exporter must never break the run
+                    logger.debug(
+                        "trace exporter %s.%s failed", exp.name, hook, exc_info=True
+                    )
+
+            dispatch.submit(_call)
 
     span = RunSpan(ctx, _fan)
     token = push_trace_context(ctx)
@@ -110,10 +121,15 @@ def traced_run(
             pass
         _fan("on_run_finish", status=span.status, output=span.output)
         if flush:
+            # Queued behind this run's hooks, not awaited. `flush()` takes no ctx,
+            # so it cannot go through `_fan`.
             for exp in exporters:
-                try:
-                    exp.flush()
-                except Exception:  # noqa: BLE001
-                    logger.debug(
-                        "trace exporter %s.flush failed", exp.name, exc_info=True
-                    )
+                def _flush(exp: Any = exp) -> None:
+                    try:
+                        exp.flush()
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "trace exporter %s.flush failed", exp.name, exc_info=True
+                        )
+
+                dispatch.submit(_flush)

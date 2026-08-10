@@ -7,6 +7,35 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+#: What each backend needs before it can be built, as groups of alternatives:
+#: every tuple must be satisfied by at least one variable being set.
+#:
+#: Auto-detection has always used these — an exporter turns *on* because its
+#: connection variables are present. `NEUROSURFER_EXPORTERS` used to skip the
+#: check entirely, so naming `otel` there built an exporter with no endpoint and
+#: the OTel SDK quietly fell back to `http://localhost:4318`, giving a "tracing
+#: is off by default" install a live exporter aimed at nothing. An explicit list
+#: says *which* backends are wanted, not that they are configured.
+EXPORTER_REQUIRED_ENV: dict[str, tuple[tuple[str, ...], ...]] = {
+    "langfuse": (("LANGFUSE_PUBLIC_KEY",), ("LANGFUSE_SECRET_KEY",)),
+    "otel": (("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),),
+}
+
+
+def missing_exporter_env(name: str, env: dict[str, str] | None = None) -> list[str]:
+    """Connection variables *name* needs and does not have.
+
+    Empty when the backend is configured, or when it declares no requirement —
+    `memory` and `null` need nothing, and an exporter registered as an instance
+    never comes through here.
+    """
+    env = os.environ if env is None else env
+    return [
+        " or ".join(group)
+        for group in EXPORTER_REQUIRED_ENV.get(name, ())
+        if not any(env.get(var) for var in group)
+    ]
+
 
 def detect_exporters_from_env(env: dict[str, str] | None = None) -> list[str]:
     """Which trace exporters to activate, inferred from the environment.

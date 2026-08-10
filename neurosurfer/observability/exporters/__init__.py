@@ -58,6 +58,22 @@ def _build(name: str, service_name: str) -> TraceExporter | None:
     if builder is None:
         logger.warning("Unknown trace exporter %r; skipping.", name)
         return None
+    # Named but not configured is a no, not a default. Building `otel` without an
+    # endpoint used to hand the OTel SDK its own `http://localhost:4318` fallback,
+    # so an install nobody had pointed at a collector still opened one — and paid
+    # to find out nothing was there. Bypassed by `register_exporter`, which takes
+    # an instance the caller built deliberately.
+    from neurosurfer.config.observability import missing_exporter_env
+
+    if missing := missing_exporter_env(name):
+        logger.warning(
+            "Trace exporter %r was requested but is not configured (%s not set); "
+            "skipping. Set it, or drop %r from NEUROSURFER_EXPORTERS.",
+            name,
+            ", ".join(missing),
+            name,
+        )
+        return None
     try:
         return builder(service_name)
     except ImportError as e:
