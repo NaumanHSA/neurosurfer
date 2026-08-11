@@ -315,19 +315,40 @@ pages, every nav entry resolves. Retrieval quality against the docs index is
 - [ ] `learn/concepts.md` — **not done.** Canonical messages, events and sessions
       are all still accurate; adding graph vocabulary here would duplicate the
       Graph tab, which now owns it. Left deliberately
-- [ ] Full-docs sweep: every code sample on every page imported and run —
-      **blocked on tooling**, see below
+- [x] Full-docs sweep — **unblocked and done.** A `.venv` was built,
+      `docs/requirements.txt` and the package installed, and both gates run clean:
+      `mkdocs build --strict` exits 0 with no warnings, and
+      [`check_docs_imports.py`](check_docs_imports.py) resolves **79/79** distinct
+      `neurosurfer` imports across every page
 
 **Done when:** `mkdocs build --strict` is clean, and every fenced `python` block
-in `docs/` either executes or is explicitly marked as illustrative.
+in `docs/` either executes or is explicitly marked as illustrative. ✅
 
-**Blocked on tooling.** No interpreter on the development machine has the
-dependencies installed — `pydantic` is missing on all three found — so neither
-`mkdocs build --strict` nor sample execution can run. What *was* run:
-[`check_docs_links.py`](check_docs_links.py), clean across 57 pages (links,
-anchors, nav membership both ways). Every import written was checked statically
-against its defining module and `__all__`, which caught two real errors. The
-execution sweep still needs an environment and should run before merge.
+### What the sweep found
+
+**One real bug, in a page this plan never touched.**
+[`server/agents.md`](../docs/server/agents.md) imported
+`build_provider_from_profile`, which has never existed on any branch. The function
+is `build_provider` and it takes a `Config`, so the sample is now
+`build_provider(load_config())`. It had been wrong long enough that nobody reading
+the page had run it.
+
+That is the argument for the checker existing rather than for reading harder. The
+failure mode docs have is not prose that is hard to follow — it is a symbol
+renamed in the source and left behind in the prose, and only an import resolves
+that.
+
+**Two Windows notes**, both pre-existing and neither a docs problem:
+
+- Importing `neurosurfer` **dies on Windows without `PYTHONIOENCODING=utf-8`**.
+  The startup banner contains box-drawing characters and the default cp1252
+  stdout cannot encode them, so `import neurosurfer` raises `UnicodeEncodeError`
+  before anything runs. Same root cause as the seven subprocess failures in
+  [WINDOWS_TEST_FAILURES.md](WINDOWS_TEST_FAILURES.md) — and worth noting that it
+  is not only subprocesses: a plain interactive import is affected too.
+- [`tracing/tracer.py:443,445`](../neurosurfer/tracing/tracer.py) emits three
+  `SyntaxWarning: invalid escape sequence "\{"`. Harmless today, an error in a
+  future Python. Not fixed here; it belongs to whoever owns the tracer.
 
 ---
 
@@ -364,11 +385,20 @@ undone stay unticked with a note.
 
 | Criterion | State |
 |---|---|
-| `mkdocs build --strict` passes with no warnings | ⬜ **blocked** — no environment; see Phase 7 |
+| `mkdocs build --strict` passes with no warnings | ✅ exit 0, clean |
 | No page links to a file, notebook, or anchor that does not exist | ✅ 57 pages, 0 problems |
+| Every `neurosurfer` import in the docs resolves | ✅ 79/79 |
 | Every subsystem in §0.1's zero-pages table has a page | ✅ all six |
 | A person upgrading from `main` can find §0.4 without the CHANGELOG | ✅ [`about/upgrading.md`](../docs/about/upgrading.md), first section |
-| `describe_capability` answers for each of the eleven node kinds | ⬜ unverified — needs an environment |
+| `describe_capability` answers for each of the eleven node kinds | ⬜ unverified — needs a provider and an API key, so it is a live-run check rather than a build-time one |
+
+Both gates are runnable by anyone with the docs environment:
+
+```bash
+python .dev/check_docs_links.py                              # no deps needed
+PYTHONIOENCODING=utf-8 python .dev/check_docs_imports.py     # needs the package
+python -m mkdocs build --strict
+```
 
 Where §0.1's six landed:
 

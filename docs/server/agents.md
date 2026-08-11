@@ -10,9 +10,10 @@ your agent through `/v1/chat/completions`.
 from neurosurfer.app.server import NeurosurferServer
 from neurosurfer.agents import AgenticLoop, Guardrails
 from neurosurfer.tools import default_pool
-from neurosurfer.llm import build_provider_from_profile
+from neurosurfer.config import load_config
+from neurosurfer.llm import build_provider
 
-provider = build_provider_from_profile()      # from env / active profile
+provider = build_provider(load_config())      # from env / active profile
 agent = AgenticLoop(
     provider=provider, tools=default_pool(),
     system_prompt="You are a helpful assistant.",
