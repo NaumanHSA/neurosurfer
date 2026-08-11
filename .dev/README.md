@@ -20,6 +20,7 @@ decide what to do next.
 | Plan | Owns | State |
 |---|---|---|
 | [01 — The Architect and the validator](01_ARCHITECT_AND_VALIDATOR_PLAN.md) · [build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) | Bringing the matured Architect and validator onto the stable line, with the engine floor they stand on — and without the studio. | Current |
+| [02 — The documentation](02_DOCUMENTATION_PLAN.md) | Making `docs/` describe the framework plan 01 built, before it merges. Owns the nav, the upgrade notes for the two changes that break a workflow in silence, and the pages for every subsystem that has none. | Current |
 
 Beside them, one note that belongs to no plan:
 **[WINDOWS_TEST_FAILURES.md](WINDOWS_TEST_FAILURES.md)** — what the sixteen
