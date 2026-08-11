@@ -30,5 +30,5 @@ wrap a graph with its tools and metadata for reuse.
 The [Colab notebook](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/03_graph_agents.ipynb)
 builds a multi-node workflow end to end, including agent nodes and parallel branches.
 
-**Next:** [Graph & Workflows guide](../guides/graph-workflows.md) ·
+**Next:** [Graph & Workflows guide](../graph/index.md) ·
 [Architect](../architect/index.md) · [Tutorial 4 →](mcp-servers.md)

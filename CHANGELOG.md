@@ -107,6 +107,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a tool by submodule path does not**: `from neurosurfer.tools.builtin.search
   import SearchTool` is now `from neurosurfer.registry.core.filesystem.search
   import SearchTool`.
+- **MCP server configs moved, and an existing one will not be found.**
+  `McpStore.default()` was `~/.neurosurfer/mcp.json`; it is now
+  `mcp_config_path()` — `config/mcp.json` under the data root, i.e.
+  `./.neurosurfer/config/mcp.json` unless `NEUROSURFER_HOME` is set. Two
+  consequences, and **neither raises**: the old file is still on disk and nothing
+  reads it, so the server list reads as *empty*; and the location is now relative
+  to the **working directory** rather than to `$HOME`, so launching from a
+  different folder yields a different, empty configuration. Move the file and set
+  `NEUROSURFER_HOME` to restore host-wide behaviour — see
+  [Upgrading](docs/about/upgrading.md). The move itself is right: it puts MCP
+  config under the same single root as workflows, runs, traces and authored tools
+  rather than leaving one file behind in `$HOME`. Only the silence was wrong.
 - **A node is told what it names, and nothing ambient.** *This is the change most
   likely to affect an existing workflow.* A node's turn is now **what its own
   task text names, plus the outputs of the steps it declared in `depends_on`** —

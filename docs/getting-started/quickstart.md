@@ -149,5 +149,5 @@ print(result.title, result.points)  # result is a validated Summary instance
 - [Agents](../guides/agents.md) — the agent family, events, permissions, and sub-agents.
 - [Tools](../guides/tools.md) — built-in tools and writing your own.
 - [RAG](../guides/rag.md) — retrieval-augmented generation.
-- [Graph & Workflows](../guides/graph-workflows.md) and the [Architect](../architect/index.md).
+- [Graph & Workflows](../graph/index.md) and the [Architect](../architect/index.md).
 - [Tutorials](../tutorials/index.md) — hands-on Colab notebooks.
