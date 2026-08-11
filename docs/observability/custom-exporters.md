@@ -93,6 +93,33 @@ agent run** — its error is swallowed and logged. A missing backend SDK is warn
 custom exporter can sit alongside Langfuse/OTel without either affecting the others. They share
 nothing but the read-only `TraceContext`.
 
+## What the dispatch worker means for you
+
+Your hooks do **not** run on the agent's thread. They are submitted to a single daemon worker over
+a bounded FIFO. Three consequences for an exporter author:
+
+**You get ordering, so you can keep per-run state.** One worker draining a FIFO means `on_run_start`
+reaches you before the `on_turn` that follows it. A dict keyed by span id is safe — and it is safe
+even when a `map` node runs its body concurrently, because every call lands on the same thread.
+
+**You do not get delivery.** The queue is bounded and drops when full. Do not build anything that
+requires having seen every hook; a missing `on_run_finish` is a normal condition, not a bug.
+
+**Blocking is your own cost, not the run's** — but it is still a cost. The worker is one thread, so
+a hook that blocks for eight seconds delays every exporter behind it. Keep network work batched, and
+let a backend SDK's own queue do the batching where it has one.
+
+```python
+from neurosurfer.observability import dispatch
+
+dispatch.drain(timeout=5.0)   # in a test, before asserting on what you received
+dispatch.dropped()            # items the bounded queue discarded
+```
+
+!!! warning "Don't call `force_flush` in a hook"
+    It exists to bypass a batch processor's queue and drain on the calling thread. Inline, that is
+    what cost a run 74 seconds against an unreachable collector.
+
 ## Next
 
 - [Overview](index.md) — how the whole tracing layer fits together.

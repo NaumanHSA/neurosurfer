@@ -7,22 +7,25 @@ an OpenAI-compatible API.
 ## The layers
 
 ```
-┌──────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────┐
 │  Gateway (app/server)   OpenAI-compatible /v1/chat/completions │
-│                         serve agents · proxy upstreams · hooks │
-├──────────────────────────────────────────────────────────────┤
-│  Orchestration          Graph engine (DAG) · Workflows         │
-│  (graph, architect)     Architect (build a workflow from text) │
-├──────────────────────────────────────────────────────────────┤
+│                         /v1/workflows · /v1/runs · /v1/architect│
+├───────────────────────────────────────────────────────────────┤
+│  Authoring (architect)  plan · ground · build · verify · refuse│
+├───────────────────────────────────────────────────────────────┤
+│  Orchestration (graph)  DAG engine · 11 node kinds · control   │
+│                         flow · validation · Workflow packages  │
+├───────────────────────────────────────────────────────────────┤
 │  Agents                 AgenticLoop · ReactAgent · Agent       │
 │  (agents)               sub-agents · context mgmt · guardrails │
-├───────────────┬──────────────────────┬───────────────────────┤
-│  Tools        │  RAG                 │  Observability          │
-│  (tools, mcp) │  (rag, vectorstores) │  (observability)        │
-├───────────────┴──────────────────────┴───────────────────────┤
+├───────────────┬───────────────┬───────────────────────────────┤
+│  Registry     │  RAG          │  Observability                │
+│  (registry,   │  (rag,        │  (observability)              │
+│   tools, mcp) │   vectorstores)│                              │
+├───────────────┴───────────────┴───────────────────────────────┤
 │  Providers (llm)        Anthropic · OpenAI / OpenAI-compatible │
 │                         one Provider protocol, canonical types │
-└──────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────────┘
 ```
 
 - **Providers** ([`neurosurfer.llm`](../guides/providers.md)) normalise every model behind one
@@ -31,15 +34,22 @@ an OpenAI-compatible API.
 - **Agents** ([`neurosurfer.agents`](../guides/agents.md)) turn a provider + tools into a run loop
   that streams typed events, gates dangerous actions, and manages the context window.
 - **Tools** ([`neurosurfer.tools`](../guides/tools.md)) are what an agent can *do* — file ops, shell,
-  web search, sandboxed Python, HTTP, browser — plus [MCP](../guides/mcp.md) tools from external
-  servers.
+  web search, sandboxed Python, HTTP, browser, SQL — plus [MCP](../guides/mcp.md) tools from
+  external servers.
+- **The registry** ([`neurosurfer.registry`](../guides/tool-registry.md)) is what makes those tools
+  *findable*: each declares a capability tag from a closed vocabulary, so a need resolves against a
+  declaration rather than against words a description happens to share.
 - **RAG** ([`neurosurfer.rag`](../guides/rag.md)) adds ingest → chunk → embed → retrieve with
   token-aware context injection, backed by pluggable vector stores.
-- **Orchestration** ([`neurosurfer.graph`](../guides/graph-workflows.md)) runs multi-node DAGs of
-  functions, tools, and agents; the [Architect](../architect/index.md) designs those graphs from a
-  plain-English description.
+- **Orchestration** ([`neurosurfer.graph`](../graph/index.md)) runs multi-node DAGs of functions,
+  tools, and agents — with branching, loops, fan-out, and a validation gate that refuses a graph
+  before a model is called.
+- **Authoring** ([`neurosurfer.architect`](../architect/index.md)) designs those graphs from a
+  plain-English description, grounds every capability it names against the registry, and proves its
+  work by running it. The runtime never imports the authoring layer.
 - **Gateway** ([`neurosurfer.app.server`](../server/index.md)) exposes any of the above as a model at
-  `/v1/chat/completions`, with SSE streaming, upstream proxying, and request/response hooks.
+  `/v1/chat/completions`, with SSE streaming, upstream proxying, and request/response hooks — plus
+  the [workflow](../server/workflows-api.md) and [architect](../server/architect-api.md) APIs.
 - **Observability** ([`neurosurfer.observability`](../observability/index.md)) is a cross-cutting
   layer: every agent run emits a trace to Langfuse or any OTLP backend with **zero code change**.
 
