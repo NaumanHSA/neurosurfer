@@ -106,6 +106,9 @@ def tagline_is_short(it):
     and an unparseable verdict fails safe to CONTINUE — a judge that could not be read must not be
     what stops a loop.
 
+The full `LoopIteration` field table, and what a return value does, is on
+[Python in a graph](functions.md#what-an-until-function-receives).
+
 `break_when` was removed. See
 [Upgrading](../about/upgrading.md#5-break_when-is-gone-a-loop-stops-for-one-reason).
 

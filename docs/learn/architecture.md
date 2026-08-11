@@ -6,27 +6,8 @@ an OpenAI-compatible API.
 
 ## The layers
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│  Gateway (app/server)   OpenAI-compatible /v1/chat/completions │
-│                         /v1/workflows · /v1/runs · /v1/architect│
-├───────────────────────────────────────────────────────────────┤
-│  Authoring (architect)  plan · ground · build · verify · refuse│
-├───────────────────────────────────────────────────────────────┤
-│  Orchestration (graph)  DAG engine · 11 node kinds · control   │
-│                         flow · validation · Workflow packages  │
-├───────────────────────────────────────────────────────────────┤
-│  Agents                 AgenticLoop · ReactAgent · Agent       │
-│  (agents)               sub-agents · context mgmt · guardrails │
-├───────────────┬───────────────┬───────────────────────────────┤
-│  Registry     │  RAG          │  Observability                │
-│  (registry,   │  (rag,        │  (observability)              │
-│   tools, mcp) │   vectorstores)│                              │
-├───────────────┴───────────────┴───────────────────────────────┤
-│  Providers (llm)        Anthropic · OpenAI / OpenAI-compatible │
-│                         one Provider protocol, canonical types │
-└───────────────────────────────────────────────────────────────┘
-```
+![Neurosurfer architecture — six layers, from providers at the base to the gateway on top](../assets/diagrams/neurosurfer-architecture-light.jpg#only-light){ .architecture-diagram }
+![Neurosurfer architecture — six layers, from providers at the base to the gateway on top](../assets/diagrams/neurosurfer-architecture-dark.jpg#only-dark){ .architecture-diagram }
 
 - **Providers** ([`neurosurfer.llm`](../guides/providers.md)) normalise every model behind one
   `Provider` protocol and a canonical message/response model, so nothing above cares which vendor you

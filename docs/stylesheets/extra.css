@@ -196,3 +196,16 @@ html {
 .md-tabs__link {
   font-size: 0.85rem;
 }
+
+/* ── Architecture diagram ──────────────────────────────────────────────────
+   The light/dark pair is swapped by Material's #only-light / #only-dark
+   fragments. A max-width keeps the JPEG from being upscaled past its native
+   resolution on wide screens, where it would soften. */
+.architecture-diagram {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+  margin: 1.5rem auto;
+  border-radius: 4px;
+}

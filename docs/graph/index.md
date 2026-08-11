@@ -14,12 +14,36 @@ cover building and running them directly.
 
 | Page | Answers |
 |---|---|
-| [Node kinds](node-kinds.md) | What the eleven kinds are and what each one needs. |
+| [Node kinds](node-kinds.md) | The eleven kinds, their classes, and what each one needs. |
 | [Control flow](control-flow.md) | Branching, looping, fanning out, recovering from errors. |
+| [Authoring in YAML](yaml.md) | The `graph.yaml` format, key by key. |
+| [Python in a graph](functions.md) | The `functions:` sidecar, and what your callables receive. |
 | [State & secrets](state.md) | What a node can see — and what it must never see. |
 | [Validation](validation.md) | What is checked, when, and what a failure means. |
 | [Workflow packages](packages.md) | Persisting, registering, and running a graph later. |
 | [Building in Python](building.md) | The `GraphBuilder` fluent API. |
+
+## Two ways to write a graph
+
+**Python**, where each kind is a class:
+
+```python
+from neurosurfer.graph import Graph, BaseNode
+
+graph = Graph(name="pipeline", nodes=[BaseNode(id="writer", instructions="…")])
+```
+
+**YAML**, which is what a package stores on disk:
+
+```yaml
+name: pipeline
+nodes:
+  - id: writer
+    kind: base
+    instructions: …
+```
+
+Same `Graph`, same validation, no second code path. See [Authoring in YAML](yaml.md).
 
 ## Build a graph
 
@@ -66,12 +90,14 @@ go green while the model answers as though it had been passed nothing.
 
 ### The kinds, briefly
 
-- **`base`** — one bounded LLM step. Reasons; cannot act repeatedly.
-- **`react`** — a multi-step tool-using node. Reasons *and* acts.
-- **`tool`** — one registered tool, called directly. Acts; cannot reason.
-- **`function`** / **`python`** — deterministic Python by import path.
-- **`router`**, **`loop`**, **`map`**, **`subgraph`** — [control flow](control-flow.md).
-- **`input`**, **`output`** — the edges of a run.
+Each has a class; the `kind=` string is the same node by another name.
+
+- **`BaseNode`** — one bounded LLM step. Reasons; cannot act repeatedly.
+- **`ReactNode`** — a multi-step tool-using node. Reasons *and* acts.
+- **`ToolNode`** — one registered tool, called directly. Acts; cannot reason.
+- **`FunctionNode`** / **`PythonNode`** — [deterministic Python](functions.md) by import path.
+- **`RouterNode`**, **`LoopNode`**, **`MapNode`**, **`SubgraphNode`** — [control flow](control-flow.md).
+- **`InputNode`**, **`OutputNode`** — the edges of a run.
 
 Full field reference: [Node kinds](node-kinds.md).
 

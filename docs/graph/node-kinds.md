@@ -12,49 +12,66 @@ What a kind requires is declared once, in
 The validator, the engine and this page all read the same declaration, so "what can go wrong with a
 tool node" is a query rather than a careful read.
 
-## Choosing a kind
+## Use the class, not the string
 
-| I need to… | Kind |
-|---|---|
-| Write, summarise, classify, transform text | [`base`](#base) |
-| Do work that needs a model to *decide* what to call, repeatedly | [`react`](#react) |
-| Call one known tool with arguments I already have | [`tool`](#tool) |
-| Run deterministic Python | [`function`](#function) |
-| Take one branch of several | [`router`](#router) |
-| Repeat until something is good enough | [`loop`](#loop) |
-| Do the same thing to every item of a list | [`map`](#map) |
-| Group a chunk of graph as one unit | [`subgraph`](#subgraph) |
-| Stop and ask a person | [`input`](#input) |
-| Declare what the workflow returns | [`output`](#output) |
-
-The distinction that matters most: **`base` reasons and cannot act; `tool` acts and cannot reason;
-`react` does both.** A node whose goal describes reaching outside the model — reading a file,
-fetching a URL, sending a message — cannot be a `base` node with a well-worded prompt. See
-[Validation](validation.md#capability-grounding).
-
-## Two ways to write the same node
-
-Every kind is available as a **class** and as a `kind=` **string**. They produce the same node.
+Every kind is available as a **class**, and that is the form to reach for in Python:
 
 ```python
-from neurosurfer.graph import GraphNode, RouterNode
+from neurosurfer.graph import RouterNode
 
-a = RouterNode(id="triage", instructions="Route by urgency: {ticket}", routes={...})
-b = GraphNode(kind="router", id="triage", instructions="Route by urgency: {ticket}", routes={...})
+RouterNode(id="triage", instructions="Route by urgency: {ticket}", routes={...})
 ```
 
-`Graph` upgrades whatever it is given, so `isinstance(node, RouterNode)` is true however the node
-was made, and YAML on disk is untouched. The engine dispatches on the class rather than on a kind
-string.
+Your editor completes the name, the class is greppable, and `isinstance(node, RouterNode)` works.
+The `kind=` string form is equivalent and still fully supported — it is what YAML uses, and what
+existing code is full of:
 
-The classes are `BaseNode`, `ReactNode`, `ToolNode`, `FunctionNode`, `PythonNode`, `RouterNode`,
-`LoopNode`, `MapNode`, `SubgraphNode`, `InputNode`, `OutputNode`, plus `ContainerNode` for the three
-that run a nested body.
+```python
+from neurosurfer.graph import GraphNode
+
+GraphNode(kind="router", id="triage", instructions="Route by urgency: {ticket}", routes={...})
+```
+
+**Both produce the same node.** `Graph` upgrades whatever it is given, so `isinstance(node,
+RouterNode)` is true however the node was made, YAML on disk is untouched, and the engine dispatches
+on the class rather than on a kind string.
 
 !!! note "Why every name ends in `Node`"
     The bare names were not sayable at a call site. `Tool`, `Input`, `Output`, `Map`, `Function` and
     `Python` all already mean something else here — and `Tool` was an outright collision with
     `neurosurfer.tools.base.Tool`, the ABC every registered tool subclasses.
+
+## Choosing a kind
+
+| I need to… | Class | `kind=` |
+|---|---|---|
+| Write, summarise, classify, transform text | [`BaseNode`](#base) | `base` |
+| Work that needs a model to *decide* what to call, repeatedly | [`ReactNode`](#react) | `react` |
+| Call one known tool with arguments I already have | [`ToolNode`](#tool) | `tool` |
+| Run deterministic Python | [`FunctionNode`](#function) | `function` |
+| Same as `FunctionNode` today | [`PythonNode`](#python) | `python` |
+| Take one branch of several | [`RouterNode`](#router) | `router` |
+| Repeat until something is good enough | [`LoopNode`](#loop) | `loop` |
+| Do the same thing to every item of a list | [`MapNode`](#map) | `map` |
+| Group a chunk of graph as one unit | [`SubgraphNode`](#subgraph) | `subgraph` |
+| Stop and ask a person | [`InputNode`](#input) | `input` |
+| Declare what the workflow returns | [`OutputNode`](#output) | `output` |
+
+Plus `ContainerNode` — the shared base for the three kinds that run a nested body (`LoopNode`,
+`MapNode`, `SubgraphNode`). You do not instantiate it; it is what you check against when you want
+"does this node have a `body`".
+
+```python
+from neurosurfer.graph import (
+    BaseNode, ReactNode, ToolNode, FunctionNode, PythonNode, RouterNode,
+    LoopNode, MapNode, SubgraphNode, InputNode, OutputNode, ContainerNode,
+)
+```
+
+The distinction that matters most: **`BaseNode` reasons and cannot act; `ToolNode` acts and cannot
+reason; `ReactNode` does both.** A node whose goal describes reaching outside the model — reading a
+file, fetching a URL, sending a message — cannot be a `BaseNode` with a well-worded prompt. See
+[Validation](validation.md#capability-grounding).
 
 ## Fields every node can use
 
@@ -71,14 +88,13 @@ See [Control flow](control-flow.md) for how `when` and `on_error` interact with 
 
 ---
 
-## base
+## BaseNode · `kind="base"` { #base }
 
 **One LLM call** — writing, summarising, classifying, transforming text.
 
 ```python
-GraphNode(
+BaseNode(
     id="writer",
-    kind="base",
     instructions="Write a 2-paragraph explanation from the research notes above.",
     depends_on=["researcher"],
 )
@@ -99,15 +115,14 @@ GraphNode(
   finish its job is a `react` node. A `base` step cut off mid-plan now **fails** rather than
   reporting success — see [Upgrading](../about/upgrading.md#4-a-truncated-base-step-now-fails-instead-of-reporting-success).
 
-## react
+## ReactNode · `kind="react"` { #react }
 
 **An LLM that calls tools in a loop** — for work that must touch the outside world and needs a
 model to decide what to send.
 
 ```python
-GraphNode(
+ReactNode(
     id="scout",
-    kind="react",
     instructions="Use list_dir to explore, read README.md, summarise, then call finish.",
     tools=["list_dir", "read_file", "finish"],
 )
@@ -128,14 +143,13 @@ GraphNode(
   offered rather than being written, reviewed, and read by nothing.
 - A node that ends with `finish()` returns **what it finished with**.
 
-## tool
+## ToolNode · `kind="tool"` { #tool }
 
 **Calls one registered tool with the arguments you bind. No LLM call.**
 
 ```python
-GraphNode(
+ToolNode(
     id="fetch",
-    kind="tool",
     tools=["http"],
     tool_args={"url": "{source_url}", "method": "GET"},
 )
@@ -157,14 +171,13 @@ GraphNode(
   nothing and fails at run time.
 - A credential goes in `secrets` and is written `${NAME}` in an argument, **never in a prompt**.
 
-## function
+## FunctionNode · `kind="function"` { #function }
 
 **Deterministic Python**: imports a callable and calls it with the inputs and upstream outputs that
 match its signature.
 
 ```python
-GraphNode(id="dedupe", kind="function", callable="my_module:drop_duplicates",
-          depends_on=["gather"])
+FunctionNode(id="dedupe", callable="my_module:drop_duplicates", depends_on=["gather"])
 ```
 
 | Field | Notes |
@@ -178,7 +191,7 @@ GraphNode(id="dedupe", kind="function", callable="my_module:drop_duplicates",
 - No `export`: the exporter is only consulted on the LLM path, so `export: true` here would be a
   setting that silently does nothing.
 
-## python
+## PythonNode · `kind="python"` { #python }
 
 **Today, an alias of `function`.** Same executor path, same required import path.
 
@@ -186,15 +199,14 @@ It does **not** run inline code, despite the name. The spec states what the engi
 what the label suggests; resolving the gap — real inline code, or retiring the kind — is an open
 decision.
 
-## router
+## RouterNode · `kind="router"` { #router }
 
 **Picks one downstream branch** — by LLM classification, or by deterministic predicates. The
 branches not taken are *skipped*, not errored.
 
 ```python
-GraphNode(
+RouterNode(
     id="triage",
-    kind="router",
     instructions="Route this support ticket by urgency: {ticket}",
     routes={"urgent": "escalate", "routine": "reply"},   # N-way, one LLM call
     default="reply",
@@ -218,14 +230,13 @@ GraphNode(
 
 See [Control flow](control-flow.md#router) for the deterministic form and merge behaviour.
 
-## loop
+## LoopNode · `kind="loop"` { #loop }
 
 **Runs a nested body over and over** until a condition holds, up to a hard ceiling.
 
 ```python
-GraphNode(
+LoopNode(
     id="refine",
-    kind="loop",
     max_iterations=3,
     until="the review approves the draft",
     body=[...],
@@ -252,13 +263,13 @@ GraphNode(
 `break_when` was removed; see [Upgrading](../about/upgrading.md#5-break_when-is-gone-a-loop-stops-for-one-reason)
 and [Control flow](control-flow.md#loop) for the full `until` contract.
 
-## map
+## MapNode · `kind="map"` { #map }
 
 **Runs a nested body once per item** of a collection, and returns the ordered list of results.
 
 ```python
-GraphNode(id="per_item", kind="map", over="inputs.items", item_var="item", concurrency=4,
-          body=[GraphNode(id="handle", kind="base", instructions="Process one item: {item}")])
+MapNode(id="per_item", over="inputs.items", item_var="item", concurrency=4,
+        body=[BaseNode(id="handle", instructions="Process one item: {item}")])
 ```
 
 | Field | Notes |
@@ -274,7 +285,7 @@ GraphNode(id="per_item", kind="map", over="inputs.items", item_var="item", concu
   needed to collect them.
 - The body is handed **one item**, not the whole collection.
 
-## subgraph
+## SubgraphNode · `kind="subgraph"` { #subgraph }
 
 **A workflow inside a workflow**: runs a nested body once, and its final outputs become this node's
 output.
@@ -289,7 +300,7 @@ output.
 - Body nodes may only depend on their **siblings** — a dependency pointing outside the body is
   refused when the graph loads.
 
-## input
+## InputNode · `kind="input"` { #input }
 
 **Pauses the run and waits for a person** to supply a value.
 
@@ -307,7 +318,7 @@ output.
 No `instructions` is offered on a panel — the conversation happens at run time. The engine still
 uses one if a graph sets it: it is the question a *headless* CLI run asks.
 
-## output
+## OutputNode · `kind="output"` { #output }
 
 **Declares what the workflow returns.** The graph stops here.
 

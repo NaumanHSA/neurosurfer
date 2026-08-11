@@ -77,7 +77,7 @@ graph = Graph(
 )
 ```
 
-See [Node kinds](node-kinds.md#two-ways-to-write-the-same-node) for how classes and `kind=` strings
+See [Node kinds](node-kinds.md#use-the-class-not-the-string) for how classes and `kind=` strings
 relate.
 
 ## Next

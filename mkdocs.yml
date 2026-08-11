@@ -126,11 +126,10 @@ nav:
     - index.md
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
-  - CLI Agent: cli/index.md
-  - Learn:
     - Architecture: learn/architecture.md
     - Core Concepts: learn/concepts.md
     - Permissions & Safety: learn/permissions.md
+  - CLI Agent: cli/index.md
   - Guides:
     - Providers: guides/providers.md
     - Agents: guides/agents.md
@@ -149,6 +148,8 @@ nav:
     - Overview: graph/index.md
     - Node Kinds: graph/node-kinds.md
     - Control Flow: graph/control-flow.md
+    - Authoring in YAML: graph/yaml.md
+    - Python in a Graph: graph/functions.md
     - State & Secrets: graph/state.md
     - Validation: graph/validation.md
     - Workflow Packages: graph/packages.md

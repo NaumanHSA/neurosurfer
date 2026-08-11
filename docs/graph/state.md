@@ -91,6 +91,9 @@ instance).
 
 **A sidecar is imported by path and therefore stands alone: no relative imports.**
 
+What your callables receive — and the `**kwargs` rule a `function` node makes non-optional — is on
+[Python in a graph](functions.md).
+
 ## Secrets
 
 A credential must never reach a prompt. Interpolated into a node's goal it would be in the request,
