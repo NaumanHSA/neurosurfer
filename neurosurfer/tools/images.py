@@ -80,7 +80,20 @@ def find_image_paths(text: str, cwd: Path) -> list[tuple[str, Path]]:
                 continue
             p = resolve_path(cwd, cand)
             key = str(p)
-            if p.is_file() and key not in seen:
+            # A candidate that cannot even be *asked* about is not a file.
+            #
+            # The longest candidate is tried first, and for a node's turn that
+            # means the whole task text up to the extension — hundreds of bytes,
+            # which `stat()` rejects with ENAMETOOLONG rather than "no". That
+            # error escaped to the caller, so a prompt that merely *mentioned*
+            # an image killed the run before the model was asked anything.
+            # `is_file()` only swallows ENOENT/ENOTDIR/EBADF/ELOOP; everything
+            # else here means "not a usable path", which is the same answer.
+            try:
+                is_file = p.is_file()
+            except OSError:
+                continue
+            if is_file and key not in seen:
                 seen.add(key)
                 found.append((cand, p))
                 break

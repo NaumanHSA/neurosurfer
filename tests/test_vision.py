@@ -181,6 +181,26 @@ def test_find_image_paths_ignores_missing_and_nonimages(tmp_path: Path) -> None:
     assert find_image_paths("read notes.txt and /nope/gone.png", tmp_path) == []
 
 
+def test_find_image_paths_survives_a_long_prompt(tmp_path: Path) -> None:
+    """A long turn that merely *mentions* an image must not kill the run.
+
+    The longest candidate is tried first, so for a graph node's turn the first
+    path `stat()`ed is the whole task text up to the extension. That is past
+    NAME_MAX, and the ENAMETOOLONG escaped `is_file()` — a `react` node with a
+    dashboard path in its context died before the model was asked anything.
+    """
+    from neurosurfer.tools.images import find_image_paths
+
+    img = tmp_path / "dashboard.png"
+    img.write_bytes(_PNG_BYTES)
+    prompt = (
+        "Your task:\n- PURPOSE: Node vision\n- GOAL: " + "describe the trend " * 40
+        + f"\n\nContext from previous nodes:\n--- charts ---\nDashboard image: {img}"
+    )
+    found = find_image_paths(prompt, tmp_path)
+    assert [p for _, p in found] == [img]
+
+
 async def test_prompt_image_is_auto_attached(tmp_path: Path) -> None:
     from neurosurfer.tools.builtin import FinishTool
 

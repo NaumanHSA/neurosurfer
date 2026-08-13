@@ -267,13 +267,17 @@ class BaseAgent:
         """Drive :meth:`run` to completion and collect a :class:`RunResult`."""
         result = events.RunResult()
         text_parts: list[str] = []
+        thinking_parts: list[str] = []
         async for ev in self.run(user_input):
             if isinstance(ev, events.TextDelta):
                 text_parts.append(ev.text)
+            elif isinstance(ev, events.ThinkingDelta):
+                thinking_parts.append(ev.text)
             elif isinstance(ev, events.RunFinished):
                 result.status = ev.status
                 result.report = ev.report
         result.final_text = "".join(text_parts)
+        result.final_thinking = "".join(thinking_parts)
         result.usage = self.usage
         result.turns = self.turns
         return result
