@@ -249,3 +249,79 @@ def test_a_react_node_that_produced_nothing_at_all_is_an_error():
     with pytest.raises(GraphConfigurationError) as e:
         _react([("", [("finish", {"summary": "", "status": "success"})])])
     assert "finish" in str(e.value)
+
+
+class _ThinksOutLoud:
+    """A provider whose turn is reasoning and nothing else.
+
+    What a local reasoning model does intermittently: no tool call, no text, the
+    whole turn in `reasoning_content`.
+    """
+
+    model = "thinker"
+
+    def __init__(self, thinking: str) -> None:
+        from neurosurfer.llm.capabilities import ProviderCapabilities
+
+        self._thinking = thinking
+        self.capabilities = ProviderCapabilities(
+            supports_thinking=True, supports_prompt_cache=False,
+            supports_token_count=False, tool_call_style="anthropic",
+            context_window=8192, max_output_tokens=2048,
+        )
+
+    async def stream(self, messages, system, tools, config):  # noqa: ANN001
+        from neurosurfer.llm.types import (
+            CanonicalResponse,
+            Done,
+            ThinkingBlock,
+            ThinkingDelta,
+            Usage,
+        )
+
+        yield ThinkingDelta(text=self._thinking)
+        yield Done(response=CanonicalResponse(
+            content=[ThinkingBlock(thinking=self._thinking)],
+            stop_reason="end_turn",
+            usage=Usage(input_tokens=1, output_tokens=1),
+            model=self.model,
+        ))
+
+    async def complete(self, messages, system, tools, config):  # noqa: ANN001
+        from neurosurfer.llm.types import Done
+
+        async for ev in self.stream(messages, system, tools, config):
+            if isinstance(ev, Done):
+                return ev.response
+        return None
+
+    async def count_tokens(self, messages, system, tools):  # noqa: ANN001
+        return 0
+
+
+def test_a_thinking_only_turn_is_an_answer_not_a_silence():
+    """`final_text` collects `TextDelta` only, so a turn that is all reasoning
+    left it empty and the node failed — taking every node downstream with it.
+
+    `CanonicalResponse.text()` already falls back to thinking for the one-shot
+    path (*"thinking-only models put everything in reasoning_content"*); the
+    streamed path disagreed purely because it accumulates deltas. Measured on
+    `qwen/qwen3.5-9b` driving the capstone tutorial's vision node: two runs in six.
+    """
+    from pathlib import Path
+
+    from neurosurfer.graph.engine.node_runner import run_react_node
+    from neurosurfer.tools.base import AutoApproveIOHandler, ToolContext
+
+    ctx = ToolContext(cwd=Path("."), io=AutoApproveIOHandler())
+    call = run_react_node(
+        _ThinksOutLoud("The chart trends up, then spikes in November."),
+        _finish_pool(), ctx, "sys", "go",
+    )
+    assert "spikes in November" in call.output
+
+
+def test_a_real_answer_still_beats_the_reasoning_that_preceded_it():
+    """The fallback is last in the order — reasoning must never displace prose."""
+    call = _react([("The considered answer.", [])])
+    assert call.output == "The considered answer."

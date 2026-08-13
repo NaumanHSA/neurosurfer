@@ -28,6 +28,10 @@ SPEC = NodeKindSpec(
     shape="agent",
     calls_model=True,
     data_arrival=("prompt", "bound_args"),
+    #: Unbounded here — the loop runs until it is done or the guardrails stop it.
+    #: `None` rather than a large number: "as many as it takes" is the property,
+    #: and a number would invite a consumer to render a limit that is not one.
+    tool_rounds=None,
     fields=(
         c.INSTRUCTIONS,
         replace(c.TOOLS_ATTACHED, required=True,

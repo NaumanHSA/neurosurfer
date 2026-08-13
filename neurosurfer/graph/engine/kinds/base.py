@@ -12,6 +12,9 @@ SPEC = NodeKindSpec(
     shape="agent",
     calls_model=True,
     data_arrival=("prompt", "bound_args"),
+    #: One round, and that is the whole difference between `base` and `react`.
+    #: `run_base_node` reads it from here rather than restating it as a literal.
+    tool_rounds=1,
     #: `tools` was missing here, and the spec was the only place it was.
     #:
     #: `run_node_runner.run_base_node` is documented as "one LLM call, optionally

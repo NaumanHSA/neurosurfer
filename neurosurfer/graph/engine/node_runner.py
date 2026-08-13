@@ -120,10 +120,14 @@ def run_base_node(
     plain text otherwise.
 
     **With tools, this is the rung between `base` and `react`.** `OneShotAgent`
-    offers the tools, lets the model call them once (`max_tool_rounds=1`), feeds the
-    results back and takes the answer — a single round rather than a loop. That is
-    the right shape for "fetch this, then tell me about it", which needed a `react`
-    node and its whole loop before.
+    offers the tools, lets the model call them for as many rounds as the kind
+    declares (`base` says one — see `kinds/base.py`), feeds the results back and
+    takes the answer. That is the right shape for "fetch this, then tell me about
+    it", which needed a `react` node and its whole loop before.
+
+    The budget is read from the spec rather than written here as a literal, so
+    the card, validation and the Architect all describe the same limit the
+    executor enforces.
 
     An empty pool leaves the behaviour exactly as it was: one call, no tools
     offered. Nothing changes for a node that never had any.
@@ -138,6 +142,10 @@ def run_base_node(
     )
     pool = tool_pool if tool_pool is not None else ToolPool([])
 
+    from .kinds import NODE_KIND_SPECS
+
+    rounds = NODE_KIND_SPECS["base"].tool_rounds
+
     async def _run() -> NodeCall:
         agent = OneShotAgent(
             provider=provider,
@@ -149,6 +157,7 @@ def run_base_node(
             gen_config=cfg,
             mode="bypass",
             output_schema=output_schema,
+            max_tool_rounds=rounds if rounds is not None else 1,
         )
         out = await agent.complete(user_prompt)
 
@@ -226,7 +235,24 @@ def run_react_node(
         #
         # `subagents/runner.py` had this right already (`report or final_text or
         # …`); this is the same rule, in the place a workflow reads it.
-        output = (result.report or "").strip() or (result.final_text or "").strip()
+        # **And a thinking-only turn is an answer, not a silence.**
+        #
+        # A local reasoning model sometimes ends its last turn having emitted
+        # only `ThinkingDelta` — no tool call, no text. `final_text` is then
+        # empty for a run that plainly produced something, and this node failed,
+        # taking every node downstream with it. Measured on `qwen/qwen3.5-9b`
+        # driving the capstone tutorial's vision node: two runs in six.
+        #
+        # `CanonicalResponse.text()` already resolves this the same way for the
+        # one-shot path — *"thinking-only models put everything in
+        # reasoning_content; fall back so callers always get a non-empty
+        # string"*. The streamed path disagreed with it purely because it
+        # accumulates deltas. Last in the order, so a real answer always wins.
+        output = (
+            (result.report or "").strip()
+            or (result.final_text or "").strip()
+            or (result.final_thinking or "").strip()
+        )
 
         # Empty is the line, exactly as it is for `base` — see `run_base_node`. A
         # react node that ran tools and produced no answer has not succeeded at

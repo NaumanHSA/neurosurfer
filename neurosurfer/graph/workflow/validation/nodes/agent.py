@@ -7,6 +7,7 @@ tools it names exist.
 
 from __future__ import annotations
 
+from neurosurfer.graph.engine.kinds import node_kind_spec
 from neurosurfer.graph.engine.templates import node_instruction
 
 from ..models import Severity, ValidationIssue
@@ -156,4 +157,53 @@ def a_shaped_answer_and_tools_do_not_combine(node, ctx, report) -> None:
             "and one that shapes its result."
         ),
         detail="output_schema wins over tools in run_base_node's one-shot path",
+    ))
+
+
+@node_rule(kinds=("base",), severity=Severity.WARNING)
+def enough_tool_rounds_for_the_tools_attached(node, ctx, report) -> None:
+    """More tools than the kind has rounds to call them in.
+
+    A `base` node gets **one** round of tool calls — now declared as
+    `tool_rounds` on its spec rather than buried as a literal in `run_base_node`,
+    which is what makes this rule expressible at all. One round means the model
+    may call tools once, sees the results, and answers. It cannot use one tool's
+    result to decide the next.
+
+    So two or more attached tools is a step that *may* be a sequence, and a
+    sequence is the one thing this kind cannot do. It is not certainly wrong —
+    two tools can be independent lookups answered in a single parallel round,
+    which works perfectly — so this warns rather than refuses.
+
+    Getting it wrong used to be silent: the round was spent on the first tool,
+    the second was refused, and the node returned an empty string reported as
+    success. That specific silence is fixed, but the failure still only arrives
+    at run time, after the model call is paid for. This says it before.
+    """
+    tools = list(getattr(node, "tools", None) or [])
+    if len(tools) < 2:
+        return
+    # A shaped answer disables tools entirely; that is the other rule's finding,
+    # and reporting both would describe one node as two different mistakes.
+    if getattr(node, "output_schema", None):
+        return
+
+    rounds = node_kind_spec("base").tool_rounds if node_kind_spec("base") else 1
+    if rounds is None or len(tools) <= rounds:
+        return
+
+    report.add(ValidationIssue(
+        severity=Severity.WARNING,
+        kind="agent.tools_exceed_rounds",
+        node_id=node.id,
+        message=(
+            f"This step has {len(tools)} tools attached but gets "
+            f"{rounds} round of tool calls, so it cannot use one tool's result "
+            f"to choose the next."
+        ),
+        suggestion=(
+            "Fine if the tools are independent lookups. If one feeds the next, "
+            "make this a ReAct Agent step, which loops until it is done."
+        ),
+        detail=f"kind `base` declares tool_rounds={rounds}; {len(tools)} tools attached",
     ))

@@ -105,6 +105,40 @@ def test_model_choice_is_only_offered_where_a_model_runs():
         )
 
 
+def test_the_tool_round_budget_is_declared_by_the_kinds_that_use_tools():
+    """`base` allows one round; `react` loops. That difference *is* the two kinds.
+
+    It was a literal inside `run_base_node`, so the single most consequential
+    property of a `base` node was the one thing no consumer of the specs could
+    read. Asserted here against the value the executor now passes.
+    """
+    assert node_kind_spec("base").tool_rounds == 1
+    assert node_kind_spec("react").tool_rounds is None
+
+
+def test_the_executor_uses_the_budget_the_spec_declares():
+    """The point of moving it: one number, not two that can drift apart."""
+    import inspect
+
+    from neurosurfer.graph.engine import node_runner
+
+    source = inspect.getsource(node_runner.run_base_node)
+    assert "NODE_KIND_SPECS[\"base\"].tool_rounds" in source, (
+        "run_base_node must read the budget from the spec, not restate it"
+    )
+
+
+def test_kinds_that_never_call_tools_declare_no_budget():
+    """`None` on a kind with no tool loop means "not applicable", and that is the
+    same value `react` uses for "unbounded" — so only assert it where it is
+    meaningful, which is the kinds that can hold tools at all."""
+    for spec in all_kind_specs():
+        if spec.field("tools") is None:
+            assert spec.tool_rounds is None, (
+                f"{spec.kind} declares a tool-round budget but offers no tools"
+            )
+
+
 def test_required_fields_match_what_the_loader_enforces():
     """Requiredness is a claim about the engine, so check it against the engine.
 

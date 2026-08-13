@@ -151,6 +151,16 @@ class NodeKindSpec:
     #: How upstream data reaches it — the three mechanisms the engine actually
     #: has, stated per kind rather than discovered by reading the executor.
     data_arrival: tuple[DataArrival, ...] = ()
+    #: How many rounds of tool calls this kind allows: an int, or ``None`` for
+    #: "as many as the guardrails permit".
+    #:
+    #: This was a literal `1` inside `run_base_node`, which made the single most
+    #: consequential difference between `base` and `react` the one thing neither a
+    #: card, a validator, nor the Architect could see. A step needing two tools in
+    #: sequence would be authored as `base`, run, spend its round on the first
+    #: tool, and be refused the second — a failure that is now loud, but only at
+    #: run time. Stated here, it can be said in advance instead.
+    tool_rounds: int | None = None
     fields: tuple[FieldSpec, ...] = ()
     #: Constraints a field list cannot express ("a plain-English `until` costs a call").
     #: Prose, for a human or a model reading the spec; the machine-checkable half
@@ -177,6 +187,7 @@ class NodeKindSpec:
             "has_body": self.has_body,
             "terminal": self.terminal,
             "data_arrival": list(self.data_arrival),
+            "tool_rounds": self.tool_rounds,
             "fields": [f.as_dict() for f in self.fields],
             "constraints": list(self.constraints),
         }
