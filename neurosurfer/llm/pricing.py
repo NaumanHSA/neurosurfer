@@ -80,6 +80,10 @@ PRICES: dict[str, ModelPrice] = {
     "claude-sonnet-4-6": ModelPrice(input=3.00, output=15.00),
     "claude-sonnet-4-5": ModelPrice(input=3.00, output=15.00),
     "claude-haiku-4-5": ModelPrice(input=1.00, output=5.00),
+    # ── Google Gemini (verify before billing on it) ──────────────────────────
+    "gemini-2.5-pro": ModelPrice(input=1.25, output=10.00),
+    "gemini-2.5-flash": ModelPrice(input=0.30, output=2.50),
+    "gemini-2.5-flash-lite": ModelPrice(input=0.10, output=0.40),
     # ── OpenAI (verify before billing on it) ─────────────────────────────────
     "gpt-4o-mini": ModelPrice(input=0.15, output=0.60),
     "gpt-4o": ModelPrice(input=2.50, output=10.00),

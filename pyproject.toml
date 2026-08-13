@@ -66,6 +66,9 @@ search = [
 browser = [
     "playwright>=1.40",     # headless browser for the `browse` tool (run: playwright install chromium)
 ]
+bedrock = [
+    "anthropic[bedrock]>=0.40.0",  # Claude on Amazon Bedrock (brings boto3 for SigV4)
+]
 qdrant = [
     "qdrant-client>=1.7",         # vector store: strongest filtering, runs in-process or remote
 ]
