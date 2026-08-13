@@ -21,6 +21,7 @@ decide what to do next.
 |---|---|---|
 | [01 — The Architect and the validator](01_ARCHITECT_AND_VALIDATOR_PLAN.md) · [build log](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md) | Bringing the matured Architect and validator onto the stable line, with the engine floor they stand on — and without the studio. | Current |
 | [02 — The documentation](02_DOCUMENTATION_PLAN.md) | Making `docs/` describe the framework plan 01 built, before it merges. Owns the nav, the upgrade notes for the two changes that break a workflow in silence, and the pages for every subsystem that has none. | Current |
+| [03 — Retrieval and the backends behind it](03_RETRIEVAL_AND_BACKENDS_PLAN.md) · [build log](03_RETRIEVAL_AND_BACKENDS_BUILD_LOG.md) | The third of "reasoning, tools, and retrieval", which is the one that had never had a plan. Owns the embeddings and vector-store seams, retrieval quality, and the backend conformance suite that makes a second implementation cheap. | **Done** — all eight phases |
 
 Beside them, one note that belongs to no plan:
 **[WINDOWS_TEST_FAILURES.md](WINDOWS_TEST_FAILURES.md)** — what the sixteen

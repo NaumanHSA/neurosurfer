@@ -196,8 +196,20 @@ def run_react_node(
     user_prompt: str,
     *,
     gen_config: GenerationConfig | None = None,
+    output_schema: type | None = None,
 ) -> NodeCall:
-    """Execute a react (tool-using agent loop) node via the native agents.Agent."""
+    """Execute a react (tool-using agent loop) node via the native agents.Agent.
+
+    **With `output_schema`, the loop runs first and its answer is then shaped.**
+    Two steps rather than one, deliberately: a react node's whole purpose is to
+    decide what to do next from what the last tool returned, and constraining
+    every turn to a schema would break that. So the loop works normally, and one
+    structured call afterwards turns its prose into the declared shape.
+
+    That costs one extra model call, which is the honest price of the feature —
+    and it is why the field was withdrawn rather than faked: the alternative was
+    a spec field that silently returned prose.
+    """
     cfg = gen_config or GenerationConfig(
         max_tokens=provider.capabilities.max_output_tokens
     )
@@ -266,9 +278,38 @@ def run_react_node(
                 f"instructions ask for an answer, not only for actions."
             )
 
+        usage = result.usage or Usage()
+
+        if output_schema is not None:
+            from neurosurfer.agents.runtime.structured import structured_completion
+
+            shaping = Usage()
+
+            def _add(u: Usage) -> None:
+                nonlocal shaping
+                shaping = shaping.add(u)
+
+            # The loop's answer is the *input* to the shaping call, not the
+            # original task: re-running the task without the tools would ask the
+            # model to invent what it just spent a loop finding out.
+            output = await structured_completion(
+                provider,
+                output_schema,
+                user=(
+                    "Convert the following result into the required structure. "
+                    "Use only what it says; do not add facts.\n\n" + output
+                ),
+                system="You restructure an existing answer. You never invent content.",
+                config=cfg,
+                on_usage=_add,
+            )
+            # Shaping is billed to the node that asked for it — otherwise a
+            # structured react node under-reports its cost by a whole call.
+            usage = usage.add(shaping)
+
         return NodeCall(
             output=output,
-            usage=result.usage or Usage(),
+            usage=usage,
             tool_calls=_tool_names(agent),
         )
 

@@ -222,18 +222,28 @@ def test_tools_without_a_shape_are_fine(tmp_path):
     ], tmp_path, "agent.shape_disables_tools")
 
 
-def test_a_react_node_is_not_offered_a_shape_at_all():
-    """`run_react_node` takes no `output_schema`, so the spec must not offer one.
+def test_a_react_node_is_offered_a_shape_only_now_that_it_honours_one():
+    """The field is back, and the rule it was withdrawn under still holds.
 
-    It did, and the field was inert: written into the YAML, shown in the panel,
-    reviewed, and read by nothing.
+    `output_schema` was removed from this spec because it was inert — written
+    into the YAML, shown in the panel, reviewed, and read by nothing, so "return
+    an object" silently returned prose. `run_react_node` takes one now (the loop
+    runs, then a structured call shapes its answer), so offering it is honest
+    again. The invariant this test really guards is unchanged: **a spec offers a
+    field only when the runner reads it.**
     """
+    import inspect
+
     from neurosurfer.graph.engine.kinds import node_kind_spec
+    from neurosurfer.graph.engine.node_runner import run_react_node
 
     react = node_kind_spec("react")
-    assert react.field("output_schema") is None
+    assert react.field("output_schema") is not None
+    assert "output_schema" in inspect.signature(run_react_node).parameters
+
+    # `mode` stays withdrawn — nothing reads it on a react node.
     assert react.field("mode") is None
-    # …while `base`, whose runner does take one, still offers both.
+
     base = node_kind_spec("base")
     assert base.field("output_schema") and base.field("mode")
 

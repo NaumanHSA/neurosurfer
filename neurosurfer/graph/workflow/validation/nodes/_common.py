@@ -183,10 +183,11 @@ def required_fields_present(node, ctx, report) -> None:
     _check_required_fields(node, report)
 
 
-# Only the kinds that make a model call carry an output shape — see
-# `engine/kinds/_common.py`, where `OUTPUT_SCHEMA` belongs to the LLM field set.
-# Only `base` carries an output shape — see `engine/kinds/react.py`.
-@node_rule(kinds=("base",), severity=Severity.ERROR)
+# Both kinds that make a model call carry an output shape. `react` regained it
+# once the loop actually honoured one — see `engine/kinds/react.py`; before that
+# the field was offered and read by nothing, and this rule deliberately did not
+# cover it, because validating a field the engine ignores endorses it.
+@node_rule(kinds=("base", "react"), severity=Severity.ERROR)
 def output_schema_resolves(node, ctx, report) -> None:
     """A declared output shape must be a usable schema."""
     _check_output_schema(node, report)

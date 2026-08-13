@@ -86,6 +86,60 @@ from neurosurfer.llm import anthropic_capabilities, openai_capabilities
 caps = anthropic_capabilities("claude-opus-4-8")
 ```
 
+## Google Gemini
+
+```python
+from neurosurfer.llm.providers.gemini import GeminiProvider
+
+provider = GeminiProvider(model="gemini-2.5-flash")   # GEMINI_API_KEY or GOOGLE_API_KEY
+```
+
+Speaks Gemini's native REST API over `httpx` — no extra dependency. Native tool calling, thinking
+(surfaced as `ThinkingDelta`, separate from the answer), vision, and a real `countTokens` endpoint.
+
+Gemini's wire format differs from the other two in four places the adapter handles for you: the
+assistant role is called `model`, the system prompt is out-of-band, tool arguments arrive already
+parsed, and tool results are matched to their call by **function name** rather than call id.
+Thinking is not replayed on later turns — Gemini will not accept it back.
+
+## Claude on Amazon Bedrock
+
+```python
+from neurosurfer.llm.providers.bedrock import BedrockProvider
+
+provider = BedrockProvider("claude-opus-5", region="us-east-1")
+```
+
+Needs the `bedrock` extra (`pip install "neurosurfer[bedrock]"`, which brings boto3). Credentials
+come from boto3's usual chain — environment, shared profile, instance role — unless you pass them
+explicitly.
+
+The `anthropic.` model-id prefix Bedrock requires is added for you, so the same model string works
+against either provider. Bedrock has no token-counting endpoint, so `count_tokens` estimates locally.
+
+## What a run cost
+
+Token counts are priced per model, so a run reports money rather than only tokens:
+
+```python
+result = await agent.run_collect("...")
+result.cost()                    # 0.0043, or None if the model is unpriced
+
+graph_result.total_cost()        # each node priced at its own model
+graph_result.execution_summary() # "… 7 nodes — 7 ok, 0 failed, 0 skipped — $0.04"
+```
+
+Rates live in `neurosurfer.llm.pricing.PRICES` — a plain dict you can extend or replace if you have
+negotiated pricing:
+
+```python
+from neurosurfer.llm.pricing import PRICES, ModelPrice
+PRICES["my-model"] = ModelPrice(input=0.5, output=1.5)   # $ per million tokens
+```
+
+An **unpriced model costs `None`, not `$0.00`** — reporting zero for a model missing from the table
+would quietly under-report a bill. Sub-cent runs keep their digits (`$0.0043`) for the same reason.
+
 ## Canonical types & streaming
 
 All providers speak the same canonical types (`Message`, `CanonicalResponse`, `StreamEvent`,

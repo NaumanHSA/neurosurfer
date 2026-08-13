@@ -11,6 +11,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Retrieval, and the backends behind it** — plan 03, eight phases.
+    - **Vector stores are a contract, not one class.** A declared filter grammar
+      (`$eq`/`$ne`/`$in`/`$nin`/`$gt`/`$gte`/`$lt`/`$lte`/`$and`/`$or`/`$not`),
+      `StoreCapability` flags so a caller asks rather than infers, upsert in the
+      contract, and a **conformance suite** — "implements `BaseVectorDB`" now
+      means "passes `tests/vectorstores/conformance.py`". **Qdrant** joins
+      Chroma and the in-memory store and passed the suite unmodified.
+    - **Embeddings is a plugin point.** `openai-compat:<model>@<base_url>` and
+      hosted `openai` alongside sentence-transformers, resolved from a spec
+      string, with batching and retry. A local stack no longer needs `torch` to
+      embed. A collection records which model wrote its vectors and refuses a
+      query embedded by a different one.
+    - **Hybrid retrieval, reranking, MMR and citations.** Dense + BM25 fused by
+      reciprocal rank, an optional cross-encoder rerank stage, diversity, and
+      `char_start`/`char_end` spans through to `ContextBuilder`. Measured on the
+      fixture corpus in `tests/rag/`: recall@1 **0.619 → 0.905**, MRR 0.714 →
+      1.000. Both off by default. `rag/evaluation.py` is the harness those
+      numbers come from.
+    - **Four retrieval shapes past classic** — contextual retrieval,
+      parent-document, multi-query and HyDE, sentence-window and semantic
+      chunking — plus an ingest manifest so a corpus with one edited file costs
+      one file's embeddings rather than the whole directory's.
+- **Cost accounting.** A per-model price table turns token counts into money on
+  `RunResult.cost()` and on every graph node — priced per node, since a node may
+  name its own provider. An unpriced model reports `None`, never `$0.00`.
+- **Google Gemini and Claude on Amazon Bedrock.** Gemini natively over `httpx`
+  (no new dependency); Bedrock as a thin subclass of the Anthropic provider,
+  since it serves the same API — only the client and the `anthropic.`-prefixed
+  model id differ.
+- **`react` nodes can return a shaped answer again.** `output_schema` was
+  withdrawn from the kind because it was inert; the loop now runs and one
+  structured call shapes its answer, so offering the field is honest. Costs one
+  extra model call, billed to the node.
 - **A node kind declares its tool-round budget.** `NodeKindSpec.tool_rounds` —
   `1` for `base`, `None` (unbounded) for `react`. It was a literal inside
   `run_base_node`, which made the single most consequential difference between
@@ -168,6 +201,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **`InMemoryVectorStore` can be instantiated.** It was exported by name and
+  recommended by `docs/guides/rag.md`, and never implemented `delete_documents`
+  — so the abstract base refused to construct it. Nothing in the package or the
+  tests ever built one, which is exactly why it survived. It was also
+  non-conformant once it could be built: `add_documents` appended rather than
+  upserting, and both `similarity_search` and `list_all_documents` accepted a
+  `metadata_filter` and ignored it.
+- **Chroma scores were wrong on every collection it created.** Chroma's default
+  space is squared L2 and the code returned `1.0 - distance` as though it were
+  cosine, so orthogonal vectors scored **-1.0** instead of `0.0` and any
+  `similarity_threshold` was applied to the wrong scale. New collections are
+  created as cosine; existing ones are read for the space they actually have and
+  converted, so an old store reports correct scores without being rebuilt.
+- **Chroma's `list_all_documents` returned unusable ids.** It minted a fresh
+  `uuid4()` per row, so the ids it handed back matched nothing and
+  `delete_documents` on them was a silent no-op.
+- **`RAGAgent` could only ever use sentence-transformers.** It built
+  `_LocalEmbedder(spec)` directly, so a *name* meant one backend however it was
+  written; it now routes through the embeddings registry.
+- **The gateway refuses `--workers N` instead of corrupting run history.** The
+  workflow run store is per-process, so runs created on one worker were invisible
+  to the others and `GET /v1/runs/{id}` answered from whichever process took the
+  request.
+- **`README.md` claimed a memory tool** that does not exist, and undercounted
+  the tools and providers that do.
 - **A `react` node whose turn is all reasoning is no longer a failed node.**
   `RunResult.final_text` accumulates `TextDelta`, so a local reasoning model that
   ends a turn having emitted only `ThinkingDelta` — no tool call, no text — left

@@ -41,17 +41,21 @@ SPEC = NodeKindSpec(
         c.TOOL_SETTINGS,
         c.SECRETS,
         *c.WIRING,
-        # `provider` only — **not** `mode` or `output_schema`.
+        # `output_schema` is offered again, and now it is honoured.
         #
-        # `run_react_node` takes neither, and the executor passes neither: a react
-        # node's structured-output settings were inert, offered by the panel,
-        # written into the YAML, reviewed, and read by nothing. That is the same
-        # defect Phase 1 found five of — a spec promising a field the engine
-        # ignores — and it is worse here than usual, because "return an object"
+        # It was withdrawn because it was inert: offered by the panel, written
+        # into the YAML, reviewed, and read by nothing — and "return an object"
         # silently returning prose is only discovered by whatever consumes it.
+        # The note then said *"making the loop honour a schema is a real feature
+        # and a fine one; until it exists the honest thing is not to offer the
+        # field."* It exists now.
         #
-        # Making the loop honour a schema is a real feature and a fine one; until
-        # it exists the honest thing is not to offer the field.
+        # The loop runs first and its answer is shaped by one structured call
+        # afterwards, rather than constraining every turn — a react node decides
+        # what to do next from what the last tool returned, and a schema on every
+        # turn would break exactly that. The cost is one extra model call, billed
+        # to the node.
+        c.OUTPUT_SCHEMA,
         c.PROVIDER,
     ),
     constraints=(

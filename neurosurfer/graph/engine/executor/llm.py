@@ -132,6 +132,7 @@ def run_node_native(
             return run_react_node(
                 provider, pool, tool_ctx, system_prompt, user_prompt,
                 gen_config=gen_config,
+                output_schema=output_schema,
             )
         else:
             # **A base node uses the tools it was given.**

@@ -128,6 +128,59 @@ the primitive rather than in the authoring.
 
 ---
 
+## 02 — The documentation ⬅ **current**
+
+**[02_DOCUMENTATION_PLAN.md](02_DOCUMENTATION_PLAN.md)**
+
+The docs describe the framework on this branch, not the one that was on `main`.
+Every subsystem plan 01 brought across gets a page, and the two changes that
+break a working workflow *in silence* are written down where someone will find
+them before the workflow goes quiet.
+
+It runs alongside 01 rather than after it for a plain reason: merging 48 commits
+of behaviour under documentation describing the previous behaviour is how a
+framework acquires a reputation for being undocumented.
+
+Two pages are still open — `architect/building.md` and `learn/concepts.md` —
+both `- [ ]` with the reason in the plan.
+
+---
+
+## 03 — Retrieval, and the backends behind it ✅ **done**
+
+**[03_RETRIEVAL_AND_BACKENDS_PLAN.md](03_RETRIEVAL_AND_BACKENDS_PLAN.md)**
+
+The framework describes itself as *"LLM reasoning, tools, and retrieval"*. Two of
+those three have had a plan. This is the third.
+
+Its `§0` is a survey of `rag/`, `vectorstores/` and `embeddings/` against
+`3fb20f8`, and the headline is proportion: **embeddings is 69 lines in one file**
+with a three-branch `if`, and it is the layer every retrieval path depends on. A
+user whose whole stack is a local OpenAI-compatible server — one that already
+exposes `/v1/embeddings` — must install torch and sentence-transformers to embed
+a document. The vector-store ABC has one working implementation, and the second
+one, `InMemoryVectorStore`, **cannot be instantiated**: it never implements
+`delete_documents`, is exported by name, and is recommended by
+`docs/guides/rag.md:79`.
+
+**Built bottom-up, for the same reason 01 was.** Prove the contract → make the
+seam real → measure quality → add the second backend. An interface with one
+implementation is a description of that implementation, and quality work built on
+an unproven one gets rewritten when the second arrives.
+
+**All eight phases shipped** — see the
+[build log](03_RETRIEVAL_AND_BACKENDS_BUILD_LOG.md). The headline result is that
+Qdrant passed the conformance suite **unmodified on the first run**, which is the
+evidence the interface is a contract rather than a description of Chroma. §0
+recorded two defects; there were five. The suite went 1235 → **1506 pass**.
+
+**It does not invent a plugin pattern.** `mcp/sources/` already solved this exact
+problem — one interface, more than one index, capability flags so a caller asks
+rather than infers, and every extra optional. Embeddings and vector stores get
+that shape.
+
+---
+
 ## What is deliberately not a plan of its own
 
 - **The studio.** It lives at `NaumanHSA/neurosurfer-studio` and is not
@@ -136,8 +189,12 @@ the primitive rather than in the authoring.
   last round had rules arriving as prompt text ahead of the structure that would
   make them enforceable, which is how a weak model came to be told three
   different times not to write a step it kept writing.
-- **Evals** wait for something stable to measure. Nine runs of two prompts is a
-  bug-finder, not a benchmark, and nothing above is stable until Phase 5.
+- **Architect evals** wait for something stable to measure. Nine runs of two
+  prompts is a bug-finder, not a benchmark, and nothing above is stable until
+  plan 01's Phase 5. Note this is a *different* harness from the retrieval one in
+  03's Phase 3: that measures recall@k over a fixture corpus, this measures
+  whether a built workflow does what was asked. They share a shape and nothing
+  else.
 - **A release.** The version bump is the *last* step of plan 01, not a phase of
   its own — there is nothing to release until the plan is done, and cutting one
   midway would put a half-ported Architect on `main`, which is the outcome §1
