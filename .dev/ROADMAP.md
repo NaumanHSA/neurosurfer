@@ -19,6 +19,15 @@ of those commits starts from a new diagnosis — each finishes a mechanism this
 plan already owns. Node kinds as classes, validation as the first step of every
 run, the executor as a package, and a rewritten prompt contract.
 
+**§10 closes the four open graph items** — the tool-round budget is a spec field,
+the Architect has the input-naming rule its transcript earned, the branching live
+test is split into structure and behaviour, and a code node's parameters now
+count as reading an input. It also records three defects found while doing them,
+and one thing worth knowing before trusting any number below: **the suite was
+nine-red on Linux**, eight of those a `caplog`-versus-`propagate=False` gap that
+meant the tests could never have passed. Fixed; it is **1235 pass / 7 skip,
+ruff clean** now.
+
 **The live tests have now been run against that contract**, and they found two
 defects that offline testing could not: a bound argument could not reach an agent
 node (`c01894a`), and the contract silently broke the tutorials (`0579b32`).
@@ -59,8 +68,11 @@ built, judges the output, and refuses an impossible request. Its own
 prompts interpolate `{user_intent}` — which is why the contract rewrite did not
 disturb it.
 
-**Open — it writes inputs no step reads.** On `gpt-5-mini` the first build of the
-branching intent produced:
+**Addressed in §10 — it writes inputs no step reads.** The rule is now in
+`_BUILD_RULES`, written from the transcript below, and the false positive that
+would have made promoting the check to blocking unsafe is fixed. The check itself
+is still a **warning**; promoting it is the remaining decision. On `gpt-5-mini`
+the first build of the branching intent produced:
 
 ```
 ticket_urgency_routing_and_reply: The workflow asks for 'ticket_text'
@@ -70,14 +82,16 @@ but no step uses it, so the value a caller passes is ignored.
 Five steps, a router among them, and the graph input carrying the ticket named
 by none of them. `declared_inputs_are_read_by_something` catches it but only
 **warns**, so the workflow stays registerable, and today's backstop is Phase 5
-verification noticing the answer ignores the parameter. That is the transcript
-`_BUILD_RULES` requires — the rule can now be written from evidence rather than
-anticipation. `assemble.py:299` still describes interpolation as an
-*authored-tool* concern, which is an understatement under the current contract.
+verification noticing the answer ignores the parameter. That was the transcript
+`_BUILD_RULES` required, and §10 wrote the rule from it. `assemble.py`'s
+docstring — which described interpolation as an *authored-tool* concern, an
+understatement under the current contract — is corrected with it.
 
-**Open — the branching test measures two things at once.**
-`test_agent_designs_branching_workflow_with_real_llm` asserts a router or two
-when-guards, but the build must succeed first, and the Architect refuses to
+**Closed in §10 — the branching test measured two things at once.** It is now two
+tests, and the structure half passes on `qwen/qwen3.5-9b` in 124s. The analysis
+below is what motivated the split and is kept for the evidence.
+The single test it replaced asserted a router or two
+when-guards, but the build had to succeed first, and the Architect refuses to
 register a workflow that fails its own verification. §8 attributed the failure to
 the model being unable to design a branch. That is not what the transcripts show:
 `gpt-5-mini` designs the router in its *first* plan, then grinds in the repair
@@ -87,11 +101,12 @@ loop — **17 graph runs across 6 verification rounds without converging**, wher
 the point stands either way, because the design step produced the router
 immediately and everything after it was repair.
 
-The bottleneck is the repair loop, not the design. Worth splitting the assertion
-— structure (is there a router?) from behaviour (does the built graph satisfy
-its own judge?) — before reading a red live suite as a model problem. Re-run
-with `NEUROSURFER_TEST_MODEL=gpt-5-mini` if the final number is ever wanted;
-budget ~20 minutes and the API spend that goes with it.
+The bottleneck is the repair loop, not the design — which is what the split
+records: structure (is there a router?) and behaviour (does the built graph
+satisfy its own judge?) are now separate tests, so a red live suite says which.
+**The repair loop's convergence is the thing still open here.** Re-run the
+behaviour half with `NEUROSURFER_TEST_MODEL=gpt-5-mini` if the final number is
+ever wanted; budget ~20 minutes and the API spend that goes with it.
 
 ---
 

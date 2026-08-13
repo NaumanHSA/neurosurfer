@@ -849,3 +849,103 @@ loud, which is arguably worse for a caller.
 CHANGELOG entry is prominent — it now leads the *Changed* section and says what
 to check. Major is defensible on the grounds that a silent behavioural change to
 every workflow ever registered is exactly what a major version is for.
+
+---
+
+## §10 — The four open items, closed
+
+**Shipped 2026-08-12.** Everything §9 and the roadmap left open on the graph
+side, plus three defects the work turned up. **1235 passed, 7 skipped**, ruff
+clean, on Linux — see *A red suite nobody had seen* below, because that number
+was not what the branch actually had.
+
+### The four that were planned
+
+1. **The tool-round budget is a spec field.** `NodeKindSpec.tool_rounds`: `1` on
+   `base`, `None` on `react`. `run_base_node` reads it rather than restating it,
+   and a test asserts it does — one number, not two that drift. It buys the
+   warning Phase 6 said it would: `agent.tools_exceed_rounds` fires on a `base`
+   node holding two or more tools, because one round cannot chain one tool's
+   result into the next. A **warning**, since two independent lookups answered in
+   a single parallel round is a working step, and it stays quiet when
+   `output_schema` is set because that is the other rule's finding.
+
+2. **The Architect learned to name its inputs.** `_BUILD_RULES` gains the entry
+   the `ticket_urgency_routing_and_reply` transcript earned — five steps, a
+   router among them, and `ticket_text` named by none of them. Written from the
+   transcript, per the one-entry-per-observed-failure rule the list is scoped by.
+   `assemble.py`'s docstring is corrected with it: the goal suffix reads as an
+   authored-tool convenience and is nothing of the sort under the current
+   contract, where interpolation is the *only* route in for any node at all.
+
+3. **The branching live test is two tests.** `test_agent_designs_a_branch…`
+   runs with `verify="off"` and asks only whether the agent *designs* a branch;
+   `test_agent_verifies_the_branch_it_designed…` keeps the default and is marked
+   `slow`. The split matters because the assertion used to sit behind the repair
+   loop, so a design that was right on the first plan was reported as a model
+   that could not design a branch. **The structure half passes on
+   `qwen/qwen3.5-9b` in 124s** — which is the whole point, and was previously
+   invisible behind 17 non-converging graph runs.
+
+4. **A code node's parameters count as reading an input.** Below.
+
+### The three defects the work found
+
+**`declared_inputs_are_read_by_something` had a false positive**, and it was
+blocking item 2's real goal. The rule already knew that *"a tool node is handed
+the inputs dict as kwargs, so a parameter name matching an input is a read"* —
+and gated it on `kind == "tool"`. A `function` node gets identical treatment in
+`executor/deterministic.py`, so the capstone tutorial was reported as ignoring
+`db_path` and `artifacts_dir`, which its functions consume on every run.
+Validation already imports the callable for `callable_resolves`, so the signature
+was free. A callable declaring `**kwargs` reads whatever it is handed and
+silences the rule entirely.
+
+This mattered more than its size: the plan for this rule is to promote it from
+warning to blocking, and promoting a rule with a known false positive would start
+refusing correct graphs.
+
+**A `react` node whose turn is all reasoning was a failed node.** `final_text`
+accumulates `TextDelta`, so a local reasoning model ending a turn with only
+`ThinkingDelta` — no tool call, no text — left it empty, and the node was
+reported as having produced nothing, taking every node downstream with it.
+`CanonicalResponse.text()` has resolved this the same way for the one-shot path
+all along; the streamed path disagreed purely because it accumulates deltas.
+`RunResult.final_thinking` is a *separate* channel — `TextDelta` is the answer
+and `ThinkingDelta` is reasoning, and concatenating them would hand a caller
+reasoning labelled as an answer — consulted last, after `report` and
+`final_text`. **Measured on the capstone's vision node: 2 failures in 6 runs
+before, 0 in 5 after.**
+
+**An image named in a long prompt killed the run.** Every user turn is scanned
+for image paths so `"explain /tmp/chart.png"` attaches the image without routing
+through `read_file`. The scan tries the longest candidate first — for a node's
+turn, the whole task text up to the extension. Past `NAME_MAX`, and
+`Path.is_file()` only swallows `ENOENT`/`ENOTDIR`/`EBADF`/`ELOOP`, so the
+`ENAMETOOLONG` escaped: the capstone's vision node died in **0 ms**, before the
+model was asked anything. `AgenticLoop` runs this on every turn, so it hit the
+CLI too.
+
+### A red suite nobody had seen
+
+The branch was recorded as *1207 pass, 16 fail only on Windows*. On Linux it was
+**nine red**, and eight of them were one cause: `configure_logging` sets
+`propagate = False` on the `neurosurfer` logger — correct for a library that owns
+its handler — while `caplog` captures at the **root**. Records stopped one logger
+short of it, so `caplog.records` was empty however loudly the code logged. The
+message is right there in the captured stdout of every one of those failures.
+
+Eight tests across `test_observability_exporters.py` and
+`test_unread_run_inputs.py` were written against that gap and **could never have
+passed**. `tests/conftest.py` now restores propagation for the duration of a
+test; production behaviour is untouched.
+
+The ninth was the documentation plan's fallout: `test_docs_index_finds_relevant_sections`
+asserted on `guides/graph-workflows.md`, which plan 02 deliberately deleted when
+it split that page into the `graph/` section. The retrieval is *better* now — the
+query lands on `graph/packages.md` — so the assertion was updated to match the
+section rather than one filename.
+
+**Worth stating plainly: the suite was not being run green before this.** Both
+numbers in §9 and the roadmap should be read as "on the author's machine, with
+whatever logging state that shell had".

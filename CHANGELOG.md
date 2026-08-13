@@ -11,6 +11,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **A node kind declares its tool-round budget.** `NodeKindSpec.tool_rounds` —
+  `1` for `base`, `None` (unbounded) for `react`. It was a literal inside
+  `run_base_node`, which made the single most consequential difference between
+  the two kinds the one thing no consumer of the specs could read; the executor
+  now takes the number from the spec. A new warning,
+  `agent.tools_exceed_rounds`, uses it: a `base` node holding two or more tools
+  may be a sequence, and a sequence is what one round cannot do. A warning, not
+  an error — two independent lookups in a single parallel round work fine.
 - **Control flow in graphs.** Six new node kinds — `router`, `loop`, `map`,
   `subgraph`, `input`, `output` — with typed workflow state, a safe expression
   evaluator, error routing (`on_error`), retries, and a `GraphBuilder` fluent API.
@@ -160,6 +168,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A `react` node whose turn is all reasoning is no longer a failed node.**
+  `RunResult.final_text` accumulates `TextDelta`, so a local reasoning model that
+  ends a turn having emitted only `ThinkingDelta` — no tool call, no text — left
+  it empty, and the node was reported as having "finished without producing an
+  answer", taking every node downstream with it. `CanonicalResponse.text()`
+  already falls back to thinking for the one-shot path; the streamed path
+  disagreed purely because it accumulates deltas. `RunResult` now also carries
+  `final_thinking` — a separate channel, because `TextDelta` is the answer and
+  `ThinkingDelta` is reasoning and concatenating them would hand a caller
+  reasoning labelled as an answer — and `run_react_node` uses it last, after
+  `report` and `final_text`. Measured on `qwen/qwen3.5-9b` driving the capstone
+  tutorial's vision node: two failed runs in six before, none in five after.
+- **A code node's parameters count as reading a graph input.** `function` and
+  `python` nodes are called `fn(**{**graph_inputs, **dependency_results,
+  **scope})`, so a parameter named `db_path` reads `db_path` — the same argument
+  that already exempted `tool` nodes. Judging one kind by its parameters and the
+  other by its templates made
+  `declared_inputs_are_read_by_something` report the capstone tutorial as
+  ignoring two inputs its functions consume on every run. A callable declaring
+  `**kwargs` reads whatever it is handed, so the rule stays silent entirely.
+- **Naming an image in a long prompt no longer kills the run.** Every user turn
+  is scanned for image paths so a prompt like "explain /tmp/chart.png" attaches
+  the image without routing through `read_file` first. The scan tries the
+  *longest* candidate first — which, for a graph node's turn, is the whole task
+  text up to the extension. That is past `NAME_MAX`, and `Path.is_file()` only
+  swallows `ENOENT`/`ENOTDIR`/`EBADF`/`ELOOP`, so the `ENAMETOOLONG` escaped to
+  the caller: a `react` node with a dashboard path in its context died in 0 ms,
+  before the model was asked anything, and every node downstream was skipped.
+  A candidate that cannot even be *asked* about is now simply not a file.
 - **Trace export never runs on the agent's thread.** Every exporter hook, and
   the `flush()` at each run finish, ran inline on whatever thread the agent was
   on — so a run waited on the monitoring backend's network. `flush()` is not the

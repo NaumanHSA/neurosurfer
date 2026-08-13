@@ -283,13 +283,13 @@ Architect's own judgement of its output is downstream of them.
       *succeeded*. Reproduced with a fake provider on the studio branch.
 - [x] **An empty output from an LLM node is not a failure anywhere**, so the above
       surfaces as a green run with a blank answer.
-- [ ] **Not done: the tool-round budget is still a constant** inside
-      `run_base_node` (`max_tool_rounds=1`), not a declared property of the kind.
-      Phase 6 made its exhaustion *loud* rather than making it *visible*, which
-      fixes the silent failure without answering the design question. Making it a
-      spec field would let the card say "one round of tools" and let validation
-      warn on a `base` node holding two tools that must run in sequence — worth
-      doing, and a change to the kind specs rather than a bug fix.
+- [x] **The tool-round budget is a declared property of the kind.** Done in §10:
+      `NodeKindSpec.tool_rounds` is `1` on `base` and `None` on `react`,
+      `run_base_node` reads it instead of restating it, and
+      `agent.tools_exceed_rounds` warns on a `base` node holding two or more
+      tools. The design question Phase 6 deferred is answered: the limit is now
+      visible to the card, to validation and to the Architect, not only enforced
+      at run time.
 
 ### Phase 7 — What the port needs to keep working ✅
 
