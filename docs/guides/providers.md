@@ -117,28 +117,22 @@ explicitly.
 The `anthropic.` model-id prefix Bedrock requires is added for you, so the same model string works
 against either provider. Bedrock has no token-counting endpoint, so `count_tokens` estimates locally.
 
-## What a run cost
+## Token usage
 
-Token counts are priced per model, so a run reports money rather than only tokens:
+Every run reports the tokens it used, and nothing converts them to money:
 
 ```python
 result = await agent.run_collect("...")
-result.cost()                    # 0.0043, or None if the model is unpriced
+result.usage.input_tokens, result.usage.output_tokens
+result.usage.cache_read_input_tokens, result.usage.cache_creation_input_tokens
 
-graph_result.total_cost()        # each node priced at its own model
-graph_result.execution_summary() # "… 7 nodes — 7 ok, 0 failed, 0 skipped — $0.04"
+graph_result.total_usage()   # summed across every node that called a model
 ```
 
-Rates live in `neurosurfer.llm.pricing.PRICES` — a plain dict you can extend or replace if you have
-negotiated pricing:
-
-```python
-from neurosurfer.llm.pricing import PRICES, ModelPrice
-PRICES["my-model"] = ModelPrice(input=0.5, output=1.5)   # $ per million tokens
-```
-
-An **unpriced model costs `None`, not `$0.00`** — reporting zero for a model missing from the table
-would quietly under-report a bill. Sub-cent runs keep their digits (`$0.0043`) for the same reason.
+`Usage` is what the [trace exporters](../observability/index.md) carry alongside the model name, so
+Langfuse, OpenTelemetry and anything else downstream can attribute spend with their own rate tables.
+Pricing is deliberately **not** this framework's job: rates change per vendor, per contract and per
+region, and a table that goes stale here would be confidently wrong about money.
 
 ## Canonical types & streaming
 

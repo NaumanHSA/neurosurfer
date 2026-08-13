@@ -38,9 +38,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
       parent-document, multi-query and HyDE, sentence-window and semantic
       chunking — plus an ingest manifest so a corpus with one edited file costs
       one file's embeddings rather than the whole directory's.
-- **Cost accounting.** A per-model price table turns token counts into money on
-  `RunResult.cost()` and on every graph node — priced per node, since a node may
-  name its own provider. An unpriced model reports `None`, never `$0.00`.
 - **Google Gemini and Claude on Amazon Bedrock.** Gemini natively over `httpx`
   (no new dependency); Bedrock as a thin subclass of the Anthropic provider,
   since it serves the same API — only the client and the `anthropic.`-prefixed

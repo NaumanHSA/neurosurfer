@@ -18,7 +18,7 @@ history bisects.
 | 3 — retrieval quality | `308cc0d` | Harness first, and it earned that ordering immediately — see below. |
 | 4 — Qdrant | `3f3e21d` | **Passed the conformance suite unmodified, first run.** |
 | 5 — RAG shapes | `cfae465` | Four strategies plus incremental re-index. |
-| 6 — cost | `3441f7c` | Small, and it makes every existing trace more useful. |
+| 6 — cost | `3441f7c`, **reverted** | Built, then removed on the owner's call — see *Phase 6 was the wrong idea* below. |
 | 7 — providers | `45ad7fe` | Gemini natively; Bedrock as a subclass. |
 | 8 — loose ends | this commit | `react` structured output, the worker guard, the README. |
 
@@ -93,6 +93,34 @@ under test:
 Chroma's `modify()` also refuses any payload carrying `hnsw:space` — even
 unchanged — which is why persisting the embedding identity strips the `hnsw:`
 keys. The space lives in `configuration_json` and survives.
+
+---
+
+## Phase 6 was the wrong idea, and the owner was right
+
+It shipped, and then came out again. The instruction:
+
+> *"We do not care about the cost in terms of actual money, what we care about is
+> only the number of tokens used, input and output. Nowhere should we convert
+> them to dollars. We do tokens because we have traces, we have Langfuse, OTel,
+> where it is important."*
+
+That is a cleaner boundary than the plan's §0.6 argued for, and worth writing
+down as a rule rather than a one-off: **this framework counts tokens; something
+else decides what they cost.** Vendor rates vary by contract and region and go
+stale silently, and the exporters already receive the model name alongside
+`Usage` — so Langfuse and OTel can attribute spend with tables they maintain,
+which they do better than we would.
+
+The tell was visible while building it and I did not read it: half the table was
+rates I could not source, and the phase's deliverable ended with me asking the
+owner to go verify other companies' prices. **A phase whose completion requires
+the user to fact-check a vendor is a phase in the wrong repository.**
+
+Removed in full — `llm/pricing.py`, `RunResult.cost()`,
+`GraphExecutionResult.total_cost()`, and the two `model` fields that existed only
+to feed them. `Usage` is untouched and still threads everywhere it always did.
+Net effect on the other seven phases: none.
 
 ---
 

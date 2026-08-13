@@ -48,7 +48,7 @@
 - 🧠 **LLM providers:** Anthropic Claude (direct or on Amazon Bedrock), OpenAI, Google Gemini, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp) behind one `Provider` protocol.
 - 🔧 **Rich tool ecosystem:** 19 built-in tools: web search (DuckDuckGo/SerpAPI), sandboxed Python execution, file ops, HTTP, headless browser, SQL, and sub-agents, plus a simple framework for your own.
 - 📚 **RAG pipeline:** ingest → chunk → embed → retrieve → token-aware context injection, with hybrid (dense + BM25) retrieval, reranking, and citations. Chroma, Qdrant or in-memory behind one vector-store contract; embeddings from sentence-transformers, OpenAI, or any `/v1/embeddings` server.
-- 💰 **Cost accounting:** token counts priced per model, on every agent run and every graph node.
+- 📊 **Token accounting:** input, output and cache tokens on every agent run and every graph node, carried into traces for Langfuse/OTel to attribute.
 - 🕸️ **Graph & Workflows:** a standalone DAG engine and persisted, runnable Workflow packages.
 - 🏗️ **Architect:** describe a workflow in plain English; it designs and builds the graph for you.
 - 🔌 **MCP client:** connect external Model Context Protocol servers and expose their tools to agents.

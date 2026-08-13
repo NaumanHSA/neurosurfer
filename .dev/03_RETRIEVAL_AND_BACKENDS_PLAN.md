@@ -330,7 +330,28 @@ Each is a strategy behind one seam, not a fork of the pipeline.
 pipeline and a graph store behind it, and nothing measured here calls for it.
 Revisit when a real corpus demands multi-hop.
 
-### Phase 6 — Cost accounting ✅
+### Phase 6 — Cost accounting ✅ built, then ❌ **removed**
+
+> **(wrong — the framework should not know anyone's prices.)** This shipped and
+> was then taken out at the owner's direction, and the reasoning is better than
+> the plan's was:
+>
+> *"We do not care about the cost in terms of actual money, what we care about is
+> only the number of tokens used, input and output. Nowhere should we convert
+> them to dollars. We do tokens because we have traces, we have Langfuse, OTel,
+> where it is important."*
+>
+> That is the right boundary. Vendor rates change per contract and per region, a
+> table maintained here goes stale silently, and being confidently wrong about
+> money is worse than being silent about it. Langfuse and OTel already receive
+> the model name alongside `Usage` and own their own rate tables — so the
+> conversion belongs there, not in the framework that counts the tokens.
+>
+> Removed in full: `llm/pricing.py`, `RunResult.cost()`,
+> `GraphExecutionResult.total_cost()`, and the `model` fields added only to feed
+> them. `Usage` is unchanged and still threads everywhere it did.
+>
+> The items below are what was built before the removal, kept as the record.
 
 Small, orthogonal, and it makes every trace already emitted more useful.
 
@@ -421,7 +442,7 @@ what shipped.
 | Two vector backends pass one conformance suite; a third is one class | ✅ Three (Chroma, Qdrant, in-memory). **Qdrant passed unmodified, first run** |
 | A user with LM Studio and no `torch` can ingest, embed, and query | ✅ `openai-compat:<model>@<base_url>`, verified live against LM Studio |
 | Hybrid + rerank land as **measured** deltas, not changelog assertions | ✅ recall@1 0.619 → 0.905, MRR 0.714 → 1.000, from `rag/evaluation.py` |
-| A run reports what it cost | ✅ `RunResult.cost()`; graphs price each node at its own model |
+| A run reports what it cost | ❌ **Withdrawn.** A run reports the *tokens* it used; converting them to money is the observability backend's job, not this framework's — see Phase 6 |
 | Every claim in `README.md` and `docs/guides/rag.md` is honourable | ✅ Both corrected; docs gates green |
 
 **Ordering, if only some of it happens:** Phase 1 then Phase 2. Phase 1 is a day

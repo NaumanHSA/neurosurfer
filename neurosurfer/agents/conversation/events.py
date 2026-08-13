@@ -131,15 +131,3 @@ class RunResult:
     #: available to a caller collecting a stream, as its own channel so the
     #: caller decides rather than being handed reasoning labelled as an answer.
     final_thinking: str = ""
-    #: Which model produced the tokens, so `cost()` can price them.
-    model: str = ""
-
-    def cost(self) -> float | None:
-        """List-price cost of this run, or ``None`` if the model is unpriced.
-
-        Token counts have threaded through every layer of this framework since
-        the beginning and never once became a number anyone budgets in.
-        """
-        from neurosurfer.llm.pricing import estimate_cost
-
-        return estimate_cost(self.model, self.usage)

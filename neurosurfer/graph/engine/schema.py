@@ -699,10 +699,6 @@ class NodeExecutionResult(BaseModel):
     # (router classification, loop `until` judging) and — for containers — the
     # sum of every body iteration. None for nodes that never called a model.
     usage: Usage | None = None
-    #: Which model produced this node's tokens. Recorded per node because a node
-    #: may name its own `provider`, and pricing a mixed graph at one rate would
-    #: report the planner's cost for the worker's tokens.
-    model: str | None = None
     # Names of tools the node invoked, in call order (react nodes and tool nodes).
     tool_calls: list[str] = Field(default_factory=list)
     # What this node was actually given, after template interpolation: the
@@ -739,38 +735,14 @@ class GraphExecutionResult(BaseModel):
                 total = total.add(result.usage)
         return total
 
-    def total_cost(self, model: str | None = None) -> float | None:
-        """List-price cost of the run, or ``None`` when the model is unpriced.
-
-        Summed per node rather than from `total_usage()`, because nodes may name
-        their own `provider` and a graph that mixes an expensive planner with a
-        cheap worker would otherwise be priced entirely at one rate.
-        """
-        from neurosurfer.llm.pricing import estimate_cost
-
-        total = 0.0
-        priced_any = False
-        for result in self.nodes.values():
-            if result.usage is None:
-                continue
-            cost = estimate_cost(result.model or model, result.usage)
-            if cost is not None:
-                total += cost
-                priced_any = True
-        return total if priced_any else None
-
     @property
     def succeeded(self) -> bool:
         """True iff every non-skipped node completed without error."""
         return not self.errors
 
-    def execution_summary(self, model: str | None = None) -> str:
-        from neurosurfer.llm.pricing import format_cost
-
+    def execution_summary(self) -> str:
         total = len(self.nodes)
         ok = sum(1 for r in self.nodes.values() if r.ok)
         err = len(self.errors)
         skip = len(self.skipped)
-        line = f"Graph '{self.graph.name}': {total} nodes — {ok} ok, {err} failed, {skip} skipped"
-        cost = self.total_cost(model)
-        return line if cost is None else f"{line} — {format_cost(cost)}"
+        return f"Graph '{self.graph.name}': {total} nodes — {ok} ok, {err} failed, {skip} skipped"
