@@ -278,6 +278,7 @@ class BaseAgent:
                 result.report = ev.report
         result.final_text = "".join(text_parts)
         result.final_thinking = "".join(thinking_parts)
+        result.model = getattr(self.provider, "model", "") or ""
         result.usage = self.usage
         result.turns = self.turns
         return result

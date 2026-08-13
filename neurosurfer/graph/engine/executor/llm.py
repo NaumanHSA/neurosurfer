@@ -214,6 +214,7 @@ def run_node_native(
             started_at=started_at,
             duration_ms=duration_ms,
             usage=call.usage,
+            model=getattr(provider, "model", None),
             tool_calls=call.tool_calls,
             node_input=_trace_text(user_prompt),
         )
