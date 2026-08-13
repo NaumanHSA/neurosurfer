@@ -66,6 +66,9 @@ search = [
 browser = [
     "playwright>=1.40",     # headless browser for the `browse` tool (run: playwright install chromium)
 ]
+qdrant = [
+    "qdrant-client>=1.7",         # vector store: strongest filtering, runs in-process or remote
+]
 rag = [
     "chromadb>=1.0",              # vector store for RAG nodes
     "sentence-transformers>=5.1", # embeddings

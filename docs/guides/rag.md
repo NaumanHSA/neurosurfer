@@ -138,17 +138,25 @@ a span that points at the wrong place.
 
 ## Vector stores
 
-`neurosurfer.vectorstores` provides two backends behind the `BaseVectorDB` interface:
+`neurosurfer.vectorstores` provides three backends behind the `BaseVectorDB` interface:
 
 - **`ChromaVectorStore(collection_name, persist_directory=...)`** — persistent, disk-backed
   (requires the `rag` extra's `chromadb`).
+- **`QdrantVectorStore(collection_name, dim, location=":memory:")`** — the strongest filtering,
+  and the only backend that expresses the whole grammar. Runs in-process (`":memory:"`), embedded
+  (a path), or against a server (a URL). Requires the `qdrant` extra.
 - **`InMemoryVectorStore(dim=None)`** — ephemeral, dependency-free; handy for tests and demos.
-  It is the reference implementation: it supports every capability below, and `dim` is optional
-  (the first document sets it, and later ones are checked against it).
+  It is the reference implementation: `dim` is optional (the first document sets it, and later
+  ones are checked against it).
 
-Both are held to one **conformance suite** — `tests/vectorstores/conformance.py`. "Implements
+All three are held to one **conformance suite** — `tests/vectorstores/conformance.py`. "Implements
 `BaseVectorDB`" means "passes that suite", so adding a backend is one class and a three-line test
-module.
+module. Qdrant passed it unmodified on the first run, which is the evidence that the interface is
+a contract rather than a description of Chroma.
+
+**Which to use.** Chroma if you want disk persistence with no service and no decisions; Qdrant if
+you filter on ranges or negation, or want to move to a server later without changing your code;
+InMemory for tests.
 
 ### What a store guarantees
 
@@ -184,13 +192,13 @@ from neurosurfer.vectorstores import StoreCapability
 StoreCapability.RANGE_FILTERS in store.capabilities
 ```
 
-| Flag | Chroma | InMemory |
-|---|:--:|:--:|
-| `RANGE_FILTERS` | ✅ | ✅ |
-| `BOOLEAN_FILTERS` | ✅ | ✅ |
-| `NEGATION` (`$not`) | ❌ | ✅ |
-| `NATIVE_UPSERT` | ✅ | ✅ |
-| `PERSISTENT` | ✅ | ❌ |
+| Flag | Chroma | Qdrant | InMemory |
+|---|:--:|:--:|:--:|
+| `RANGE_FILTERS` | ✅ | ✅ | ✅ |
+| `BOOLEAN_FILTERS` | ✅ | ✅ | ✅ |
+| `NEGATION` (`$not`) | ❌ | ✅ | ✅ |
+| `NATIVE_UPSERT` | ✅ | ✅ | ✅ |
+| `PERSISTENT` | ✅ | ✅ | ❌ |
 
 A filter needing a capability the store lacks raises `UnsupportedFilter` **before the query is
 formed**, rather than returning rows it did not filter — which looks exactly like a working query.

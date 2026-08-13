@@ -13,6 +13,7 @@ __all__ = [
     "ChromaVectorStore",
     "Doc",
     "InMemoryVectorStore",
+    "QdrantVectorStore",
     "StoreCapability",
     "UnsupportedFilter",
 ]
@@ -25,4 +26,7 @@ def __getattr__(name: str):
     if name == "InMemoryVectorStore":
         from .in_memory_store import InMemoryVectorStore
         return InMemoryVectorStore
+    if name == "QdrantVectorStore":
+        from .qdrant import QdrantVectorStore
+        return QdrantVectorStore
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
