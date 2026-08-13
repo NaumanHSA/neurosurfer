@@ -1,5 +1,16 @@
 # 03 — Retrieval, and the backends behind it
 
+**Status: all eight phases shipped, 2026-08-13** (`acddd7f`..`d6dcad2`, eight
+commits — one per phase, so the history bisects). **1506 pass / 7 skip**, up from
+1235; ruff clean; 59 doc pages and 94 doc imports checked. What each phase cost
+and what it turned out to be is in the
+[build log](03_RETRIEVAL_AND_BACKENDS_BUILD_LOG.md).
+
+**This document is left as it was written**, apart from the ticked boxes and the
+three corrections marked *(wrong — …)* below. A plan that is quietly edited to
+match its outcome stops being evidence of what was predicted, which is most of
+what makes it worth reading later.
+
 **Goal:** retrieval that can be trusted on the queries people actually ask, and
 a set of backend seams that a second implementation has proven — rather than an
 abstract base class with one subclass and an `if/else` wearing the word
@@ -23,6 +34,24 @@ carries the line that proves it.
 lines in one file** — and it is the layer every retrieval path depends on.
 
 ### §0.1 — Two defects, one of them a documented API that cannot run
+
+> **(wrong — there were five.)** Reading the code found two. Probing `chromadb`
+> before building on it found three more, all of them worse:
+>
+> * **Chroma's scores were wrong on every collection it had ever created.** Its
+>   default space is squared L2 and the code returned `1.0 - distance` as though
+>   it were cosine, so orthogonal vectors scored **-1.0** instead of `0.0` and
+>   every `similarity_threshold` was applied to that wrong scale.
+> * **`list_all_documents` minted a fresh `uuid4()` per row**, so the ids it
+>   returned matched nothing and deleting by them was a silent no-op.
+> * **`RAGAgent` could only ever use sentence-transformers** — it accepted an
+>   `Embedder` object, but a *name* went straight to `_LocalEmbedder`, which made
+>   Phase 2 unreachable from the agent until one line changed.
+>
+> The lesson is in *how* they were found: none is visible by reading, and all
+> three surfaced within minutes of running the thing against a real backend. A
+> §0 assembled by reading undercounts by roughly the number of dependencies it
+> did not exercise.
 
 **`InMemoryVectorStore` cannot be instantiated.**
 
@@ -346,6 +375,16 @@ used and is a good one.
 
 ### §2.2 — Does the embeddings change break callers?
 
+> **(wrong — it broke nobody.)** `get_embedder` had **zero call sites** in the
+> package: exported, documented, and never used, because `RAGAgent` bypassed it
+> and built `_LocalEmbedder` directly. So the decision below cost nothing to
+> make, and the compatibility work that actually mattered was somewhere else
+> entirely — a bare string with no recognised prefix still resolving to a
+> sentence-transformers model, because that is what every existing config holds.
+>
+> Worth noting for the next §2: *"does this break callers"* is answerable with
+> `grep` before it is argued about.
+
 Yes, in one narrow way: `get_embedder` currently swallows every failure and
 Phase 2 makes a *configured and broken* backend raise. A caller relying on the
 silent `None` to degrade to lexical search will now see an exception.
@@ -373,17 +412,46 @@ keep, and a `Capability` flag is the honest way to say a backend does more.
 
 ## §3 — What "done" looks like
 
-- `InMemoryVectorStore` is real, and the docs page that recommends it is true.
-- Two vector backends pass one conformance suite; adding a third is writing one
-  class.
-- A user with LM Studio and no `torch` can ingest, embed, and query.
-- Hybrid + rerank land as **measured** deltas on a fixture corpus, not as
-  assertions in a changelog.
-- A run reports what it cost.
-- Every claim in `README.md` and `docs/guides/rag.md` is one the package can
-  honour — checked the way plan 02 checks the rest of `docs/`.
+Each line below is what was written before the work; the verdict after it is
+what shipped.
+
+| Criterion | Outcome |
+|---|---|
+| `InMemoryVectorStore` is real, and the docs page recommending it is true | ✅ It is the reference implementation and supports every capability |
+| Two vector backends pass one conformance suite; a third is one class | ✅ Three (Chroma, Qdrant, in-memory). **Qdrant passed unmodified, first run** |
+| A user with LM Studio and no `torch` can ingest, embed, and query | ✅ `openai-compat:<model>@<base_url>`, verified live against LM Studio |
+| Hybrid + rerank land as **measured** deltas, not changelog assertions | ✅ recall@1 0.619 → 0.905, MRR 0.714 → 1.000, from `rag/evaluation.py` |
+| A run reports what it cost | ✅ `RunResult.cost()`; graphs price each node at its own model |
+| Every claim in `README.md` and `docs/guides/rag.md` is honourable | ✅ Both corrected; docs gates green |
 
 **Ordering, if only some of it happens:** Phase 1 then Phase 2. Phase 1 is a day
 and makes the contract true; Phase 2 is the one users feel. Phase 3 without the
 harness at its head is the one way this plan repeats a mistake it has already
 written down.
+
+> **All eight ran, and the ordering held.** Phase 1's conformance suite is what
+> made Phase 4 a day rather than a week, and Phase 3's harness caught an
+> overclaim in its own first test — see the build log. The one criterion above
+> that is weaker than it sounds is the measured delta: a 15-document fixture
+> with a deterministic embedder proves the mechanism and catches a regression;
+> it does not predict a production number. Pointing the harness at a real corpus
+> is the first thing to do next.
+
+---
+
+## §4 — What this plan did not close
+
+- **Retrieval quality on a real corpus.** The harness exists and the fixture is
+  synthetic on purpose. The numbers are a mechanism proof, not a forecast.
+- **A live Bedrock call.** No boto3 and no AWS credentials on this machine.
+  Everything Bedrock-*specific* is tested; the shared path rides the Anthropic
+  provider's own suite.
+- **The tutorial notebooks since Phase 1.** LM Studio went down partway through
+  and did not come back. Every change since is additive and the suite covers the
+  paths they use, but they have not been re-executed and should be before merge.
+- **The OpenAI and Gemini price rows.** Published rates written from memory and
+  marked in the file as worth verifying. The Anthropic rows came from the API
+  reference.
+- **Async store methods, namespaces/tenancy, pgvector.** §0.3 named all three;
+  none was needed to prove the contract, and the conformance suite makes each
+  cheap when someone wants it.
