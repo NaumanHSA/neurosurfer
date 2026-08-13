@@ -25,10 +25,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
       query embedded by a different one.
     - **Hybrid retrieval, reranking, MMR and citations.** Dense + BM25 fused by
       reciprocal rank, an optional cross-encoder rerank stage, diversity, and
-      `char_start`/`char_end` spans through to `ContextBuilder`. Measured on the
-      fixture corpus in `tests/rag/`: recall@1 **0.619 → 0.905**, MRR 0.714 →
-      1.000. Both off by default. `rag/evaluation.py` is the harness those
-      numbers come from.
+      `char_start`/`char_end` spans through to `ContextBuilder`. Both off by
+      default. `rag/evaluation.py` is the harness, and it was written before the
+      things it measures.
+      **How much hybrid helps depends heavily on the corpus.** On the synthetic
+      fixture — built around a rare literal a dense model cannot represent —
+      recall@1 goes 0.619 → 0.905. On this project's own 59 documentation pages
+      with a real embedder it is *neutral* at k=1–3 and modestly ahead from k=5
+      (MRR@10 0.610 → 0.653). Point the harness at your own corpus rather than
+      trusting either number.
     - **Four retrieval shapes past classic** — contextual retrieval,
       parent-document, multi-query and HyDE, sentence-window and semantic
       chunking — plus an ingest manifest so a corpus with one edited file costs

@@ -86,15 +86,32 @@ RAGAgentConfig(
 Both are **off by default** — building the BM25 index is a full scan of the collection, and MMR
 changes which chunks come back. Neither should start happening because you upgraded.
 
-Measured on the fixture corpus in `tests/rag/`:
+### How much it helps — two measurements, and they disagree
+
+On the **synthetic fixture** in `tests/rag/` — a hash-based embedder, 15 short documents, a rare
+literal (`ENAMETOOLONG`) seeded on purpose:
 
 | | recall@1 | MRR | recall@3 | nDCG@3 |
 |---|---|---|---|---|
 | dense | 0.619 | 0.714 | 0.952 | 0.842 |
 | hybrid | **0.905** | **1.000** | 0.952 | **0.966** |
 
-The gain is in *ranking*, and at the small k a context window uses, ranking is recall. Dense search
-usually has the right chunk somewhere in the top few; what it does badly is put it first.
+On a **real corpus** — this project's own 59 documentation pages, 371 chunks, `nomic-embed-text-v1.5`,
+14 hand-labelled questions (`tests/rag/test_docs_corpus_eval.py`):
+
+| | MRR@1 | MRR@3 | MRR@5 | MRR@10 |
+|---|---|---|---|---|
+| dense | 0.500 | **0.583** | 0.601 | 0.610 |
+| hybrid | 0.500 | 0.571 | **0.643** | **0.653** |
+
+**The fixture's dramatic gain does not transfer.** On real prose hybrid is *neutral* at k=1–3 and
+modestly ahead from k=5. The fixture was built around the case hybrid is best at — a term a dense
+model cannot represent — and most real queries are not that case.
+
+Read the fixture table as *"the mechanism works and this is the shape of query it fixes"*, and the
+docs table as *"this is roughly what to expect"*. Neither is a forecast for **your** corpus: 14
+queries cannot support a tight bound, and the honest way to decide is to point
+`neurosurfer.rag.evaluation` at your own documents. That is what it is for.
 
 ### Reranking
 
