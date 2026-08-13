@@ -259,7 +259,12 @@ def test_roadmap_is_not_indexed(kb):
 def test_docs_index_finds_relevant_sections(kb):
     hits = kb.search_docs("workflow package registry", k=5)
     assert hits, "docs search returned nothing"
-    assert any("graph-workflows" in h["path"] or "workflow" in h["path"].lower()
+    # `guides/graph-workflows.md` was one page holding a subsystem; the docs plan
+    # split it into the `graph/` section, so the question this asserts — does a
+    # workflow-package query reach the workflow-package page — now lands on
+    # `graph/packages.md`. Matching the section rather than one filename keeps the
+    # test about retrieval instead of about where a page currently sits.
+    assert any(h["path"].startswith("graph/") or "workflow" in h["path"].lower()
                for h in hits)
 
     mcp_hits = kb.search_docs("connect MCP server tools", k=5)

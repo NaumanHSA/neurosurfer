@@ -112,36 +112,83 @@ async def test_closed_loop_engine_with_real_llm(provider, tmp_path):
     assert all(isinstance(v["passed"], bool) for v in report.verdicts)
 
 
-async def test_agent_designs_branching_workflow_with_real_llm(provider, tmp_path):
-    """Phase 6: given an intent that *warrants* branching, the agent (with the
-    control-flow cookbook) should produce a workflow that actually branches —
-    a router node, or when-guards on alternative paths."""
-    from neurosurfer.architect import ArchitectAgent
-    from neurosurfer.graph.workflow.package import load_package
-    from neurosurfer.graph.workflow.registry import WorkflowRegistry
-    from neurosurfer.graph.workflow.validate import validate_package
+_BRANCHING_INTENT = (
+    "Build a workflow that takes a customer support ticket as input, decides "
+    "whether it is urgent or routine, and drafts an escalation notice for "
+    "urgent tickets but a polite standard reply for routine ones."
+)
 
-    agent = ArchitectAgent(
-        provider,
+
+def _branching(pkg):
+    """(has_router, has_guards) for a built package."""
+    return (
+        "router" in [n.kind for n in pkg.graph.nodes],
+        sum(1 for n in pkg.graph.nodes if n.when) >= 2,
+    )
+
+
+def _branching_agent(provider, tmp_path, **over):
+    from neurosurfer.architect import ArchitectAgent
+    from neurosurfer.graph.workflow.registry import WorkflowRegistry
+
+    kwargs = dict(
         registry=WorkflowRegistry(workflows_dir=tmp_path / "registry"),
         staging_root=tmp_path / "staging",
         notify=lambda m: print(f"  [architect] {m}"),
         max_turns=30,
     )
-    path = await agent.build(
-        "Build a workflow that takes a customer support ticket as input, decides "
-        "whether it is urgent or routine, and drafts an escalation notice for "
-        "urgent tickets but a polite standard reply for routine ones."
-    )
-    pkg = load_package(Path(path))
+    kwargs.update(over)
+    return ArchitectAgent(provider, **kwargs)
+
+
+async def test_agent_designs_a_branch_with_real_llm(provider, tmp_path):
+    """**Structure**: given an intent that warrants branching, does the agent
+    *design* one — a router, or when-guards on alternative paths?
+
+    `verify="off"` on purpose. With verification required this assertion sits
+    behind the repair loop, because the Architect refuses to register a workflow
+    that fails its own verification — so a design that was right on the first
+    plan was reported as "the model cannot design a branch". The transcripts say
+    otherwise: `gpt-5-mini` produced the router in its *first* plan and then
+    ground through 17 graph runs across 6 verification rounds without converging.
+
+    Two questions, two tests. This one is about the design; the next is about
+    whether the built graph satisfies its own judge. A red suite should say which.
+    """
+    from neurosurfer.graph.workflow.package import load_package
+    from neurosurfer.graph.workflow.validate import validate_package
+
+    agent = _branching_agent(provider, tmp_path, verify="off")
+    pkg = load_package(Path(await agent.build(_BRANCHING_INTENT)))
+
     assert validate_package(pkg).ok
-    kinds = [n.kind for n in pkg.graph.nodes]
-    has_router = "router" in kinds
-    has_guards = sum(1 for n in pkg.graph.nodes if n.when) >= 2
+    has_router, has_guards = _branching(pkg)
     assert has_router or has_guards, (
-        f"expected branching (router or ≥2 when-guards); got kinds={kinds}, "
+        f"expected branching (router or ≥2 when-guards); "
+        f"got kinds={[n.kind for n in pkg.graph.nodes]}, "
         f"guards={[n.when for n in pkg.graph.nodes]}"
     )
+
+
+@pytest.mark.slow
+async def test_agent_verifies_the_branch_it_designed_with_real_llm(provider, tmp_path):
+    """**Behaviour**: does the branching workflow survive the Architect's own
+    verification — built, run, and judged?
+
+    Marked slow because it is: this is the repair loop, and it is the expensive
+    half of the pair. On `gpt-4o-mini` it gave up at 12 graph runs and on
+    `gpt-5-mini` at 17, so budget ~20 minutes and the API spend when it is run
+    deliberately. A failure here means the repair loop did not converge, which is
+    a different finding from the design being wrong — see the test above.
+    """
+    from neurosurfer.graph.workflow.package import load_package
+    from neurosurfer.graph.workflow.validate import validate_package
+
+    agent = _branching_agent(provider, tmp_path)   # verify="required", the default
+    pkg = load_package(Path(await agent.build(_BRANCHING_INTENT)))
+
+    assert validate_package(pkg).ok
+    assert any(_branching(pkg)), "a verified build should still be the branching one"
 
 
 async def test_agent_declares_blocked_with_real_llm(provider, tmp_path):

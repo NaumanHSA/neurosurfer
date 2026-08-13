@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import importlib.util
 import io
 import pathlib
 import re
@@ -79,6 +80,20 @@ def _collect() -> dict[tuple[str, str], tuple[list[str], bool]]:
 
 
 def main() -> int:
+    # One missing package used to be reported as eighty-odd identical failures,
+    # every line reading "No module named 'neurosurfer'" against a different page
+    # — which looks like the docs are broken when nothing is wrong with them.
+    # Say the one true thing instead.
+    if importlib.util.find_spec("neurosurfer") is None:
+        print(
+            "neurosurfer is not importable, so every check below would fail for "
+            "that reason alone and none of it would be about the docs.\n\n"
+            "  pip install -e .          # from the repo root\n"
+            "  # or, without installing:\n"
+            "  PYTHONPATH=$PWD python .dev/check_docs_imports.py"
+        )
+        return 1
+
     quiet = io.StringIO()
     problems: list[str] = []
     skipped: list[str] = []

@@ -137,5 +137,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
-    "slow: spawns real subprocesses; ~half the suite's wall time",
+    "slow: spawns real subprocesses, or drives a real model through a repair loop; ~half the suite's wall time",
 ]
