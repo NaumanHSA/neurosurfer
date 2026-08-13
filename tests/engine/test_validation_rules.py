@@ -304,6 +304,59 @@ def test_a_message_reads_as_a_sentence(tmp_path):
         assert m.rstrip().endswith("."), f"{issue.kind}: {m!r} has no full stop"
 
 
+# ── a base node's one round of tools ────────────────────────────────────────
+
+
+def test_two_tools_on_a_one_round_step_is_warned(tmp_path):
+    """`base` declares `tool_rounds=1`, so it cannot chain one tool into the next.
+
+    A warning, not an error: two independent lookups answered in a single
+    parallel round is a working step.
+    """
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="base", instructions="Look both up.",
+                   tools=["read_file", "web_search"])],
+        outputs=["a"], tmp_path=tmp_path,
+    ))
+
+    assert "agent.tools_exceed_rounds" in kinds_of(report)
+    assert report.ok, "a warning must not fail the workflow"
+
+
+def test_one_tool_on_a_one_round_step_is_fine(tmp_path):
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="base", instructions="Read it.", tools=["read_file"])],
+        outputs=["a"], tmp_path=tmp_path,
+    ))
+
+    assert "agent.tools_exceed_rounds" not in kinds_of(report)
+
+
+def test_a_react_node_is_never_warned_about_rounds(tmp_path):
+    """`react` declares `tool_rounds=None` — it loops until the guardrails stop it."""
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="react", instructions="Work it out.",
+                   tools=["read_file", "web_search", "write_file"])],
+        outputs=["a"], tmp_path=tmp_path,
+    ))
+
+    assert "agent.tools_exceed_rounds" not in kinds_of(report)
+
+
+def test_a_shaped_answer_is_reported_once_not_twice(tmp_path):
+    """`output_schema` disables tools outright; that is the other rule's finding.
+    Reporting both would describe one node as two different mistakes."""
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="base", instructions="Answer.", mode="structured",
+                   output_schema={"type": "object"},
+                   tools=["read_file", "web_search"])],
+        outputs=["a"], tmp_path=tmp_path,
+    ))
+
+    assert "agent.shape_disables_tools" in kinds_of(report)
+    assert "agent.tools_exceed_rounds" not in kinds_of(report)
+
+
 # ── an input nothing reads ──────────────────────────────────────────────────
 
 
@@ -330,6 +383,67 @@ def test_an_input_a_step_interpolates_is_not_flagged(tmp_path):
     ))
 
     assert not [i for i in report.warnings if i.subject == "article"]
+
+
+def test_an_input_a_function_node_names_as_a_parameter_is_not_flagged(tmp_path):
+    """A code node is called with the inputs mapping as kwargs, so its signature
+    reads them — the same argument that already exempted `tool` nodes.
+
+    This is the capstone tutorial's shape. Judging code nodes by their templates
+    reported a graph as ignoring the two inputs its functions consume every run.
+    """
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="function",
+                   callable="tests.engine.input_reading_fns:reads_one_strictly")],
+        outputs=["a"], inputs=[GraphInput(name="article", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    assert not [i for i in report.warnings if i.subject == "article"]
+
+
+def test_an_input_no_function_node_names_is_still_flagged(tmp_path):
+    """The other half: exempting the *node* rather than its parameters would
+    silence the rule for any graph containing a code node at all."""
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="function",
+                   callable="tests.engine.input_reading_fns:reads_one_strictly")],
+        outputs=["a"],
+        inputs=[GraphInput(name="article", type="string"),
+                GraphInput(name="unused", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    assert [i for i in report.warnings if i.subject == "unused"]
+    assert not [i for i in report.warnings if i.subject == "article"]
+
+
+def test_a_function_node_taking_kwargs_reads_everything(tmp_path):
+    """`**kwargs` receives whatever it is handed, so nothing is unread and the
+    rule has nothing to say — about any input, not only the ones named."""
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="function",
+                   callable="tests.engine.input_reading_fns:reads_whatever_it_is_given")],
+        outputs=["a"],
+        inputs=[GraphInput(name="article", type="string"),
+                GraphInput(name="anything", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    assert not [i for i in report.warnings if i.kind == "structure"]
+
+
+def test_a_callable_that_does_not_import_is_left_to_its_own_rule(tmp_path):
+    """`callable_resolves` reports the import failure with the path and the
+    exception. Reporting the same defect again as "this input is unread" would
+    send the reader after the wrong thing."""
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="function", callable="no.such.module:fn")],
+        outputs=["a"], inputs=[GraphInput(name="article", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    assert "callable" in kinds_of(report)
 
 
 def test_an_input_read_only_by_an_expression_is_not_flagged(tmp_path):

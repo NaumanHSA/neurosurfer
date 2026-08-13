@@ -263,8 +263,16 @@ def _capability_overrides(
 
     - tool_overrides: node_id → final authoritative tool list (existing + authored).
     - declared_inputs: de-duplicated user-supplied workflow input names.
-    - goal_suffixes: node_id → text appended to the node goal so the run-time LLM
-      knows which workflow inputs to pass to its authored tool (via ``{name}``).
+    - goal_suffixes: node_id → text appended to the node goal naming the workflow
+      inputs that node must interpolate as ``{name}``.
+
+    **The suffix is not a convenience for authored tools.** It reads that way —
+    it is written while walking `new_tools` — but under the current prompt
+    contract it is load-bearing for any node at all. A node's turn is its own
+    task text plus the outputs of its `depends_on`; nothing ambient. So a goal
+    that does not name an input never receives it, whether the value was destined
+    for an authored tool or for the model's own reasoning. Interpolation is the
+    *only* route in, and this suffix is what puts it on the goal.
     """
     tool_overrides: dict[str, list[str]] = {}
     declared_inputs: list[str] = []

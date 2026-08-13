@@ -108,6 +108,13 @@ def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
     `over` expression, a `when` predicate, `tool_args`, an output `value`, and
     bodies as well as the top level. A rule that only looked at `instructions`
     would report a perfectly good `map` as ignoring its collection.
+
+    **A code node's signature is one of those ways.** `function` and `python`
+    nodes are called `fn(**{**graph_inputs, **dependency_results, **scope})`, so
+    a parameter named `db_path` reads `db_path` with no template anywhere — the
+    same argument that already exempted `tool` nodes. Judging one kind by its
+    parameters and the other by its templates reported the capstone tutorial as
+    ignoring two inputs its functions consume on every run.
     """
     declared = [
         getattr(i, "name", None) or (i.get("name") if isinstance(i, dict) else None)
@@ -115,6 +122,11 @@ def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
     ]
     declared = [n for n in declared if n]
     if not declared:
+        return
+
+    # A code node taking `**kwargs` receives the whole inputs mapping, so no
+    # declared input is unread and there is nothing this rule can say.
+    if _some_node_reads_every_input(ctx):
         return
 
     read = _names_read_anywhere(ctx)
@@ -164,7 +176,60 @@ def _names_read_anywhere(ctx) -> set[str]:
         # matching an input is a read even with no template anywhere.
         if getattr(node, "kind", None) == "tool":
             found.update(getattr(node, "tool_args", None) or {})
+        # **A code node is handed the same dict** — `fn(**{**graph_inputs,
+        # **dependency_results, **scope})` in `executor/deterministic.py`. So its
+        # signature is a list of reads exactly as `tool_args` is, and judging one
+        # by its parameters while judging the other by its templates reported a
+        # working graph as ignoring the inputs its functions consume on every run.
+        elif getattr(node, "kind", None) in {"function", "python"}:
+            found |= _callable_parameters(node)[0]
     return found
+
+
+def _some_node_reads_every_input(ctx) -> bool:
+    """True when a code node declares `**kwargs`, so nothing can be unread.
+
+    Kept out of `_names_read_anywhere` deliberately. That helper returns a set of
+    names and is also called by `engine/utils.py`; a set that claims to contain
+    everything would answer `in` correctly and set *difference* wrongly, which is
+    exactly the operation that caller uses. So "reads everything" is a separate
+    question with its own answer, and the sentinel never leaves this module.
+    """
+    return any(
+        _callable_parameters(node)[1]
+        for node in ctx.all_nodes
+        if getattr(node, "kind", None) in {"function", "python"}
+    )
+
+
+def _callable_parameters(node) -> tuple[set[str], bool]:
+    """A code node's parameter names, and whether it declares `**kwargs`.
+
+    Best-effort by design. `callable_resolves` is the rule that reports an import
+    failure, with the path and the exception; repeating that here would report the
+    same defect twice in different words. A callable this cannot inspect
+    contributes no reads, which leaves the input looking unread — the same answer
+    the rule gave before code nodes were considered at all.
+    """
+    import inspect
+
+    from neurosurfer.graph.engine import import_string
+
+    path = getattr(node, "callable", None)
+    if not path or not isinstance(path, str):
+        return set(), False
+    try:
+        fn = import_string(path)
+        params = inspect.signature(fn).parameters.values()
+    except Exception:  # noqa: BLE001 — an uninspectable callable is not this rule's finding
+        return set(), False
+
+    names = {
+        p.name for p in params
+        if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+    }
+    var_kw = any(p.kind is p.VAR_KEYWORD for p in params)
+    return names, var_kw
 
 
 def _expression_names(expr) -> set[str]:

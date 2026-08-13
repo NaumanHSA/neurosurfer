@@ -190,6 +190,20 @@ _BUILD_RULES: list[dict[str, str]] = [
                 "planned as internal; the plan claimed 2 external steps of 16.",
     },
     {
+        "rule": "Every input the workflow declares must be named by a step — as "
+                "`{name}` in a goal, in an `over`/`when` expression, in "
+                "`tool_args`, or as a parameter of a code node's function. If no "
+                "step needs it, do not declare it.",
+        "why": "A node's turn is its own task text plus the outputs of its "
+               "`depends_on`, and nothing else. An input no step names is "
+               "therefore read by nobody: the caller passes it, the run goes "
+               "green, and the answer is written as though it had never been "
+               "supplied. Validation warns but does not refuse, so this ships.",
+        "seen": "ticket_urgency_routing_and_reply build (gpt-5-mini): five steps "
+                "including a router, and the graph input `ticket_text` carrying "
+                "the ticket was named by none of them.",
+    },
+    {
         "rule": "Finish by calling a terminal tool. A graph that validates is not "
                 "a build that ended.",
         "why": "Stopping after the last node leaves the build hanging until a "
