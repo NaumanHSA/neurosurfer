@@ -138,6 +138,53 @@ formed**, rather than returning rows it did not filter — which looks exactly l
 
 ## Embeddings
 
-`neurosurfer.embeddings` exposes the `Embedder` protocol and `get_embedder(name)`, which loads a
-named backend (e.g. a sentence-transformers model) and **degrades to lexical/BM25 search** (returns
-`None`) if embeddings are unavailable — retrieval keeps working without a hard dependency.
+`neurosurfer.embeddings` resolves a **spec string** into a backend:
+
+| Spec | Backend |
+|---|---|
+| `none` · `bm25` · `off` | `None` — use lexical search |
+| `local` | sentence-transformers, default model |
+| `intfloat/e5-small-v2` | sentence-transformers, that model |
+| `openai` · `openai:text-embedding-3-large` | hosted OpenAI (needs `OPENAI_API_KEY`) |
+| `openai-compat:<model>@<base_url>` | any server exposing `/v1/embeddings` |
+
+```python
+from neurosurfer.embeddings import get_embedder
+
+# No torch, no sentence-transformers — the server you already run for chat.
+emb = get_embedder("openai-compat:nomic-embed-text-v1.5@http://localhost:1234/v1")
+vectors = emb.embed(["hello", "world"])
+```
+
+A bare string with no recognised prefix is a sentence-transformers model name, which is what it
+meant before — existing configs keep working.
+
+### `None` versus an exception
+
+These are different failures and the difference is the point:
+
+- **Not configured** — the optional dependency is missing, or no API key is set. `get_embedder`
+  returns `None` and you fall back to lexical search.
+- **Configured and broken** — a wrong model name, an expired key, an unreachable server. This
+  **raises** (`EmbeddingError`), because returning `None` here turns *"your credentials lapsed"*
+  into *"search quietly got worse"* with nothing said anywhere.
+
+Pass `get_embedder(spec, degrade=True)` for the never-raises behaviour when you genuinely want it —
+a background re-index that should limp rather than stop.
+
+Requests are batched (`max_batch`) and retried with backoff on 429/5xx, using the same
+retryable-error rules as chat completions.
+
+### Which model wrote a collection
+
+A store records the model and dimension it was embedded with, and refuses a query embedded by a
+different one:
+
+```
+This collection was embedded with 'e5-small' and the query was embedded with
+'nomic-embed'. Their vectors are not comparable — re-ingest the collection with
+one model, or point at another.
+```
+
+An empty or unlabelled collection adopts the identity instead of refusing, so this never blocks a
+first ingest or an upgrade from a store written before it existed.

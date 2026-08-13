@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, get_args
 
-from neurosurfer.embeddings import Embedder, _LocalEmbedder
+from neurosurfer.embeddings import Embedder, get_embedder
 from neurosurfer.llm.base import Provider
 from neurosurfer.llm.types import CanonicalResponse, GenerationConfig, Message
 from neurosurfer.tracing import Tracer, TracerConfig
@@ -152,15 +152,27 @@ class RAGAgent:
             )
             self.vectorstore = self._vs(self.cfg.collection_name, self.cfg.clear_collection_on_init)
 
+        # **A string goes through `get_embedder`, not straight to a local model.**
+        #
+        # This used to build `_LocalEmbedder(spec)` unconditionally, so every
+        # string meant sentence-transformers however it was written — the agent
+        # accepted an `Embedder` object but a *name* could only ever be one
+        # backend. Routing it through the registry is what makes
+        # `openai-compat:nomic-embed-text@http://localhost:1234/v1` work here.
         self.embedder = embedder
         if not self.embedder:
             if not self.cfg.embedding_model:
                 raise ValueError("embedder or embedding_model must be provided to RAGAgent config")
-            self.logger.warning("No embedder provided to RAGAgent, using default _LocalEmbedder")
-            self.logger.info("Initializing Embedding model. This may take a moment...")
-            self.embedder = _LocalEmbedder(self.cfg.embedding_model)
-        if isinstance(self.embedder, str):
-            self.embedder = _LocalEmbedder(self.embedder)
+            self.logger.info("Initializing embeddings (%s)…", self.cfg.embedding_model)
+            self.embedder = get_embedder(self.cfg.embedding_model)
+        elif isinstance(self.embedder, str):
+            self.embedder = get_embedder(self.embedder)
+        if self.embedder is None:
+            raise ValueError(
+                "No embeddings backend is available. Install the `rag` extra for "
+                "local models, or name an endpoint with "
+                "`openai-compat:<model>@<base_url>`."
+            )
 
         self.file_reader = file_reader or FileReader()
         self.chunker = chunker or Chunker()

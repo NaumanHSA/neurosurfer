@@ -211,6 +211,39 @@ class ChromaVectorStore(BaseVectorDB):
     def count(self) -> int:
         return self.collection.count()
 
+    # ── which model wrote these vectors ──────────────────────────────────────
+    #
+    # Chroma has a durable place to put it — the collection's own metadata —
+    # so the check survives the process that ingested, which is the case that
+    # matters: querying an existing store months later with a different model.
+
+    def embedding_identity(self) -> tuple[str | None, int | None]:
+        meta = getattr(self.collection, "metadata", None) or {}
+        dim = meta.get("neurosurfer:embedding_dim")
+        return meta.get("neurosurfer:embedding_model"), int(dim) if dim else None
+
+    def set_embedding_identity(self, model: str, dimensions: int | None) -> None:
+        # `modify` replaces metadata wholesale **and refuses any payload carrying
+        # `hnsw:space`** — "changing the distance function is not supported" —
+        # even when the value is unchanged. Dropping the `hnsw:` keys is safe:
+        # the space is stored in the collection's `configuration_json`, which is
+        # what `_detect_space` reads second and what survives this call.
+        meta = {
+            k: v
+            for k, v in (getattr(self.collection, "metadata", None) or {}).items()
+            if not k.startswith("hnsw:")
+        }
+        meta["neurosurfer:embedding_model"] = model
+        if dimensions:
+            meta["neurosurfer:embedding_dim"] = int(dimensions)
+        try:
+            self.collection.modify(metadata=meta)
+        except Exception as e:  # noqa: BLE001
+            # Recording provenance must never fail an ingest that is otherwise
+            # fine; the in-process default still catches same-run mistakes.
+            log.debug("could not persist embedding identity: %s", e)
+            super().set_embedding_identity(model, dimensions)
+
 
 def _clean(meta: dict[str, Any] | None) -> dict[str, Any]:
     """Drop the placeholder `add_documents` writes for metadata-less docs."""

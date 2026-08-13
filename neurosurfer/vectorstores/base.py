@@ -165,6 +165,51 @@ class BaseVectorDB(ABC):
     def count(self) -> int:
         """How many documents are stored."""
 
+    # ── which model wrote these vectors ──────────────────────────────────────
+
+    def embedding_identity(self) -> tuple[str | None, int | None]:
+        """The ``(model, dimensions)`` this collection was embedded with.
+
+        ``(None, None)`` when unknown — an empty collection, or one written
+        before this was recorded.
+        """
+        return getattr(self, "_embedding_model", None), getattr(self, "_embedding_dim", None)
+
+    def set_embedding_identity(self, model: str, dimensions: int | None) -> None:
+        """Record which model wrote this collection's vectors.
+
+        Backends with somewhere durable to put it override this; the default
+        keeps it for the life of the object, which is still enough to catch the
+        mistake inside one process.
+        """
+        self._embedding_model = model
+        self._embedding_dim = dimensions
+
+    def check_embedding_identity(self, model: str, dimensions: int | None) -> None:
+        """Refuse a query embedded by a different model than the collection holds.
+
+        Nothing recorded this before, so pointing a differently-embedded query at
+        an existing store returned confident nonsense: the vectors are the right
+        width and the arithmetic succeeds, the neighbours are just meaningless.
+        An empty or unlabelled collection adopts the identity instead of
+        refusing, so this never blocks a first ingest or an upgrade.
+        """
+        known_model, known_dim = self.embedding_identity()
+        if known_model is None or self.count() == 0:
+            self.set_embedding_identity(model, dimensions)
+            return
+        if known_model != model:
+            raise ValueError(
+                f"This collection was embedded with {known_model!r} and the query "
+                f"was embedded with {model!r}. Their vectors are not comparable — "
+                f"re-ingest the collection with one model, or point at another."
+            )
+        if dimensions and known_dim and dimensions != known_dim:
+            raise ValueError(
+                f"This collection holds {known_dim}-wide vectors and {model!r} "
+                f"produces {dimensions}-wide ones."
+            )
+
     # ── helpers for implementations ──────────────────────────────────────────
 
     @staticmethod
