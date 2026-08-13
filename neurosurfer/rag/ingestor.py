@@ -65,6 +65,7 @@ from neurosurfer.vectorstores.base import BaseVectorDB, Doc
 from .chunker import Chunker
 from .constants import exclude_dirs_in_code, supported_file_types
 from .filereader import FileReader
+from .spans import locate_chunks
 from .url_fetcher import URLFetcher, URLFetcherConfig
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -512,7 +513,17 @@ class RAGIngestor:
 
         def _chunk_one(args: tuple[str, str, dict[str, Any]]):
             source_id, text, md = args
-            return [(source_id, c, md) for c in self.chunker.chunk(text, source_id=source_id)]
+            # Spans for citation — see `rag/spans.py` for why this is a search
+            # rather than something the strategies return.
+            chunks = self.chunker.chunk(text, source_id=source_id)
+            spans = locate_chunks(text, chunks)
+            out = []
+            for idx, (chunk, span) in enumerate(zip(chunks, spans, strict=True)):
+                extra = {"chunk_idx": idx}
+                if span is not None:
+                    extra["char_start"], extra["char_end"] = span
+                out.append((source_id, chunk, {**md, **extra}))
+            return out
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as ex:
             futures = [ex.submit(_chunk_one, item) for item in self._queue]

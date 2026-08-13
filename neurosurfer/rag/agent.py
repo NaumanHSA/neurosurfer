@@ -32,6 +32,7 @@ from .context_builder import ContextBuilder
 from .filereader import FileReader
 from .ingestor import RAGIngestor
 from .responses import RAGAgentResponse, RetrieveResult
+from .retrieval import LexicalIndex, Reranker, hybrid_search
 from .templates import (
     RAG_AGENT_SYSTEM_PROMPT,
     RAG_USER_PROMPT_TEMPLATE,
@@ -112,6 +113,7 @@ class RAGAgent:
         ingestor_config: RAGIngestorConfig | None = None,
         make_source=None,
         router_llm: Provider | None = None,
+        reranker: Reranker | None = None,
         tracer: Tracer | None = None,
         logger: logging.Logger | None = None,
     ):
@@ -174,6 +176,12 @@ class RAGAgent:
                 "`openai-compat:<model>@<base_url>`."
             )
 
+        # Hybrid retrieval's lexical half. Built lazily and kept, because
+        # building it is a full scan of the store — per query would be absurd,
+        # and at construction would cost every agent that never retrieves.
+        self._lexical: LexicalIndex | None = None
+        self.reranker = reranker
+
         self.file_reader = file_reader or FileReader()
         self.chunker = chunker or Chunker()
 
@@ -209,6 +217,28 @@ class RAGAgent:
             )
             self._vs_cache[key] = vs
         return vs
+
+    # ── hybrid retrieval ────────────────────────────────────────────────────
+
+    def _hybrid_enabled(self) -> bool:
+        return bool(self.cfg.hybrid_search or self.reranker or self.cfg.mmr_lambda)
+
+    def _lexical_index(self) -> LexicalIndex | None:
+        """The BM25 half, built once from the store.
+
+        `None` when hybrid search is off, so a run that only wants reranking or
+        diversity does not pay for a full scan of the collection.
+        """
+        if not self.cfg.hybrid_search:
+            return None
+        if self._lexical is None:
+            self._lexical = LexicalIndex.from_store(self.vectorstore)
+            self.logger.debug("built lexical index over %d chunks", len(self._lexical))
+        return self._lexical
+
+    def invalidate_lexical_index(self) -> None:
+        """Drop the cached BM25 index — call after ingesting into a live agent."""
+        self._lexical = None
 
     def _collection_has_docs(self) -> bool:
         try:
@@ -310,13 +340,34 @@ class RAGAgent:
         distances: list[float] = []
         try:
             query_vec = self.embedder.embed([plan.optimized_query])[0]
-            raw = self.vectorstore.similarity_search(
-                query_embedding=query_vec,
-                top_k=plan.top_k or self.cfg.top_k,
-                metadata_filter=metadata_filter,
-                similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
-            )
-            docs, distances = self._unpack_results(raw)
+            k = plan.top_k or self.cfg.top_k
+
+            if self._hybrid_enabled():
+                # Dense alone cannot find a token it has never seen — an error
+                # code, an identifier — which is most of what people search a
+                # codebase or a docs corpus for. Measured on the fixture corpus
+                # in `tests/rag/`: recall@1 0.619 → 0.905.
+                hits = hybrid_search(
+                    plan.optimized_query,
+                    query_vec,
+                    self.vectorstore,
+                    lexical=self._lexical_index(),
+                    top_k=k,
+                    fetch_k=max(k * 4, 20),
+                    metadata_filter=metadata_filter,
+                    reranker=self.reranker,
+                    mmr_lambda=self.cfg.mmr_lambda,
+                )
+                docs = [h.doc for h in hits]
+                distances = [h.score for h in hits]
+            else:
+                raw = self.vectorstore.similarity_search(
+                    query_embedding=query_vec,
+                    top_k=k,
+                    metadata_filter=metadata_filter,
+                    similarity_threshold=similarity_threshold or self.cfg.similarity_threshold,
+                )
+                docs, distances = self._unpack_results(raw)
         except Exception as exc:
             self.logger.error(f"RAGAgent.retrieve: vector search failed: {exc}")
             return RetrieveResult(

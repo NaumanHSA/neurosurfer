@@ -70,6 +70,72 @@ Configuration lives in `RAGIngestorConfig` (batch size, workers, dedup, chunking
 `RAGAgentConfig` (retrieval defaults). See the [Vector stores](#vector-stores) below for storage
 backends.
 
+## Retrieval quality
+
+Dense-only retrieval fails on the queries people actually type at a codebase or a docs corpus —
+an error code, an identifier, a proper noun — because a model that has never seen `ENAMETOOLONG`
+embeds it as noise while BM25 matches it exactly.
+
+```python
+RAGAgentConfig(
+    hybrid_search=True,   # dense + BM25, fused by reciprocal rank
+    mmr_lambda=0.5,       # diversity: stop one paragraph filling the window
+)
+```
+
+Both are **off by default** — building the BM25 index is a full scan of the collection, and MMR
+changes which chunks come back. Neither should start happening because you upgraded.
+
+Measured on the fixture corpus in `tests/rag/`:
+
+| | recall@1 | MRR | recall@3 | nDCG@3 |
+|---|---|---|---|---|
+| dense | 0.619 | 0.714 | 0.952 | 0.842 |
+| hybrid | **0.905** | **1.000** | 0.952 | **0.966** |
+
+The gain is in *ranking*, and at the small k a context window uses, ranking is recall. Dense search
+usually has the right chunk somewhere in the top few; what it does badly is put it first.
+
+### Reranking
+
+An optional stage over the fused pool, usually the largest single quality gain:
+
+```python
+from neurosurfer.rag.retrieval import CrossEncoderReranker
+RAGAgent(..., reranker=CrossEncoderReranker())
+```
+
+A cross-encoder reads query and document *together*, which is why reranking a top-50 usually beats
+improving the retrieval that produced it. The order is fixed and deliberate — **fuse, then rerank,
+then diversify**: reranking first wastes the expensive stage on documents fusion would have
+dropped, and diversifying first lets the reranker reintroduce the redundancy just removed.
+
+### Measuring your own corpus
+
+```python
+from neurosurfer.rag.evaluation import EvalCase, compare
+
+cases = [EvalCase(query="how do I install", relevant_ids={"readme:0"})]
+print(compare(cases, {"dense": dense_fn, "hybrid": hybrid_fn}, k=3))
+```
+
+`recall@k` asks whether the right chunk arrived at all; `MRR` and `nDCG@k` ask how well it was
+ordered. Recall first — a chunk that never arrives cannot be reordered into place.
+
+### Citations
+
+`ContextBuilder.build_with_citations(docs)` returns the same context text plus a `Citation` per
+rendered chunk, carrying `char_start` / `char_end` into the original document:
+
+```python
+text, citations = agent.ctx.build_with_citations(result.docs, result.distances)
+citations[0].locator()   # 'guide.md:1200-1480'
+```
+
+Spans are recorded at ingestion by locating each chunk in its source. A chunker that *rewrites*
+rather than slices yields no span, and a citation with no span still names its source — better than
+a span that points at the wrong place.
+
 ## Vector stores
 
 `neurosurfer.vectorstores` provides two backends behind the `BaseVectorDB` interface:
