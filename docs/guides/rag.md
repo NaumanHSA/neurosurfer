@@ -136,6 +136,95 @@ Spans are recorded at ingestion by locating each chunk in its source. A chunker 
 rather than slices yields no span, and a citation with no span still names its source — better than
 a span that points at the wrong place.
 
+## Retrieval shapes beyond classic
+
+`neurosurfer.rag.strategies` holds four techniques, each answering a different failure of
+"embed the chunk, take the top-k".
+
+### Contextual retrieval
+
+A chunk reading *"It returns None on failure"* is unfindable by a query naming the function,
+because the chunk never says what "it" is. Splitting a document destroys the context that made
+each part searchable, and no amount of better ranking recovers a term that is not there.
+
+```python
+from neurosurfer.rag.strategies import ContextualEnricher
+from neurosurfer.rag.strategies.contextual import llm_summariser
+
+enricher = ContextualEnricher(llm_summariser(provider))
+chunks = enricher.enrich(chunks, document_text, source_id)
+```
+
+The summary is computed **once per document**, not per chunk — summarising per chunk is the
+objection to this technique when it is implemented carelessly. A failing summariser falls back to
+the source id rather than failing the ingest.
+
+### Parent-document retrieval
+
+Small chunks embed precisely and read poorly; large chunks the reverse. Index the children, return
+the parents:
+
+```python
+from neurosurfer.rag.strategies import ParentDocumentRetriever
+docs = ParentDocumentRetriever(parent_map).expand(child_hits)
+```
+
+Parents are de-duplicated — several children of one section routinely retrieve together, and
+returning the parent three times fills the window with one passage repeated.
+
+### Multi-query and HyDE
+
+```python
+from neurosurfer.rag.strategies import hyde_query, multi_query
+
+queries = multi_query(provider, "how do I make it faster?", n=3)
+text    = hyde_query(provider, "how do I make it faster?")
+```
+
+`multi_query` always keeps the original question first — a rewrite is a guess about what the asker
+meant, and discarding the real question can lose an exact term they typed deliberately. `hyde_query`
+embeds a *hypothetical answer* instead, because a question and its answer often share little
+vocabulary while an invented answer and the real one share a lot. Both degrade to the plain query
+if the model call fails.
+
+### Sentence-window and semantic chunking
+
+```python
+from neurosurfer.rag.strategies.chunking import (
+    make_semantic_handler, make_sentence_window_handler,
+)
+chunker.register_custom("semantic", make_semantic_handler(embedder))
+chunker.use_custom_for_ext([".md", ".txt"], "semantic")
+```
+
+Sentence-window emits overlapping runs of sentences, so a fact and its qualifier survive together.
+Semantic chunking cuts where the embedding distance between adjacent sentences is largest — where
+the text changes subject — bounded by `min_sentences`/`max_sentences`, because distance alone gives
+one-sentence chunks in dialogue and enormous ones in uniform prose.
+
+## Re-ingesting only what changed
+
+`RAGIngestor` deduplicates within a run and has no memory of the last one, so a directory of a
+thousand files with one edit costs a thousand embeddings.
+
+```python
+from neurosurfer.rag.incremental import IngestManifest
+
+manifest = IngestManifest.load(".neurosurfer/ingest.json")
+delta = manifest.diff({source_id: text for ...})
+print(delta)                       # '1 new, 1 changed, 998 unchanged, 0 removed'
+
+store.delete_documents(manifest.stale_chunk_ids(delta))
+for source_id in delta.to_ingest:
+    ...                            # chunk, embed, add
+    manifest.record(source_id, text, chunk_ids)
+manifest.save()
+```
+
+The chunk ids matter as much as the hashes: when a source changes, its *old* chunks must go, and
+without a record of which they were the only options are stale text in the index or clearing the
+whole collection. A corrupt or missing manifest costs a full re-ingest, never a failed run.
+
 ## Vector stores
 
 `neurosurfer.vectorstores` provides three backends behind the `BaseVectorDB` interface:
