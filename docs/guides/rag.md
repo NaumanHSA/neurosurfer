@@ -76,7 +76,65 @@ backends.
 
 - **`ChromaVectorStore(collection_name, persist_directory=...)`** — persistent, disk-backed
   (requires the `rag` extra's `chromadb`).
-- **`InMemoryVectorStore(dim)`** — ephemeral, dependency-free; handy for tests and demos.
+- **`InMemoryVectorStore(dim=None)`** — ephemeral, dependency-free; handy for tests and demos.
+  It is the reference implementation: it supports every capability below, and `dim` is optional
+  (the first document sets it, and later ones are checked against it).
+
+Both are held to one **conformance suite** — `tests/vectorstores/conformance.py`. "Implements
+`BaseVectorDB`" means "passes that suite", so adding a backend is one class and a three-line test
+module.
+
+### What a store guarantees
+
+- **`add_documents` upserts** on `Doc.id`, so re-ingesting a corpus is idempotent. A document
+  with no id gets a stable one derived from its content.
+- **`delete_documents(ids)`** takes ids; `delete_docs(docs)` is the convenience. Ids round-trip —
+  what `list_all_documents()` returns can be deleted.
+- **Scores are cosine similarity, higher is better**, whatever the backend's native metric.
+  `similarity_threshold` is applied on that scale.
+
+### Metadata filters
+
+One grammar, `neurosurfer.vectorstores.filters`, which every backend translates:
+
+```python
+{"lang": "py"}                        # equals (shorthand)
+{"lang": ["py", "rs"]}                 # one of  (shorthand)
+{"score": {"$gte": 20, "$lt": 100}}    # ranges, ANDed
+{"lang": "py", "kind": "src"}          # two fields, ANDed
+{"$or": [{"lang": "py"}, {"kind": "test"}]}
+{"$not": {"lang": "py"}}
+```
+
+Operators: `$eq`, `$ne`, `$in`, `$nin`, `$gt`, `$gte`, `$lt`, `$lte`, `$and`, `$or`, `$not`.
+A field the metadata does not carry never matches — including under `$ne` and `$nin`.
+
+### Capabilities
+
+A backend declares what it can do, so you ask rather than infer:
+
+```python
+from neurosurfer.vectorstores import StoreCapability
+StoreCapability.RANGE_FILTERS in store.capabilities
+```
+
+| Flag | Chroma | InMemory |
+|---|:--:|:--:|
+| `RANGE_FILTERS` | ✅ | ✅ |
+| `BOOLEAN_FILTERS` | ✅ | ✅ |
+| `NEGATION` (`$not`) | ❌ | ✅ |
+| `NATIVE_UPSERT` | ✅ | ✅ |
+| `PERSISTENT` | ✅ | ❌ |
+
+A filter needing a capability the store lacks raises `UnsupportedFilter` **before the query is
+formed**, rather than returning rows it did not filter — which looks exactly like a working query.
+
+!!! warning "Chroma collections created before this release scored wrongly"
+    Chroma's default space is squared L2, and the old code returned `1.0 - distance` as though it
+    were cosine — so orthogonal vectors scored **-1.0** instead of `0.0`, and any
+    `similarity_threshold` was applied to the wrong scale. New collections are created as cosine;
+    existing ones are read for the space they actually have and converted, so an old store now
+    reports correct scores without being rebuilt.
 
 ## Embeddings
 

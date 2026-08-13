@@ -5,9 +5,17 @@
 merely importing this package — or anything that only needs ``Doc`` — does not
 require the optional ``chromadb`` dependency.
 """
-from .base import BaseVectorDB, Doc
+from .base import BaseVectorDB, Doc, StoreCapability
+from .filters import UnsupportedFilter
 
-__all__ = ["BaseVectorDB", "Doc", "ChromaVectorStore", "InMemoryVectorStore"]
+__all__ = [
+    "BaseVectorDB",
+    "ChromaVectorStore",
+    "Doc",
+    "InMemoryVectorStore",
+    "StoreCapability",
+    "UnsupportedFilter",
+]
 
 
 def __getattr__(name: str):
