@@ -7,6 +7,8 @@ graph has a way in and a way out.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from neurosurfer.graph.engine.kinds import node_kind_spec
 
 from .models import Severity, ValidationIssue, ValidationReport
@@ -89,7 +91,7 @@ def nothing_consumes_this_node(graph, ctx, report) -> None:
         ))
 
 
-@graph_rule(severity=Severity.WARNING)
+@graph_rule(severity=Severity.ERROR)
 def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
     """A graph input nothing reads. **The rule that makes the narrowing safe.**
 
@@ -115,6 +117,24 @@ def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
     same argument that already exempted `tool` nodes. Judging one kind by its
     parameters and the other by its templates reported the capstone tutorial as
     ignoring two inputs its functions consume on every run.
+
+    **This blocks, and it did not always.** As a warning the workflow stayed
+    registerable and the backstop was a human noticing the answer ignored the
+    parameter. That backstop does not exist for a workflow the Architect builds
+    and verifies on its own: `gpt-5-mini`'s first build of a ticket-routing
+    intent declared `ticket_text`, named it in none of its five steps, and would
+    have registered — a workflow that accepts the ticket and never reads it. A
+    warning it does not have to act on is a warning a model will not act on. As
+    an error the repair loop must fix it before the build can register, which is
+    the only enforcement in the loop that works on a weak model.
+
+    **It downgrades itself when it cannot see.** Blocking is only honest while
+    the analysis is complete, and one thing makes it incomplete: a code node
+    whose signature could not be read, whose parameters are therefore invisible
+    and whose inputs would look unread. Then this reports a warning and says so,
+    because refusing to run a graph over a fact you could not establish is worse
+    than the gap. `_analysis_is_complete` is that question, and the import
+    failure behind it is `callable_resolves`' finding to report, not this one's.
     """
     declared = [
         getattr(i, "name", None) or (i.get("name") if isinstance(i, dict) else None)
@@ -129,12 +149,17 @@ def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
     if _some_node_reads_every_input(ctx):
         return
 
+    # Certain enough to refuse the run, or only to mention it? See the docstring:
+    # a step whose parameters this cannot see hides the very reads that would
+    # clear the input, so this is the difference between a finding and a guess.
+    doubt = _analysis_is_incomplete(ctx)
+
     read = _names_read_anywhere(ctx)
     for name in declared:
         if name in read:
             continue
         report.add(ValidationIssue(
-            severity=Severity.WARNING,
+            severity=Severity.WARNING if doubt else Severity.ERROR,
             kind="structure",
             subject=name,
             message=(
@@ -145,7 +170,10 @@ def declared_inputs_are_read_by_something(graph, ctx, report) -> None:
                 f"Name it in a step's instructions as {{{name}}}, or drop it "
                 f"from the workflow's inputs."
             ),
-            detail=f"graph input {name!r} appears in no template, expression or argument",
+            detail=(
+                f"graph input {name!r} appears in no template, expression or "
+                f"argument" + (f"; {doubt}" if doubt else "")
+            ),
         ))
 
 
@@ -172,6 +200,19 @@ def _names_read_anywhere(ctx) -> set[str]:
                        getattr(node, "tool_settings", None) or {}):
             for value in _flatten(holder):
                 found |= roots(value)
+        # **An output node's `value` is a template.** `_TEMPLATE_FIELDS` is the
+        # prompt fields and stops there, so `value: "hello {who}"` — a whole
+        # one-node workflow whose answer is composed from an input — read
+        # nothing as far as this could tell. Docstring said it counted; only
+        # this makes it true.
+        for value in _flatten(getattr(node, "value", None)):
+            found |= roots(value)
+        # An input step's own key. The caller's value lands *on* the node, which
+        # then yields it — `engine/utils.input_node_keys` is the same mapping
+        # read from the other side. A resume that supplies `approval` for the
+        # step named `approval` is that input being used, not ignored.
+        if getattr(node, "kind", None) == "input":
+            found.add(getattr(node, "writes", None) or getattr(node, "id", ""))
         # A tool node is handed the inputs dict as kwargs, so a parameter name
         # matching an input is a read even with no template anywhere.
         if getattr(node, "kind", None) == "tool":
@@ -182,12 +223,72 @@ def _names_read_anywhere(ctx) -> set[str]:
         # by its parameters while judging the other by its templates reported a
         # working graph as ignoring the inputs its functions consume on every run.
         elif getattr(node, "kind", None) in {"function", "python"}:
-            found |= _callable_parameters(node)[0]
+            found |= _callable_parameters(node).names
     return found
 
 
+def _code_nodes(ctx) -> list:
+    """The nodes called with the inputs mapping as kwargs, top level and bodies."""
+    return [
+        node for node in ctx.all_nodes
+        if getattr(node, "kind", None) in {"function", "python"}
+    ]
+
+
+def _has_a_tool_node(ctx) -> bool:
+    """A `tool` node is handed the inputs mapping as kwargs, like a code node —
+    but its parameters live in a registered tool's schema, not in a signature
+    this rule can import.
+
+    So the input a tool consumes is invisible here, the same way an uninspectable
+    callable's is: `{"id": "get_motto", "kind": "tool", "tools": ["city_motto"]}`
+    reads `city` on every run and names it nowhere. `engine/utils` reached the
+    same conclusion from the other side and silences its check outright for these
+    kinds. This is one step less blunt — the rule still says so, it just may not
+    refuse the run over it.
+    """
+    return any(getattr(node, "kind", None) == "tool" for node in ctx.all_nodes)
+
+
+def _analysis_is_incomplete(ctx) -> str | None:
+    """Why this rule cannot be sure, or `None` when it can. **The gate on blocking.**
+
+    A code node reads inputs by parameter name, so a signature this could not
+    inspect is a set of reads it cannot see — and an input that is genuinely
+    consumed there looks unread. Warning about that is a nuisance; refusing to
+    run over it is a working graph stopped at the door on a fact that was never
+    established. So the rule keeps its voice and loses its veto.
+
+    Two ways for a callable to be uninspectable, both handled by their own rule
+    and neither worth reporting twice: one that will not import
+    (`callable_resolves` says so, with the path and the exception) and one whose
+    signature `inspect` refuses — a C function, or an object whose `__call__` it
+    cannot follow. A `tool` node is the third way and needs no failure at all;
+    see `_has_a_tool_node`.
+
+    The reason is returned rather than a bare `False` because it goes in the
+    issue's `detail`: "no step names it" and "no step names it, but I could not
+    read one of them" send a reader to different places.
+    """
+    if _has_a_tool_node(ctx):
+        return "a tool step is handed the inputs directly, so this may be a false alarm"
+    if not all(_callable_parameters(node).inspected for node in _code_nodes(ctx)):
+        return "a step's callable could not be inspected, so this may be a false alarm"
+    return None
+
+
 def _some_node_reads_every_input(ctx) -> bool:
-    """True when a code node declares `**kwargs`, so nothing can be unread.
+    """True when some node is handed the whole inputs mapping, so nothing is unread.
+
+    Two shapes qualify, and the second is why this rule could not block before:
+
+    - **A code node declaring `**kwargs`** — it receives whatever it is given.
+    - **A `dict`-mode input node** — it *is* the declaration. It collects the
+      graph's declared inputs by definition (`engine/utils.input_node_keys`
+      skips it for exactly that reason), so every one of them is read by the
+      step whose whole job is reading them. As a warning this misfired quietly
+      on the smallest correct graph there is — one input step, one field; as an
+      error it would have refused to run it.
 
     Kept out of `_names_read_anywhere` deliberately. That helper returns a set of
     names and is also called by `engine/utils.py`; a set that claims to contain
@@ -195,21 +296,38 @@ def _some_node_reads_every_input(ctx) -> bool:
     exactly the operation that caller uses. So "reads everything" is a separate
     question with its own answer, and the sentinel never leaves this module.
     """
+    if any(_callable_parameters(node).var_kw for node in _code_nodes(ctx)):
+        return True
     return any(
-        _callable_parameters(node)[1]
+        getattr(node, "kind", None) == "input"
+        and (getattr(node, "input_mode", None) or "text") == "dict"
         for node in ctx.all_nodes
-        if getattr(node, "kind", None) in {"function", "python"}
     )
 
 
-def _callable_parameters(node) -> tuple[set[str], bool]:
-    """A code node's parameter names, and whether it declares `**kwargs`.
+class _Params(NamedTuple):
+    """What a code node's signature said, and whether it could be read at all.
+
+    `inspected` is the field that matters and the reason this is not a plain
+    tuple: "no parameters" and "no answer" are both an empty `names`, and
+    conflating them is the difference between blocking a workflow on a finding
+    and blocking it on a guess. See `_analysis_is_complete`.
+    """
+
+    names: set[str]
+    var_kw: bool
+    inspected: bool
+
+
+def _callable_parameters(node) -> _Params:
+    """A code node's parameter names, whether it takes `**kwargs`, and whether
+    the signature could be read.
 
     Best-effort by design. `callable_resolves` is the rule that reports an import
     failure, with the path and the exception; repeating that here would report the
-    same defect twice in different words. A callable this cannot inspect
-    contributes no reads, which leaves the input looking unread — the same answer
-    the rule gave before code nodes were considered at all.
+    same defect twice in different words. So a callable this cannot inspect
+    contributes no reads and, through `inspected`, costs the rule its veto rather
+    than turning invisible parameters into a refusal to run.
     """
     import inspect
 
@@ -217,19 +335,21 @@ def _callable_parameters(node) -> tuple[set[str], bool]:
 
     path = getattr(node, "callable", None)
     if not path or not isinstance(path, str):
-        return set(), False
+        # No path at all: `callable_required` is already reporting this, and the
+        # node is unrunnable for a reason that has nothing to do with inputs.
+        return _Params(set(), False, False)
     try:
         fn = import_string(path)
         params = inspect.signature(fn).parameters.values()
     except Exception:  # noqa: BLE001 — an uninspectable callable is not this rule's finding
-        return set(), False
+        return _Params(set(), False, False)
 
     names = {
         p.name for p in params
         if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
     }
     var_kw = any(p.kind is p.VAR_KEYWORD for p in params)
-    return names, var_kw
+    return _Params(names, var_kw, True)
 
 
 def _expression_names(expr) -> set[str]:

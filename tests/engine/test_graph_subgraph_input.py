@@ -198,12 +198,12 @@ def test_input_node_downstream_conditional():
 # in TypeScript, and `normalize_and_validate_graph_inputs` knew nothing about it.
 # Both tests below describe a value a person typed being thrown away.
 
-def _chat_graph(declared: list[dict] | None = None) -> dict:
+def _chat_graph(declared: list[dict] | None = None, value: str = "{ask}") -> dict:
     spec = {
         "name": "chat_wf",
         "nodes": [
             {"id": "ask", "kind": "input", "instructions": "What topic?"},
-            {"id": "done", "kind": "output", "value": "{ask}", "depends_on": ["ask"]},
+            {"id": "done", "kind": "output", "value": value, "depends_on": ["ask"]},
         ],
         "outputs": [],
     }
@@ -216,17 +216,24 @@ def test_input_node_key_survives_a_declared_input_list():
     """The trap: with any `graph.inputs` declared, an undeclared key was warned
     about and **dropped** — so the chat message was discarded before the node
     that asked for it ever looked, and the run parked saying nothing was
-    supplied."""
-    graph = load_graph_from_dict(
-        _chat_graph(declared=[{"name": "unrelated", "type": "string", "required": False}])
-    )
+    supplied.
+
+    The declared input is **read**, by the output's `value`. What matters here is
+    that a declared list exists and does not mention `ask`; a declared input
+    nothing reads is a separate defect, and now a blocking one, so leaving it
+    unread would fail this test for the other rule's reason.
+    """
+    graph = load_graph_from_dict(_chat_graph(
+        declared=[{"name": "tone", "type": "string", "required": False}],
+        value="{ask} ({tone})",
+    ))
     res = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False).run(
-        {"ask": "otters"}
+        {"ask": "otters", "tone": "curious"}
     )
     assert res.nodes["ask"].raw_output == "otters"
     # The output node collects: the node wired into it, plus its own composed
     # `value` keyed by its id. Both are answers a caller asked to see.
-    assert res.final["done"] == {"ask": "otters", "done": "otters"}
+    assert res.final["done"] == {"ask": "otters", "done": "otters (curious)"}
 
 
 def test_bare_string_lands_where_the_graph_is_listening():

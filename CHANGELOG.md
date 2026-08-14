@@ -112,6 +112,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **A declared input no step reads now blocks the workflow.**
+  `declared_inputs_are_read_by_something` was a warning, so a workflow that
+  accepts a parameter and ignores it registered and ran, and the backstop was a
+  human noticing the answer had nothing to do with what they passed. That is not
+  a backstop a workflow the Architect builds and verifies on its own ever gets:
+  `gpt-5-mini`'s first build of a ticket-routing intent declared `ticket_text`,
+  named it in none of its five steps, and would have registered. A model does not
+  act on a warning it is allowed to ignore; as an error the repair loop has to
+  fix it before the build can register.
+
+  It **downgrades itself to a warning when it cannot see** — a step whose
+  parameters this cannot read (a `tool` node, whose arguments live in a
+  registered schema, or a callable that will not import or inspect) hides the
+  very reads that would clear the input, and refusing to run over a fact that was
+  never established is worse than the gap.
+
+  Promoting it exposed four false positives it had been reporting quietly all
+  along, each of which would now have blocked a working graph, and all four are
+  fixed: an **output node's `value`** was never scanned for placeholders, so
+  `value: "hello {who}"` read nothing; a **`dict`-mode input step**, whose whole
+  job is collecting the declared inputs, was judged not to read them; a **text
+  input step's own key** was not counted as a read of the input that lands on it;
+  and a **`tool` node** is handed the inputs mapping as kwargs, which is now
+  doubt rather than silence. If a workflow of yours stops registering, it is
+  telling you a parameter it accepts goes nowhere — name it in a step as
+  `{name}`, or drop it from `inputs`.
+
 - **A loop has one stop condition, `until`, and `break_when` is gone.** Asking an
   author to pick a *mechanism* — plain English or sandboxed expression — was
   asking the wrong question; a loop stops for one reason, so it gets one field.

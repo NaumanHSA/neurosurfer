@@ -68,10 +68,14 @@ built, judges the output, and refuses an impossible request. Its own
 prompts interpolate `{user_intent}` — which is why the contract rewrite did not
 disturb it.
 
-**Addressed in §10 — it writes inputs no step reads.** The rule is now in
-`_BUILD_RULES`, written from the transcript below, and the false positive that
-would have made promoting the check to blocking unsafe is fixed. The check itself
-is still a **warning**; promoting it is the remaining decision. On `gpt-5-mini`
+**Closed — it writes inputs no step reads, and that now blocks.** The rule is in
+`_BUILD_RULES`, written from the transcript below, and
+`declared_inputs_are_read_by_something` is an **error**: the workflow does not
+register, so the repair loop must fix it rather than being free to ignore a
+warning. It downgrades itself to a warning where it cannot read a step's
+parameters (`tool` nodes, uninspectable callables) — blocking is only honest
+while the analysis is complete. Promoting it exposed four false positives it had
+been reporting quietly, all fixed; see the CHANGELOG. On `gpt-5-mini`
 the first build of the branching intent produced:
 
 ```
@@ -80,10 +84,11 @@ but no step uses it, so the value a caller passes is ignored.
 ```
 
 Five steps, a router among them, and the graph input carrying the ticket named
-by none of them. `declared_inputs_are_read_by_something` catches it but only
-**warns**, so the workflow stays registerable, and today's backstop is Phase 5
-verification noticing the answer ignores the parameter. That was the transcript
-`_BUILD_RULES` required, and §10 wrote the rule from it. `assemble.py`'s
+by none of them. That was the transcript `_BUILD_RULES` required, §10 wrote the
+rule from it, and it is the build that argued the check had to block: leaving
+Phase 5 verification as the only backstop meant the loop's one hard signal was a
+judge's opinion of the final answer, which is the slowest possible way to learn
+that a prompt forgot to interpolate a parameter. `assemble.py`'s
 docstring — which described interpolation as an *authored-tool* concern, an
 understatement under the current contract — is corrected with it.
 
@@ -106,7 +111,11 @@ records: structure (is there a router?) and behaviour (does the built graph
 satisfy its own judge?) are now separate tests, so a red live suite says which.
 **The repair loop's convergence is the thing still open here.** Re-run the
 behaviour half with `NEUROSURFER_TEST_MODEL=gpt-5-mini` if the final number is
-ever wanted; budget ~20 minutes and the API spend that goes with it.
+ever wanted; budget ~20 minutes and the API spend that goes with it. Note that
+the 12 and 17 above were measured *before* the unread-input check blocked, so
+they are not a baseline any more — the loop now has one more thing it must fix
+and one more precise signal for fixing it, and which of those dominates is
+exactly what a re-run would tell you.
 
 ---
 

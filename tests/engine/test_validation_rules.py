@@ -13,6 +13,7 @@ from neurosurfer.graph.engine.schema import Graph, GraphInput, GraphNode
 from neurosurfer.graph.workflow.package import WorkflowPackage
 from neurosurfer.graph.workflow.schema import WorkflowManifest
 from neurosurfer.graph.workflow.validation import validate_package
+from neurosurfer.graph.workflow.validation.models import Severity
 from neurosurfer.graph.workflow.validation.registry import (
     graph_rules,
     node_rules,
@@ -360,10 +361,14 @@ def test_a_shaped_answer_is_reported_once_not_twice(tmp_path):
 # ── an input nothing reads ──────────────────────────────────────────────────
 
 
-def test_a_declared_input_no_step_names_is_flagged(tmp_path):
+def test_a_declared_input_no_step_names_is_blocking(tmp_path):
     """The rule that makes the narrowing safe. A node is no longer recited every
     graph input, so an input nothing names is a parameter that does nothing —
-    the caller passes it, the run is green, and the answer ignores it."""
+    the caller passes it, the run is green, and the answer ignores it.
+
+    It **blocks**. As a warning the workflow registered and the backstop was a
+    human noticing the answer ignored the parameter, which is not a backstop a
+    workflow the Architect builds and verifies on its own ever gets."""
     report = validate_package(pkg(
         [GraphNode(id="a", kind="base", instructions="Write a summary.")],
         outputs=["a"], inputs=[GraphInput(name="article", type="string")],
@@ -371,8 +376,8 @@ def test_a_declared_input_no_step_names_is_flagged(tmp_path):
     ))
 
     assert "structure" in kinds_of(report)
-    assert any(i.subject == "article" for i in report.warnings)
-    assert report.ok, "a warning must not fail the workflow"
+    assert any(i.subject == "article" for i in report.errors)
+    assert not report.ok, "an ignored parameter must not register"
 
 
 def test_an_input_a_step_interpolates_is_not_flagged(tmp_path):
@@ -414,8 +419,8 @@ def test_an_input_no_function_node_names_is_still_flagged(tmp_path):
         tmp_path=tmp_path,
     ))
 
-    assert [i for i in report.warnings if i.subject == "unused"]
-    assert not [i for i in report.warnings if i.subject == "article"]
+    assert [i for i in report.errors if i.subject == "unused"]
+    assert not [i for i in report.issues if i.subject == "article"]
 
 
 def test_a_function_node_taking_kwargs_reads_everything(tmp_path):
@@ -444,6 +449,45 @@ def test_a_callable_that_does_not_import_is_left_to_its_own_rule(tmp_path):
     ))
 
     assert "callable" in kinds_of(report)
+
+
+def test_an_uninspectable_callable_costs_the_rule_its_veto(tmp_path):
+    """A signature that could not be read hides the parameters that would clear
+    the input, so the rule keeps its voice and loses its veto.
+
+    Blocking is only honest while the analysis is complete. Refusing to run a
+    graph over a fact that was never established is worse than the gap — and the
+    import failure itself is `callable_resolves`' finding, which is the error
+    that *does* block here.
+    """
+    report = validate_package(pkg(
+        [GraphNode(id="a", kind="function", callable="no.such.module:fn")],
+        outputs=["a"], inputs=[GraphInput(name="article", type="string")],
+        tmp_path=tmp_path,
+    ))
+
+    unread = [i for i in report.issues if i.subject == "article"]
+    assert unread, "it still says so"
+    assert all(i.severity is Severity.WARNING for i in unread), report.summary()
+    assert "could not be inspected" in unread[0].detail
+
+
+def test_a_dict_input_step_reads_every_declared_input(tmp_path):
+    """A `dict`-mode input node *is* the declaration — collecting the graph's
+    inputs is its whole job, so none of them is unread.
+
+    The smallest correct graph there is: one input step, one field. This misfired
+    quietly while the rule warned; once it blocked it would have refused to run.
+    """
+    report = validate_package(pkg(
+        [GraphNode(id="i", kind="input", input_mode="dict"),
+         GraphNode(id="a", kind="base", instructions="Answer.", depends_on=["i"])],
+        outputs=["a"],
+        inputs=[GraphInput(name="city"), GraphInput(name="days")],
+        tmp_path=tmp_path,
+    ))
+
+    assert not [i for i in report.issues if i.kind == "structure"], report.summary()
 
 
 def test_an_input_read_only_by_an_expression_is_not_flagged(tmp_path):
@@ -490,10 +534,17 @@ def test_an_input_read_only_by_a_tool_argument_is_not_flagged(tmp_path):
 
 
 def _routing_graph(router: GraphNode, tmp_path):
+    """A router and its two branches. **The branches read `{ticket}`** so that
+    these tests measure one rule: whether the *router* was shown anything.
+
+    They used to say "A." and "B.", which left the graph input read by nobody —
+    fine while `declared_inputs_are_read_by_something` only warned, and a second
+    finding on every one of these once it blocked.
+    """
     return pkg(
         [router,
-         GraphNode(id="a", kind="base", instructions="A.", depends_on=["r"]),
-         GraphNode(id="b", kind="base", instructions="B.", depends_on=["r"])],
+         GraphNode(id="a", kind="base", instructions="Answer {ticket}.", depends_on=["r"]),
+         GraphNode(id="b", kind="base", instructions="Triage {ticket}.", depends_on=["r"])],
         outputs=["a", "b"], inputs=[GraphInput(name="ticket", type="string")],
         tmp_path=tmp_path,
     )

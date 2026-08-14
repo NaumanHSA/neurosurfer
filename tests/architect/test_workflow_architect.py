@@ -75,6 +75,15 @@ def _discovery() -> DiscoveryOutput:
 
 
 def _plan() -> WorkflowPlan:
+    """A minimal two-node plan — and one that **names `{query}`**.
+
+    `assemble` declares a `query` input on every workflow it builds, so a plan
+    whose prompts never interpolate it produces a workflow that accepts the
+    user's question and ignores it. That is a blocking validation error now, and
+    deliberately: it is the exact shape `gpt-5-mini` shipped for a ticket-routing
+    intent. A fixture that could not register is the rule working, so the fixture
+    says what a real plan has to say.
+    """
     return WorkflowPlan(
         name="web_summariser",
         description="Search the web and summarise the results.",
@@ -82,7 +91,7 @@ def _plan() -> WorkflowPlan:
             NodePlan(
                 id="search",
                 kind="react",
-                purpose="Search the web for the given query.",
+                purpose="Search the web for: {query}",
                 goal="Return relevant web content.",
                 tools=["web_search"],
                 mode="text",
@@ -263,8 +272,11 @@ class TestAssembleNode:
             agents_dir.mkdir(parents=True, exist_ok=True)
             for node in (plan.nodes if isinstance(plan, WorkflowPlan) else plan.get("nodes", [])):
                 nid = node.id if hasattr(node, "id") else node["id"]
+                # The staged override *replaces* the plan's prompt, `{query}`
+                # and all — so a stub that drops it builds a workflow whose
+                # declared input no step reads, which no longer registers.
                 (agents_dir / f"{nid}.yaml").write_text(
-                    yaml.dump({"id": nid, "kind": "base", "purpose": "stub"}),
+                    yaml.dump({"id": nid, "kind": "base", "purpose": "stub: {query}"}),
                     encoding="utf-8",
                 )
 
@@ -721,7 +733,10 @@ def _stage_package_with_gap(project_dir: Path, *, tool: str = "count_lines") -> 
         "description": "needs a tool that doesn't exist",
         "inputs": [{"name": "query", "type": "string", "required": False}],
         "nodes": [
-            {"id": "do_it", "kind": "react", "purpose": "Count lines in files.", "tools": [tool]},
+            # `{query}` is named on purpose: a declared input no step reads is a
+            # blocking error, and these tests are about the *capability gap*.
+            {"id": "do_it", "kind": "react", "purpose": "Count lines in files: {query}.",
+             "tools": [tool]},
         ],
         "outputs": ["do_it"],
     }
