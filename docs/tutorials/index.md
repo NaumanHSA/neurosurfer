@@ -12,6 +12,7 @@ in Google Colab. Browse them in order, or jump to whichever fits.
 | 3 | [Graph Agents](graph-agents.md) | Compose multi-step workflows with the graph engine. |
 | 4 | [MCP Servers](mcp-servers.md) | Connect an external MCP server and expose its tools to an agent. |
 | 5 | [Capstone: Insight Engine](insight-engine.md) | A database-backed insight engine over MCP. |
+| 6 | [The Architect](the-architect.md) | An agent that designs, builds, tests and registers a workflow from an intent. |
 
 Those notebooks live under
 [`tutorials/`](https://github.com/NaumanHSA/neurosurfer/tree/main/tutorials) in the repo.

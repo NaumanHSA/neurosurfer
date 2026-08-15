@@ -70,6 +70,7 @@ Hands-on notebooks: open any of them directly in Google Colab.
 | 3 | **[Graph Agents](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/03_graph_agents.ipynb)** | Compose multi-step workflows with the graph engine and Workflow packages. |
 | 4 | **[MCP Servers](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/04_mcp_servers.ipynb)** | Connect external Model Context Protocol servers and expose their tools to agents. |
 | 5 | **[Capstone: Insight Engine](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb)** | Put it all together: a database-backed insight engine over MCP. |
+| 6 | **[The Architect](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/06_the_architect.ipynb)** | Hand an agent an intent and watch it design, build, test and register the workflow itself. |
 
 ---
 

@@ -183,6 +183,7 @@ nav:
     - Graph Agents: tutorials/graph-agents.md
     - MCP Servers: tutorials/mcp-servers.md
     - Insight Engine: tutorials/insight-engine.md
+    - The Architect: tutorials/the-architect.md
     - SQL Agent: tutorials/sql-agent.md
   - About:
     - Contributing: about/contributing.md
