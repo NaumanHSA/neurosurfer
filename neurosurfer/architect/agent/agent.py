@@ -7,17 +7,25 @@ missing tools through the sandbox+approval flow, and either registers a valid
 workflow or declares the request blocked with a clear reason.
 
 Terminal contract (enforced after the loop ends):
-- ``session.registered_path`` set  → return it.
-- ``session.blocked_reason`` set   → raise :class:`WorkflowInfeasible`.
-- neither, but the design passes every gate → register it and return that.
-- neither, and it does not              → ``RuntimeError`` with the last text.
+- ``session.registered_path`` set → return it.
+- ``session.blocked_reason`` set  → raise :class:`WorkflowInfeasible`.
+- a design that passes every gate → register it and return that.
+- a design that does not          → :class:`WorkflowInfeasible`, naming the gate
+  that refused it.
+- no design at all                → ``RuntimeError``.
 
-The third case is deliberate. **A build must end the same way on every model**,
-and the ways a run can stop short are model-shaped: one narrates past its nudges,
-another spends its turns fiddling. None of that is a reason to throw away a
-workflow that passes the same gates a deliberate ``register_workflow`` would
-have. The bar is unchanged — ``pre_register`` still has to pass — only the
-requirement that the *model* be the one to ask.
+**A build ends as a workflow or as a reason, and never as anything else.** The
+ways a run can stop short are model-shaped — one narrates past its nudges,
+another spends its turns fiddling with an output node, a third writes a paragraph
+asking the user which fix to apply — and none of that should change the *kind* of
+answer the caller gets. So a finished design is registered whoever asked, an
+unfinished one is reported with the blocker from the gate, and ``RuntimeError``
+is reserved for the agent having done nothing at all, which is a fault here
+rather than a statement about the request.
+
+The bar itself is unchanged throughout: ``pre_register`` still decides, so
+nothing registers that a deliberate ``register_workflow`` would have been
+refused.
 """
 
 from __future__ import annotations
@@ -423,24 +431,39 @@ class ArchitectAgent:
         # smuggle through anything a deliberate `register_workflow` would have
         # been refused. It only removes the requirement that the *model* be the
         # one to ask.
-        if session.nodes and session.pre_register()[0]:
-            ok, msg = session.register()
-            if ok:
-                self._notify("registering the finished design the run left behind")
-                return session.registered_path  # type: ignore[return-value]
-            logger.debug("salvage registration declined: %s", msg)
-        # Non-convergence. If a workflow was built but couldn't pass required
-        # verification, say so with the last report — that's the actionable truth,
-        # not "it did nothing".
-        if session.verification_mode == "required" and session.last_verification and not session.last_verification[0]:
-            raise RuntimeError(
-                "Built a workflow but it did not pass verification, and the agent "
-                "could not fix it within the step budget. Last verification:\n"
-                + session.last_verification[1]
+        if session.nodes:
+            blocked, why = session.pre_register()
+            if blocked:
+                ok, msg = session.register()
+                if ok:
+                    self._notify("registering the finished design the run left behind")
+                    return session.registered_path  # type: ignore[return-value]
+                why = msg
+            # **It built something and it cannot run.** From the caller's side that
+            # is the same outcome as a deliberate refusal — no workflow, and a
+            # reason — so it arrives as the same exception. It used to be a
+            # `RuntimeError` carrying whatever the model happened to say last,
+            # which on one `gpt-5-mini` run was a paragraph asking the *user*
+            # which of two fixes to apply. The build's outcome should not depend
+            # on how articulate the model was when it ran out of turns.
+            #
+            # `why` is the concrete blocker from the gate — invalid graph,
+            # ungrounded capability, an unbuilt planned step, or a verification
+            # that never passed — so the message names something actionable.
+            self._notify("out of budget with a design that cannot run")
+            raise WorkflowInfeasible(
+                "The Architect could not produce a runnable workflow for this "
+                "request within its step budget. This is not proof the request is "
+                "impossible — it is where the build stopped:\n\n" + why,
+                session.blocking_requirements(),
             )
+
+        # Nothing was built at all. That is not a statement about the request; it
+        # is the agent failing to work, and it stays an error rather than being
+        # dressed up as a refusal.
         raise RuntimeError(
             "The architect agent finished without registering a workflow or "
-            "declaring the request blocked."
+            "declaring the request blocked, and built nothing."
             + (f" Its last message: {final_text}" if final_text else "")
         )
 

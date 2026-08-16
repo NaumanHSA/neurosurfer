@@ -220,14 +220,23 @@ async def _execute(
 
 
 def _kill_group(pid: int) -> None:
-    """SIGKILL the entire process group (child + any grandchildren)."""
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
+    """SIGKILL the process group (child + grandchildren) where there is one.
+
+    `os.killpg` / `signal.SIGKILL` are POSIX-only, and on Windows the missing
+    name raises `AttributeError` — not an `OSError`, so it escaped the `except`
+    and the function failed before its own fallback could run, leaving a
+    timed-out sandbox alive. See the twin in `run_command._kill_group`.
+    """
+    if hasattr(os, "killpg") and hasattr(signal, "SIGKILL"):
         try:
-            os.kill(pid, signal.SIGKILL)
-        except (ProcessLookupError, OSError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
             pass
+    try:
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+    except (ProcessLookupError, OSError):
+        pass
 
 
 def _truncate(text: str, limit: int) -> str:

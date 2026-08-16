@@ -58,6 +58,20 @@ pytestmark = [
 #: to Langfuse" was marked wrong for returning `observability/langfuse.md`
 #: instead of the `index.md` I had guessed. Several pages legitimately answer the
 #: same question, and an eval that pretends otherwise measures the labeller.
+#:
+#: **These labels go stale as the docs grow, and that is this test's real cost.**
+#: The corpus is the live `docs/` tree, so *writing documentation* moves the
+#: score — a page added in one commit can be the best answer to a query labelled
+#: before it existed, and the eval calls it a miss. It happened twice on the
+#: 59→60-page edit: `tutorials/the-architect.md` became the top hit for "what
+#: does the Architect refuse to build", and `tutorials/custom-tools.md` for
+#: "write my own tool". Both are answers a reader would be happy to land on.
+#:
+#: So when this goes red, **read the misses before touching the threshold**. If
+#: retrieval returned something that answers the question, the label is what is
+#: wrong. If it returned `observability/langfuse.md` for "point the framework at
+#: a local model" — as it does today — that is a real miss and the number is
+#: telling the truth.
 CASES: list[tuple[str, set[str]]] = [
     ("how do I stop the agent using too many tokens on a long run", {"guides/context.md"}),
     ("what happens when a node in my workflow fails",
@@ -69,9 +83,10 @@ CASES: list[tuple[str, set[str]]] = [
     ("which vector databases are supported", {"guides/rag.md"}),
     ("branch a workflow depending on a classification",
      {"graph/node-kinds.md", "graph/control-flow.md"}),
-    ("write my own tool", {"guides/tools.md", "guides/tool-registry.md"}),
+    ("write my own tool",
+     {"guides/tools.md", "guides/tool-registry.md", "tutorials/custom-tools.md"}),
     ("what does the Architect refuse to build",
-     {"architect/index.md", "architect/grounding.md"}),
+     {"architect/index.md", "architect/grounding.md", "tutorials/the-architect.md"}),
     ("send traces to Langfuse", {"observability/langfuse.md", "observability/index.md"}),
     ("run something for every item in a list",
      {"graph/control-flow.md", "graph/node-kinds.md"}),
@@ -134,17 +149,33 @@ def _cases(by_page):
 def test_hybrid_against_dense_on_real_docs(corpus, capsys):
     """The measurement, printed. Run with `-s` to read it.
 
-    Result as of 2026-08-13, 59 pages / 371 chunks, nomic-embed-text-v1.5:
+    Result as of 2026-08-16, 60 pages / 390 chunks, nomic-embed-text-v1.5:
+
+        k=1    dense mrr 0.357    hybrid mrr 0.571
+        k=3    dense mrr 0.488    hybrid mrr 0.655
+        k=5    dense mrr 0.506    hybrid mrr 0.687
+        k=10   dense mrr 0.527    hybrid mrr 0.697
+
+    **Hybrid is now ahead at every k, and dense fell.** Read that as a fact about
+    this corpus on this day rather than as an improvement: nothing in the
+    retrieval code changed between this and the run below. Nineteen chunks of new
+    documentation were added, and more prose competing for the same queries is
+    exactly the condition under which a lexical signal earns its place — a query
+    naming a term the page uses still finds it, where a purely semantic match
+    gets crowded.
+
+    The previous run, 2026-08-13, 59 pages / 371 chunks:
 
         k=1    dense mrr 0.500    hybrid mrr 0.500
         k=3    dense mrr 0.583    hybrid mrr 0.571
         k=5    dense mrr 0.601    hybrid mrr 0.643
         k=10   dense mrr 0.610    hybrid mrr 0.653
 
-    **Hybrid is neutral at small k here and modestly ahead from k=5.** The
-    fixture's recall@1 0.619 → 0.905 does not transfer: that corpus had a rare
-    literal seeded into it and a bag-of-words embedder that could not find it,
-    which is the case hybrid is best at and not the case most queries are.
+    Both are kept because the pair says more than either: **a number measured on
+    a live corpus has a shelf life.** The fixture's recall@1 0.619 → 0.905 does
+    not transfer either — that corpus had a rare literal seeded into it and a
+    bag-of-words embedder that could not find it, which is the case hybrid is
+    best at and not the case most queries are.
     """
     embedder, store, lexical, by_page = corpus
     cases = _cases(by_page)

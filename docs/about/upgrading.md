@@ -7,6 +7,12 @@ configuration looks empty.
 The [Changelog](changelog.md) is the full list. This page is only the things that need an action
 from you.
 
+!!! info "Tested on Linux"
+    This release's suite, live tests and every tutorial were run on Linux. The code
+    is cross-platform and the Windows-specific defect known at the time — a
+    timed-out child surviving because `os.killpg` does not exist there — is fixed,
+    but the Windows suite was not re-run for this release.
+
 ---
 
 ## 1. A node is told what it names — nothing ambient

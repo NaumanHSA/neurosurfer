@@ -44,12 +44,16 @@ than in source, so it is the one worth checking before upgrading: run
       `char_start`/`char_end` spans through to `ContextBuilder`. Both off by
       default. `rag/evaluation.py` is the harness, and it was written before the
       things it measures.
-      **How much hybrid helps depends heavily on the corpus.** On the synthetic
-      fixture — built around a rare literal a dense model cannot represent —
-      recall@1 goes 0.619 → 0.905. On this project's own 59 documentation pages
-      with a real embedder it is *neutral* at k=1–3 and modestly ahead from k=5
-      (MRR@10 0.610 → 0.653). Point the harness at your own corpus rather than
-      trusting either number.
+      **How much hybrid helps depends heavily on the corpus — and on the day.**
+      On the synthetic fixture, built around a rare literal a dense model cannot
+      represent, recall@1 goes 0.619 → 0.905. On this project's own documentation
+      it was *neutral* at k=1–3 and modestly ahead from k=5 when measured over 59
+      pages (MRR@10 0.610 → 0.653); re-measured over 60 pages three days later,
+      with no retrieval code changed, hybrid led at **every** k (MRR@1 0.357 →
+      0.571, MRR@10 0.527 → 0.697) because more prose competing for the same
+      queries is where a lexical signal earns its place. Point the harness at
+      your own corpus and re-run it as that corpus grows; do not trust any of
+      these three numbers as a forecast.
     - **Four retrieval shapes past classic** — contextual retrieval,
       parent-document, multi-query and HyDE, sentence-window and semantic
       chunking — plus an ingest manifest so a corpus with one edited file costs
@@ -245,6 +249,23 @@ than in source, so it is the one worth checking before upgrading: run
   reaching into the old module's internals by path is not.
 
 ### Fixed
+
+- **A build now ends as a workflow or as a reason, never as anything else.** A run
+  that stopped short with an unrunnable design raised `RuntimeError` carrying
+  whatever the model last said — on one `gpt-5-mini` transcript, a paragraph
+  asking the *user* which of two fixes to apply. The outcome of a build should not
+  depend on how articulate a model was when it ran out of turns, so that case is
+  now `WorkflowInfeasible` naming the gate that refused it. `RuntimeError` is
+  reserved for the agent having built nothing at all, which is a fault here rather
+  than a statement about the request. The message is explicit that stopping short
+  is **not** proof the request was impossible.
+
+- **`os.killpg` was called unconditionally**, so a timed-out `run_command` or
+  `python_exec` child was never killed on Windows. `killpg`/`getpgid`/`SIGKILL`
+  are POSIX-only and the missing name raises `AttributeError` — not an `OSError`,
+  so it escaped the handler and the function failed *before* reaching its own
+  fallback. It asks the platform now, and falls back to `os.kill`. Three of the
+  documented Windows failures were this one bug.
 
 - **The Architect gave a different *kind* of answer on different models.**
   `gpt-5.1` turned "summarise an article and write a title" into

@@ -257,3 +257,60 @@ async def test_harness_compares_builders(tmp_path, kb):
     report = render_report(results)
     assert "| good |" in report and "1/1" in report and "0/1" in report
     assert "Failures" in report and "nope" in report
+
+
+# ── the terminal contract: a workflow, or a reason ─────────────────────────────
+
+
+async def test_a_design_that_cannot_run_is_a_refusal_not_a_crash(tmp_path, kb):
+    """A build that stops short with an unrunnable design reports *why*.
+
+    It used to raise `RuntimeError` carrying whatever the model said last — on
+    one `gpt-5-mini` run, a paragraph asking the *user* which of two fixes to
+    apply. The outcome of a build must not depend on how articulate the model was
+    when it ran out of turns: no workflow plus a reason is the same outcome as a
+    deliberate refusal, so it is the same exception.
+
+    Here the graph names an output node that does not exist — the gate refuses
+    it, and the gate's message is what the caller gets.
+    """
+    turns = [
+        ("", [("set_workflow", {"name": "broken", "description": "d"})]),
+        ("", [("add_node", {"node": {
+            "id": "a", "kind": "function", "callable": f"{FN}._shout",
+        }})]),
+        ("", [("add_node", {"node": {
+            "id": "b", "kind": "function", "callable": f"{FN}._shout",
+            "depends_on": ["a"],
+        }})]),
+        ("", [("set_outputs", {"outputs": ["b"]})]),
+        # Break it — `b` is gone but still declared as the result — and then stop
+        # calling tools so the loop ends with a design that cannot run.
+        ("", [("remove_node", {"id": "b"})]),
+        ("I think that is everything.", []),
+    ] + [("Still nothing to add.", [])] * 8      # outlast the nudges
+
+    agent = _scripted_agent(turns, tmp_path, kb)
+    with pytest.raises(WorkflowInfeasible) as exc:
+        await agent.build("build me something")
+
+    message = str(exc.value)
+    assert "could not produce a runnable workflow" in message
+    assert "not proof the request is impossible" in message, (
+        "it must not claim the request was impossible — only that the build stopped"
+    )
+    # The gate's own words, so the reader has something to act on.
+    assert "validation failed" in message.lower()
+
+
+async def test_building_nothing_at_all_is_still_an_error(tmp_path, kb):
+    """The one case that stays a `RuntimeError`. No design means the agent did
+    not work, which is a fault here — not a statement about the request."""
+    turns = [("I am not going to build anything.", [])] * 10
+
+    agent = _scripted_agent(turns, tmp_path, kb)
+    with pytest.raises(RuntimeError) as exc:
+        await agent.build("build me something")
+
+    assert not isinstance(exc.value, WorkflowInfeasible)
+    assert "built nothing" in str(exc.value)

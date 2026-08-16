@@ -49,13 +49,27 @@ async def _pump_output(job: _BackgroundJob) -> None:
 
 
 def _kill_group(pid: int) -> None:
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
+    """Kill the child and, where the platform has groups, its grandchildren.
+
+    `os.killpg`, `os.getpgid` and `signal.SIGKILL` are **POSIX-only**, and on
+    Windows the missing name raises `AttributeError` — which is not an
+    `OSError`, so it escaped the `except` and the function blew up *before*
+    reaching its own fallback. A timed-out command was left running.
+
+    So ask the platform instead of assuming it. Windows gets `os.kill`, which
+    maps to `TerminateProcess`: the child dies, grandchildren are not reachable
+    this way, and that is still better than a kill that never happens.
+    """
+    if hasattr(os, "killpg") and hasattr(signal, "SIGKILL"):
         try:
-            os.kill(pid, signal.SIGKILL)
-        except (ProcessLookupError, OSError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
             pass
+    try:
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+    except (ProcessLookupError, OSError):
+        pass
 
 
 def _decode_and_truncate(data: bytes) -> str:

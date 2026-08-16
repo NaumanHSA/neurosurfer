@@ -12,6 +12,39 @@ agent = ArchitectAgent(provider)
 path = await agent.build("Summarise a CSV and write the result to a file")
 ```
 
+
+## How a build ends
+
+Every build ends as **a workflow or a reason**. There is no third shape to handle.
+
+| Outcome | You get |
+|---|---|
+| It registered | the package path |
+| It refused | `WorkflowInfeasible`, with `.requirements` — the servers and credentials that would unblock it |
+| It stopped short with a design that passes every gate | the package path — registered on its behalf |
+| It stopped short with a design that does not | `WorkflowInfeasible`, naming the gate that refused it |
+| It built nothing at all | `RuntimeError` |
+
+```python
+from neurosurfer.architect import ArchitectAgent, WorkflowInfeasible
+
+try:
+    path = await agent.build(intent)
+except WorkflowInfeasible as e:
+    print(e)                 # why, in a sentence a person can act on
+    print(e.requirements)    # what would have to be supplied
+```
+
+The ways a run can stop short are model-shaped — one narrates past its nudges,
+another spends its turns fiddling with an output node, a third writes a paragraph
+asking *you* which fix to apply. None of that should change the kind of answer
+you get, so it does not. `RuntimeError` is reserved for the agent having done
+nothing at all, which is a fault in the framework rather than a statement about
+your request.
+
+A design that stopped short is **not** a claim that the request is impossible —
+the message says so, and says where the build stopped instead.
+
 ## The terminal contract
 
 Enforced after the loop ends, so a build cannot finish ambiguously:
