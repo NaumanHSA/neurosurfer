@@ -1,5 +1,16 @@
 # The suite on Windows — 16 failures, and ten are the library, not the tests
 
+> **Deferred, deliberately — 2026-08-16.** This release is verified on **Linux**
+> and Windows is not being re-run for it. The ten failures below still name real
+> tests and were last measured ~50 commits ago, so treat the numbers as indicative
+> rather than current. Seven are one upstream bug (subprocess output decoded with
+> the ANSI codepage) and three are `os.killpg` called unconditionally; neither is
+> this branch's work, and neither has been re-checked since.
+>
+> `pyproject.toml` still declares `Operating System :: OS Independent`. That claim
+> is now ahead of the evidence — either re-run this suite before it goes out, or
+> say plainly in the release notes which platform was tested.
+
 **As of 2026-08-10, branch `architect-validator/enhancement` at `1fbbadb`.**
 `NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9 python -m pytest tests/ -q -p no:randomly`
 → **1207 passed, 16 failed, 4 skipped**, ~60s.
