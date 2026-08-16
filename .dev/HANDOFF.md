@@ -1,225 +1,121 @@
-# Handoff — 2026-08-06
+# Handoff — 2026-08-16
 
-Branch `architect-validator/enhancement`, pushed. `main` is still at `4065c2f`
-and has not been touched.
+Branch `architect-validator/enhancement`, **pushed and clean**. `main` is still at
+`4065c2f` and has not been touched.
 
-This is a working handoff, not a build log: what changed, what is *not* verified,
-and what to do first on the other machine. The build log (§9) for this work has
-not been written — see "Documentation debt" below.
+**The branch is ready to merge.** The gate in
+[plan 01 §5](01_ARCHITECT_AND_VALIDATOR_PLAN.md) is met and the evidence is in
+[the build log §11](01_ARCHITECT_AND_VALIDATOR_BUILD_LOG.md). Nothing is merged
+and the version is **not** bumped — both are the next person's first two moves.
 
 ---
 
 ## 1. Where things stand
 
-Ten commits this session, `ad393c1..a4a5259`, on top of the eleven
-post-release-checklist commits that were already on the branch.
+80+ commits ahead of `main`; 380 files, +54k/−2k. This is a release, not an update.
 
-| | |
+| Check | Result |
 |---|---|
-| Offline suite | **1183 passed, 4 skipped, ~22s** |
-| Baseline before this session | 1159 |
-| Ruff | clean across `neurosurfer/` and `tests/` |
-| Live tests | **not run** — see §3 |
-| `mkdocs build --strict` | not re-run since the doc edits |
+| Offline suite | **1521 passed, 5 skipped**, ~59s |
+| Live suite, local `qwen/qwen3.5-9b` | 1521 passed, **1 failed** |
+| Live suite, hosted `gpt-5-mini` | 1521 passed, **1 failed** |
+| ruff, `mkdocs build --strict` | clean |
+| docs link + import gates | clean, 60 pages |
+| Tutorials 00–06 | **0 errors, every one** |
+| Windows | **deferred** — owner's call, see `WINDOWS_TEST_FAILURES.md` |
 
-Two things happened, in this order, and the second partly undid the first.
-
-### Commit 1 — narrowing the inputs block (`ad393c1`)
-
-Found by reading the prompts tutorial 03's `map` cell actually sends. Each of
-four calls was handed both reviews, the index, the item, and the item again
-inside the collection. Quadratic in the collection, and self-contradictory —
-`reviews: [both]` beside `item: <one>` with nothing saying how they relate.
-
-Fixed by separating **display** from **resolution**, keeping every value
-resolvable and narrowing what got recited.
-
-`render_scope` came out of this and **survives**: four sites used to assemble a
-node's template scope by hand and all four disagreed, none of them seeing the
-container scope. That omission is why `map` had to smuggle `{item}` in through
-the body's graph inputs.
-
-### Commit 10 — the contract that replaced it (`a4a5259`)
-
-The narrowing kept arriving at the same place: any rule for *which inputs matter
-to this node* is a worse version of a rule the author already wrote, in the
-instruction's placeholders. Two of the rules were also each other's opposite —
-"show only what the node references" and "hide what it already interpolated"
-describe the same set, so together they show nothing. Which is the answer.
-
-So the ambient `Inputs:` block is **gone**, and:
-
-> A node's turn is **what its task text names, plus the outputs of the steps it
-> declared as dependencies.** Nothing ambient.
-
-And the task moved out of the system prompt into the user turn, because
-rendering it into the system prompt made that prompt differ per node and per map
-item, so **prompt caching could never fire**. `NODE_SYSTEM_PROMPT` is now one
-constant, byte-identical for every call. This matches LangChain's `create_agent`,
-which builds `system_message` once at construction and prepends it unchanged.
-
-Deleted as subsumed: `_hidden_inputs`, `_hidden_body_inputs`, `_input_root`,
-`recited_names`, `NOTHING_FURTHER_PROMPT`. All of them existed to decide what to
-omit from a block that no longer exists. **If you are reading commit `ad393c1`
-in isolation, half of what it adds was deleted eight commits later** — read
-`a4a5259` for the contract that actually holds.
-
-### The executor is a package (`5e2a8a5`..`613cfa8`)
-
-`executor.py` (1,950 lines) → `executor/` (8 files, 2,322 lines):
-`core.py` (scheduler + dispatch, 950), `iteration.py`, `routing.py`,
-`deterministic.py`, `io_nodes.py`, `llm.py`, `_trace.py`, `__init__.py`.
-
-Runners are **functions taking the executor** (`run_map_node(ex, node, state)`),
-with `GraphExecutor` imported under `TYPE_CHECKING` only, so no runner module
-has a runtime import of `core`. `GraphExecutor` keeps a one-line forwarder per
-runner, so nothing outside the package changed.
+**Both live failures were checked, and neither is a defect.** The branching one is
+the 9B not designing a router — the same test passes on `gpt-5-mini`. The blocked
+one is variance: `gpt-5-mini` planned nine steps for the Oracle request instead of
+refusing it, and the **same test passed on re-run**. Expect one or the other to be
+red on any given live run; read §11 before treating it as a regression.
 
 ---
 
-## 2. If you touch the executor package, read this first
-
-**The previous attempt at this split was reverted and cost a full session.** The
-reason is now known and guarded, but the guard is easy to defeat.
-
-### What killed it
-
-Relative imports. `executor.py` sat *beside* its siblings, so `from .artifacts
-import ArtifactStore` meant `engine.artifacts`. One directory down it means
-`engine.executor.artifacts`, which does not exist. There were 26 of them, **14
-inside methods** where no import-time check reaches them, and 12 on the
-Architect's path — so it surfaced as thirteen unrelated test modules failing to
-import, which looks nothing like a path problem.
-
-One anchored rewrite fixed it. It is not hard; it is just invisible until it
-isn't.
-
-### The invariant that has no other guard
-
-`node_runner.py` is the **only** engine module importing `neurosurfer.agents.*`,
-and every use of it is a lazy import inside a function. That keeps
-`import neurosurfer.graph.engine` from dragging in the agent stack. Hoist one to
-a submodule's top level and the package `__init__` — which imports the
-submodules — undoes it silently.
-
-`tests/engine/test_import_boundaries.py` fails if that happens. It is the only
-thing that would notice. **Do not delete it, and do not "tidy" the lazy
-imports.**
-
-### The mechanical net
-
-Ruff selects `F`, so `F821 undefined name` fires on a leftover `self.` in a
-module-level function. That is what made moving fourteen methods out of a class
-a check a machine could finish — it caught six real omissions (`Usage`,
-`GraphExecutionError`, `React`, `copy_context`, `FuturesTimeout`,
-`import_string`), most on failure paths no offline test reaches. **Run
-`ruff check` after every extraction, not just at the end.**
-
----
-
-## 3. What is NOT verified — do this first
-
-**Every prompt the framework emits changed, and the entire verification is
-offline.** All 1183 tests drive a scripted provider. They prove the assembly.
-They prove nothing about whether a real model behaves the same when the task
-arrives in the user turn instead of the system prompt.
-
-This repo's own convention — visible in the tutorial commit messages — is
-"executed end to end against gpt-5-mini before committing". **The ten commits in
-this session did not meet it.** That is the single biggest open risk.
-
-To close it:
+## 2. Do this first, on the other machine
 
 ```bash
-# tutorial 03, end to end, fresh kernel, outputs stripped afterwards
-# then the four live tests:
-conda run -n LLMs python -m pytest tests/architect/test_architect_agent_llm.py -q
+git checkout architect-validator/enhancement && git pull
+conda activate LLMs                       # never base — everything assumes this env
+pip install -e ".[observability]"         # see §4; this is why two tests were skipping
+NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9 python -m pytest -q
 ```
 
-- `test_agent_builds_simple_workflow_with_real_llm`
-- `test_closed_loop_engine_with_real_llm`
-- `test_agent_designs_branching_workflow_with_real_llm`
-- `test_agent_declares_blocked_with_real_llm`
-
-Note the build log's §8 already records the third of these failing on
-`gpt-4o-mini` — that failure is a model-capability boundary, not a defect, and
-predates this session. Check the model before the code.
-
-There is also an open measurement worth taking while you are there: the map cell
-was reported at 51s for four small calls. My view is that the prompt bloat was
-not the cause and local-model thinking tokens were — `res.total_usage()` before
-and after settles it.
+Expect **1521 passed**. If the number is lower, something did not come across;
+diff the skip list before anything else.
 
 ---
 
-## 4. Known-open items, in the order I would do them
+## 3. The merge, in order
 
-1. **The live run above.** It can invalidate everything below it.
-2. **Teach the Architect the new contract.** A generated node that does not name
-   an input no longer receives it. `assemble.py:299` tells models to interpolate
-   `{name}` only for *authored-tool* inputs — an understatement now. The new
-   `declared_inputs_are_read_by_something` rule warns, but warnings do not
-   block, so today the backstop is Phase 5 verification noticing the workflow
-   ignores its parameter. That is an expensive way to find out, and the
-   Architect runs on a weak model where correctness has to come from the prompt
-   plus an enforced gate.
-3. **Documentation debt** (below).
-4. **The release checklist's last box** — merge to `main` and bump. It was
-   already "awaiting the call" before this session; it now also waits on 1–3.
+1. **Merge to `main`.** Push explicitly — `git push origin main` — the branch's
+   upstream history makes a bare `git push` risky; see §5 of the plan.
+2. **Bump to `2.0.0`** in *three* places that must move together:
+   `pyproject.toml`, `neurosurfer/__init__.py`, and the CHANGELOG's
+   `[Unreleased]` heading.
+3. **Release notes**: the CHANGELOG's *Upgrading from 1.0.0* table is written and
+   is the migration note. Add one sentence saying the release was **tested on
+   Linux**.
 
-### Documentation debt
+### Why 2.0.0 and not 1.1.0
 
-- `ROADMAP.md` still says "Phase 7 next". §7 and §8 both shipped on 2026-08-04.
-- **The build log stops at §8.** There is no section for the eleven
-  post-checklist commits (node classes, validation-on-run, the react `finish()`
-  fix, the provider fix) *or* for this session's ten. Whether that is a §9 of
-  plan 01 or the start of a plan 02 is a framing call nobody has made.
-- `CHANGELOG.md`'s `[Unreleased]` mentions none of it. The prompt-contract change
-  is the entry that decides `1.1.0` vs `2.0.0`: `compose_user_prompt` and
-  `_build_system_prompt` both changed signature, and `_build_system_prompt` no
-  longer exists under that name.
+§5 recommended minor, weighing only the `tools.builtin` submodule move. That
+predates the cost removal. Four things break on upgrade:
+
+- `from neurosurfer.tools.builtin.<module> import …` — submodule paths (the
+  package-level `from neurosurfer.tools.builtin import ReadFileTool` is fine)
+- `neurosurfer.llm.pricing` — deleted outright
+- `RunResult.cost()`, `RunResult.model`, `GraphExecutionResult.total_cost()`,
+  `NodeExecutionResult.model`
+- **a validation warning is now an error**, so a registered workflow declaring an
+  input no step reads refuses to run — the only one of the four that breaks
+  something already on disk rather than in source
 
 ---
 
-## 5. Environment notes
+## 4. Two things about the dev environment
 
-- **Always run Python in the conda env `LLMs`**, never base:
-  `conda run -n LLMs python -m pytest ...`
-- **Offline suite: set `NEUROSURFER_TEST_BASE_URL=http://127.0.0.1:9`.** Without
-  it the live tests default to LM Studio on `:1234` and take twelve minutes if
-  it happens to be up. With it: ~22 seconds.
-- Importing the package prints a startup banner to stdout. Anything parsing
-  subprocess output must take the last line (see `_fresh` in
-  `test_import_boundaries.py`).
-- `python-dotenv` warnings about unparseable `.env` lines are pre-existing noise.
+**The `observability` extra was never installed here**, and that is not cosmetic.
+The env had `opentelemetry-exporter-otlp-proto-grpc` (pulled in by langfuse) but
+not `-proto-http`, which is what our code imports — so two tests skipped silently
+for as long as they have existed, and one of them was guarding a real defect (§11).
+`pip install -e ".[observability]"` on the new machine, and **read the skip list**
+rather than the pass count.
 
-### Reading a node's prompts
-
-The `print`s used for the prompt debugging this session were committed by
-accident in `a4a5259` and removed in the commit that carries this file. The view
-is now logging, so it filters:
-
-```python
-import logging
-logging.getLogger("neurosurfer.graph").setLevel(logging.DEBUG)
-```
+**A version skew I introduced:** installing the http exporter directly brought in
+`1.44.0` against a `1.42.1` SDK. `pyproject` pins nothing tighter than `>=1.20`,
+so a fresh install gets the latest of everything and hits the same behaviour — the
+finding stands for new users. Still worth installing the extra properly and
+re-running `tests/test_observability_exporters.py` to confirm on a matched set.
 
 ---
 
-## 6. One thing that was investigated and is *not* a bug
+## 5. Open decisions, both the owner's
 
-In tutorial 03's map cell, the `verdict` node's prompt contains the original
-review. That is not leakage — the node's own instruction says so:
+- **`Operating System :: OS Independent`** in `pyproject.toml` is ahead of the
+  evidence if this ships Linux-verified only. Recommendation: leave the
+  classifier, say "tested on Linux" in the release notes. The code is
+  cross-platform; it is the *verification* that is not.
+- **A model that burns its turn budget still raises a bare `RuntimeError`**
+  carrying the model's last rambling. Turning that into `WorkflowInfeasible` with
+  the validation report would give the same *kind* of outcome on every model,
+  which is the standard the Architect is now held to elsewhere. It is a change to
+  the public terminal contract, so it was left alone deliberately.
 
-```python
-verdict = Base(
-    id="verdict",
-    depends_on=["summarise"],
-    instructions="Reply with exactly one word — positive, negative or mixed:\n\n{item}",
-)                                                                              # ← here
-```
+---
 
-Remove `{item}` and its whole turn is the task plus
-`Context from previous nodes: --- summarise ---`. `depends_on` was already doing
-what it should. Judging sentiment from the original rather than a lossy 8-word
-summary looks deliberate, so this is left as the tutorial has it.
+## 6. Queued, not started
+
+- **[04 — Plan review as a feature](04_PLAN_REVIEW_NOTES.md)** — notes only.
+  Reviewing a plan is a callback the caller must write, off by default, showing a
+  flat list, with no way to say *what* to change. Includes the four behaviours an
+  implementation must not lose.
+- **The repair loop's convergence number** on `gpt-5-mini`. The old figures (12
+  and 17 rounds) predate the unread-input check blocking, so they are not a
+  baseline any more. ~20 minutes and real spend when someone wants it.
+- **The CLI still routes to `ArchitectBuilder`**, the older fixed 8-node pipeline,
+  while everything else uses `ArchitectAgent`. Documented as a caveat in tutorial
+  06; it is a real inconsistency, not a design choice.
+- **Windows.** Ten documented failures, last measured ~50 commits ago. Seven are
+  one upstream bug, three are `os.killpg` called unconditionally. Neither is this
+  branch's work.
