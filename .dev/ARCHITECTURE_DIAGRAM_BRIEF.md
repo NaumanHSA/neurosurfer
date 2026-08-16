@@ -63,14 +63,21 @@ illustrations, no 3D, no photographic elements.
 
 ### A. Title band (top centre)
 
-Large wordmark **`Neurosurfer`** in heavy sans, flanked by thin coral bracket
-accents `[` `]` like the face-capture reference. Above it, small monospace in
-coral:
+**No product wordmark.** This sits under a `## Architecture` heading in the
+README, so a big "Neurosurfer" repeats what the reader just read and makes the
+diagram look like a second banner. Delete it, and the bracket accents with it.
+
+What remains, centred: one line of monospace in coral,
 
 > `agent framework + the architect that builds your workflows`
 
-Under the wordmark, a thin 400px gradient rule running coral → amber → blue →
-teal, with two small dots on it.
+and beneath it the thin 400px gradient rule running coral → amber → blue → teal
+with two small dots on it.
+
+The band is now short, so **close the gap** — raise the two side cards to sit
+level with the tagline and bring the whole composition up. Do not leave the
+freed space empty; the diagram should get taller cards and more breathing room
+around the pipeline instead.
 
 ### B. Left card — "What you write"
 
@@ -103,11 +110,15 @@ Each card has, top to bottom: a **numbered circular badge** in the stage hue
 sitting on the card's top edge; a **line-art icon** in that hue inside a soft
 tinted rounded square; a bold title; two lines of small grey description.
 
+The description is **two separate lines**, stacked. Do not join them with a `/`
+or any other separator — "One structured call / steps, inputs, outputs" reads as
+a path or a fraction. Line one, line break, line two.
+
 | # | Icon | Title | Description |
 |---|---|---|---|
 | 1 | clipboard / list | **Plan** | One structured call<br>steps, inputs, outputs |
 | 2 | plug into socket | **Ground** | Capability ladder, in code<br>catalog → MCP registry |
-| 3 | blocks assembling | **Build** | A 17-tool agent writes<br>the graph, node by node |
+| 3 | blocks assembling | **Build** | An agent with its own toolbelt<br>writes the graph, node by node |
 | 4 | checklist shield | **Validate** | A rule table, not a prompt<br>errors block registration |
 | 5 | play inside a beaker | **Verify** | Runs it on real fixtures<br>judges the output |
 | 6 | package / box | **Register** | A versioned Workflow<br>package on disk |
@@ -139,10 +150,17 @@ icon-nodes connected to the core by thin dashed lines with endpoint dots:
 | bottom-left | database + magnifier | **RAG**<br>hybrid · rerank · citations |
 | left | cpu | **Providers**<br>one protocol |
 
-A curved dashed stream flows from the **REGISTERED** outcome card into the
-runtime core — the workflow arriving at the thing that runs it. A second, fainter
-stream enters the core from the top labelled in small monospace
-`or write the graph yourself`.
+**Two streams enter the core, and both must land on it.**
+
+1. A curved dashed **green** stream from the **REGISTERED** card, ending in an
+   arrowhead that *touches the hexagon's edge* — the workflow arriving at the
+   thing that runs it. It must not stop in open space short of the core.
+2. A separate **grey** stream labelled `or write the graph yourself`, entering
+   the core from above. **It must not originate anywhere on the Architect
+   pipeline.** It is the second door — a person writing the graph by hand,
+   bypassing the Architect entirely — so it starts at the top edge of the canvas
+   and comes straight down. A version that branched off the *Validate* card said
+   the opposite of what is meant.
 
 ### F. Capability strip (right of the orbit)
 
@@ -161,7 +179,7 @@ A single row of five small items with tiny grey line icons, separated by thin
 vertical dividers — exactly the face-capture reference's bottom row:
 
 `Python 3.11+` │ `Apache-2.0` │ `OpenAI-compatible gateway` │ `Typed & validated`
-│ `Runs on a 9B local model`
+│ `Runs on local models`
 
 ---
 
@@ -209,10 +227,11 @@ this brief.
 > icons with 2px strokes, generous whitespace, flat vector, no 3D, no glow, no
 > gradients on backgrounds.
 >
-> Centre top: bold heading "Neurosurfer" in heavy geometric sans, flanked by thin
-> coral bracket marks, with a small coral monospace line above reading "agent
-> framework + the architect that builds your workflows", and a thin horizontal
-> gradient rule beneath running coral to amber to blue to teal.
+> Centre top, with NO product name and no wordmark: a single small coral
+> monospace line reading "agent framework + the architect that builds your
+> workflows", and beneath it a thin horizontal gradient rule running coral to
+> amber to blue to teal with two small dots on it. Two small white cards flank
+> it at the same height, one on each side.
 >
 > The hero element, spanning the full width in the middle: a horizontal pipeline
 > of six white rounded cards. Each card has a small numbered circular badge on its
@@ -228,8 +247,11 @@ this brief.
 > Lower left: a dark hexagonal core badge labelled "RUNTIME" with six small white
 > circular icon nodes arranged on a dashed circular orbit around it, each joined
 > to the core by a thin dashed line with a dot at each end — labelled Graph
-> Engine, Agents, Tools, MCP, RAG, Providers. A curved dashed stream flows from
-> the green "REGISTERED" card into this core.
+> Engine, Agents, Tools, MCP, RAG, Providers. A curved dashed green stream flows
+> from the green "REGISTERED" card and ends in an arrowhead touching the edge of
+> the hexagon. A separate grey dashed arrow comes straight down from the top of
+> the canvas into the same hexagon, labelled "or write the graph yourself" — it
+> does not touch the six-card pipeline anywhere.
 >
 > Lower right: three small white cards stacked vertically with coloured line
 > icons — a violet chip icon "Providers", a red database icon "Vector stores", an
@@ -247,3 +269,32 @@ For the dark variant, append:
 > Dark theme version: near-black `#0E0E10` background, cards `#18181B` with thin
 > `#27272A` borders and no shadows, white headings, grey body text. Keep every
 > accent colour exactly the same.
+
+
+---
+
+## 8. Second pass — what to change from the first generated version
+
+The first attempt was close, and most of it should be kept: the pipeline rhythm,
+the colour progression, the icon set, the orbit, the footer. Six changes.
+
+| # | Change | Why |
+|---|---|---|
+| 1 | **Delete the "Neurosurfer" wordmark and its bracket accents.** Keep the coral tagline and the gradient rule. | It sits under a `## Architecture` heading, so the name is already on screen. It made a diagram look like a banner. |
+| 2 | **Footer: "Runs on local models"**, not "Runs on a 9B local model". | The size is a detail of one test run, not a property of the framework. |
+| 3 | **Build card: "An agent with its own toolbelt / writes the graph, node by node"** — drop the number. | "17-tool" was wrong (17 base + `test_workflow` + `web_search`), and a second "19" would have collided with the framework's own 19 built-in tools two inches away. |
+| 4 | **The grey `or write the graph yourself` arrow must not start at the Validate card.** Bring it straight down from the top of the canvas into the runtime hexagon. | It is the *second door* — a human writing the graph, bypassing the Architect. Branching it off a pipeline stage says the opposite. |
+| 5 | **The green stream from REGISTERED must terminate on the hexagon**, arrowhead touching its edge. | In the first version it stopped in open space beside the Providers card, so the workflow never visibly arrives anywhere. |
+| 6 | **Card descriptions on two stacked lines, no `/` separator.** | "One structured call / steps, inputs, outputs" reads as a path or a fraction. |
+
+### Checked and correct — leave alone
+
+`11 node kinds` · `19 built-in + your own` · `Chroma · Qdrant · in-memory` ·
+`Anthropic · OpenAI · Gemini · Bedrock` · `Langfuse · OpenTelemetry` · the
+REGISTERED / REFUSED fork and its wording. All verified against the code.
+
+### Spellings a generator gets wrong
+
+`Anthropic` (not Anthropric) · `Qdrant` (not Qdrant/Quadrant) · `OpenTelemetry`
+(one word, capital T) · `Langfuse` (lowercase f) · `AgenticLoop` (one word, two
+capitals) · `graph.yaml` (lowercase).
