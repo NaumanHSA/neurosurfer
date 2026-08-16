@@ -68,6 +68,36 @@ A **gap** is an error of a particular identity — a missing capability rather t
 field — shown and handled separately because the fix is different: you supply a tool, rather than
 correcting a line.
 
+## An input no step reads is an error
+
+A workflow that **declares** an input and never names it accepts a parameter and ignores it. The
+caller passes their article, no step interpolates it, the run goes green, and the answer is
+confident and unrelated.
+
+```
+The workflow asks for 'article' but no step uses it, so the value a caller passes is ignored.
+  → Name it in a step's instructions as {article}, or drop it from the workflow's inputs.
+```
+
+This blocks. It used to warn, and the backstop was a person noticing the answer had nothing to do
+with what they passed — which is no backstop at all for a workflow the
+[Architect](../architect/index.md) builds and verifies on its own.
+
+**Every way a value can be read counts**, not just prompt placeholders: a `map`'s `over`
+expression, a `when` guard, `tool_args`, an output node's `value`, a code node's parameter names,
+and nodes nested inside container bodies. A rule that only looked at `instructions` would report a
+perfectly good fan-out as ignoring its collection.
+
+**It downgrades itself to a warning where it cannot see.** A `tool` node's arguments live in a
+registered schema and a callable may fail to import or inspect; either hides the reads that would
+clear the input. Refusing to run over a fact that was never established is worse than the gap, so
+the rule keeps its voice and loses its veto — and the detail says which.
+
+!!! warning "This can stop a workflow you already have"
+    It is the one validation change that breaks something already on disk rather than in source.
+    Run `validate_package` over your registry before upgrading; see
+    [Upgrading](../about/upgrading.md).
+
 ## Capability grounding
 
 The check that decides whether a workflow can run at all. A node whose goal is *"read the file"*

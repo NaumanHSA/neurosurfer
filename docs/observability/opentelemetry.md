@@ -56,6 +56,14 @@ The run itself is unaffected — spans are dropped, nothing raises. Because the 
 off once disabled, a collector started *after* a run begins will not pick it up; restart the
 process.
 
+"Failure" here means any of three things, because the OTLP exporter has reported it three ways
+across versions: it raised, it returned a failed batch, or it simply took more than two seconds.
+Older releases only watched for the exception — and when
+`opentelemetry-exporter-otlp-proto-http` 1.44 started retrying internally and *returning* failure
+instead, the exporter was never disabled and every flush paid the full retry schedule again, on
+Linux as well as Windows. A local collector answers in milliseconds; anything near a second has
+been out on the network.
+
 !!! warning "On Windows, a missing collector is expensive — once"
     Exporters are flushed at every run finish, and `force_flush` blocks the calling thread.
     Linux refuses a connection to a closed port immediately; Windows retries the SYN for ~2s,

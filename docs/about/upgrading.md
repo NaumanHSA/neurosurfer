@@ -209,15 +209,76 @@ export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
 
 ---
 
+## 9. A declared input no step reads now refuses to run
+
+**This is the only change here that breaks something already on disk rather than in your source.**
+
+A workflow that declares an input and names it nowhere accepts a parameter and ignores it. That was
+a warning, so it registered and ran; it is an error now, so it does not.
+
+```
+The workflow asks for 'article' but no step uses it, so the value a caller passes is ignored.
+  → Name it in a step's instructions as {article}, or drop it from the workflow's inputs.
+```
+
+### What to check
+
+Run the validator over your registry **before** upgrading a running system:
+
+```python
+from neurosurfer.graph.workflow.package import load_package
+from neurosurfer.graph.workflow.validation import validate_package
+
+for path in registry_dir.iterdir():
+    report = validate_package(load_package(path))
+    if not report.ok:
+        print(path.name, report.summary())
+```
+
+Either interpolate the input in the step that needs it, or drop it from `inputs`. The workflow was
+ignoring it either way — the change is that you now find out at the door instead of from a strange
+answer. See [Validation](../graph/validation.md#an-input-no-step-reads-is-an-error) for the reads
+that count, and for when the rule downgrades itself to a warning.
+
+`GraphExecutor(..., validate=False)` skips the gate for one run if you need to ship first and fix
+after.
+
+---
+
+## 10. Cost accounting is gone; tokens remain
+
+`neurosurfer.llm.pricing` is deleted, along with `RunResult.cost()`,
+`GraphExecutionResult.total_cost()`, and the `model` field on `RunResult` and
+`NodeExecutionResult` — which existed only to feed them.
+
+```python
+# before
+result.cost()                      # ✗ gone
+graph_result.total_cost()          # ✗ gone
+
+# now
+result.usage.input_tokens, result.usage.output_tokens
+result.usage.cache_read_input_tokens, result.usage.cache_creation_input_tokens
+graph_result.total_usage()
+```
+
+Nothing replaces it. This framework counts tokens; what they cost belongs to your trace backend.
+Vendor rates vary by contract and region and go stale silently, and the exporters already receive
+the model name alongside `Usage` — so Langfuse and OpenTelemetry attribute spend from tables they
+maintain. See [Providers](../guides/providers.md#token-usage).
+
+---
+
 ## Smaller behaviour changes
 
 - **Validation runs on every run**, not only at registration. A graph that cannot run is refused
   before a model is called rather than partway through.
 - **A `react` node that ends with `finish()` returns what it finished with**, rather than the
   loop's last assistant text.
-- **A run handed a value no step reads logs a warning** naming the key and the fix. Quiet where it
-  cannot know: `function`, `python` and `tool` nodes receive the whole mapping as keyword
-  arguments, so their presence silences the check.
+- **A run handed an *undeclared* value no step reads logs a warning** naming the key and the fix.
+  Quiet where it cannot know: `function`, `python` and `tool` nodes receive the whole mapping as
+  keyword arguments, so their presence silences the check. A *declared* input nothing reads is the
+  stricter case above — that one blocks.
 - **The "fewer than three LLM nodes is under-designed" heuristic is gone.** A correct two-step
   workflow is no longer refused registration.
 - **Trace export never runs on the agent's thread.** Delivery is best-effort over a bounded queue;

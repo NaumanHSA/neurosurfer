@@ -117,6 +117,25 @@ explicitly.
 The `anthropic.` model-id prefix Bedrock requires is added for you, so the same model string works
 against either provider. Bedrock has no token-counting endpoint, so `count_tokens` estimates locally.
 
+## Reasoning models and function tools
+
+The newest OpenAI reasoning models refuse function tools on `/v1/chat/completions` unless
+`reasoning_effort` is `"none"`:
+
+```
+Function tools with reasoning_effort are not supported for <model> in /v1/chat/completions.
+To use function tools, use /v1/responses or set reasoning_effort to 'none'.
+```
+
+The provider recognises that one error, retries with `reasoning_effort="none"`, and remembers it
+for the rest of the session — so exactly one call pays for the discovery and the model works.
+Learned at runtime rather than from a list of model names, because such a list is wrong the week
+after it is written.
+
+**The trade is real and the provider logs it:** tool calling works, reasoning does not. Having both
+needs the Responses API, which this adapter does not speak. If you want a reasoning model's full
+strength *and* tools, use a model that allows both on chat-completions.
+
 ## Token usage
 
 Every run reports the tokens it used, and nothing converts them to money:

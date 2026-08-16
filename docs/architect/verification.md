@@ -75,6 +75,40 @@ ArchitectAgent(provider, verify="off")        # skipped
 skipped the step: two bug-report transcripts went validate → ok → register with no `test_workflow`
 call at all.
 
+### The loop is bounded
+
+After **three** judged failures (`max_verification_attempts`) the workflow registers anyway,
+carrying the loudest caveat in the codebase — the same trade already made for a test rig that
+cannot be set up.
+
+It needs a bound because **the model writes the criteria it is then judged against**, and the judge
+fails closed. A more capable model writes a stricter bar: `gpt-5.1` derived *"no information not
+present in the source"* for a summariser, which no reading of one output can certify and no prompt
+can promise. With an unbounded loop its only exits were grind forever or give up — and it gave up,
+turning a two-node summarise-and-title request into `WorkflowInfeasible` while smaller models built
+it.
+
+Structural gates are unaffected: an invalid graph stays unregisterable however many attempts were
+spent. Only the *judge* can be overruled, and never silently.
+
+Criteria that demand a **guarantee** or the absence of something unstated are dropped before the
+run for the same reason — they are aspirations, not tests. Narrowly: *"exactly three sentences"*,
+*"no more than 200 words"* and *"does not include the raw table"* all survive.
+
+### A complete design is never "blocked"
+
+`declare_blocked` is for a capability nothing can provide — a missing integration, a credential
+nobody supplied, an unsafe or self-contradictory request. It is **not** for a workflow that merely
+fails its own verification, and the tool refuses a build whose design is complete, valid and fully
+grounded, naming the alternative instead.
+
+### Registration tracks the design
+
+A fix applied *after* `register_workflow` — which is exactly what a warned design review asks for —
+is re-saved to the registry when the build ends. `register()` snapshots to disk, so without this
+the last fix of a build was the one that never landed. A re-save runs the same gates; if the late
+edit broke something, the earlier good copy stays and the caller is told.
+
 ## The API
 
 ```python
