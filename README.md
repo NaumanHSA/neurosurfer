@@ -24,15 +24,22 @@ exactly what is missing. Serve any of it behind an OpenAI-compatible FastAPI gat
 
 <br/><br/>
 
-<a href="https://pypi.org/project/neurosurfer/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/neurosurfer?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&labelColor=111111&color=111111"></a>
-<a href="https://pypi.org/project/neurosurfer/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/neurosurfer?style=for-the-badge&logo=python&logoColor=white&label=Python&labelColor=111111&color=111111"></a>
-<a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-111111?style=for-the-badge&labelColor=111111"></a>
-<a href="https://naumanhsa.github.io/neurosurfer/"><img alt="Documentation" src="https://img.shields.io/badge/Docs-online-111111?style=for-the-badge&logo=readthedocs&logoColor=white&labelColor=111111"></a>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="PyPI" src="https://img.shields.io/pypi/v/neurosurfer?style=flat-square&logo=pypi&logoColor=white&label=PyPI&labelColor=1F2328&color=3775A9"></a>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/neurosurfer?style=flat-square&logo=python&logoColor=white&label=Python&labelColor=1F2328&color=FFD43B"></a>
+<a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache--2.0-D22128?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/"><img alt="Docs" src="https://img.shields.io/badge/Docs-online-526CFE?style=flat-square&logo=readthedocs&logoColor=white&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/tutorials/"><img alt="Tutorials" src="https://img.shields.io/badge/Tutorials-7_notebooks-F9AB00?style=flat-square&logo=googlecolab&logoColor=white&labelColor=1F2328"></a>
 <br/>
-<a href="https://pypi.org/project/neurosurfer/"><img alt="Downloads" src="https://img.shields.io/pypi/dm/neurosurfer?style=for-the-badge&logo=python&logoColor=white&label=Downloads&labelColor=111111&color=111111"></a>
-<a href="https://github.com/NaumanHSA/neurosurfer/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NaumanHSA/neurosurfer?style=for-the-badge&logo=github&logoColor=white&label=Stars&labelColor=111111&color=111111"></a>
-<a href="https://github.com/NaumanHSA/neurosurfer/blob/main/CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/Changelog-read-111111?style=for-the-badge&labelColor=111111"></a>
-<a href="https://github.com/NaumanHSA/neurosurfer/discussions"><img alt="Discussions" src="https://img.shields.io/badge/Discussions-join-111111?style=for-the-badge&logo=github&logoColor=white&labelColor=111111"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/guides/providers/"><img alt="Providers" src="https://img.shields.io/badge/LLMs-Anthropic_·_OpenAI_·_Gemini_·_Bedrock-6E56CF?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/guides/rag/"><img alt="Vector stores" src="https://img.shields.io/badge/Vectors-Chroma_·_Qdrant_·_memory-E5484D?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/guides/mcp/"><img alt="MCP" src="https://img.shields.io/badge/MCP-client_+_registry-1F883D?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/observability/"><img alt="Observability" src="https://img.shields.io/badge/Traces-Langfuse_·_OpenTelemetry-F5A623?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/architect/"><img alt="Architect" src="https://img.shields.io/badge/Architect-plan_·_ground_·_verify-0EA5E9?style=flat-square&labelColor=1F2328"></a>
+<br/>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="Downloads" src="https://img.shields.io/pypi/dm/neurosurfer?style=flat-square&logo=python&logoColor=white&label=Downloads&labelColor=1F2328&color=4C1"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NaumanHSA/neurosurfer?style=flat-square&logo=github&logoColor=white&label=Stars&labelColor=1F2328&color=FFB000"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/discussions"><img alt="Discussions" src="https://img.shields.io/badge/Discussions-join-8250DF?style=flat-square&logo=github&logoColor=white&labelColor=1F2328"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/blob/main/CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/Changelog-read-57606A?style=flat-square&labelColor=1F2328"></a>
 
 <br/><br/>
 
@@ -46,6 +53,23 @@ exactly what is missing. Serve any of it behind an OpenAI-compatible FastAPI gat
 **[Tutorials](https://naumanhsa.github.io/neurosurfer/tutorials/)**
 
 </div>
+
+---
+
+## 🧭 Architecture
+
+<div align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-dark.jpg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-light.jpg">
+  <img alt="Neurosurfer architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-light.jpg" width="100%">
+</picture>
+</div>
+
+Three ways in — the CLI, the Python API, or the OpenAI-compatible HTTP gateway — over one runtime.
+The **Architect** turns intent into a Workflow package; the **graph engine** runs it; **agents**
+do the reasoning and call **tools**, **MCP servers** and **RAG**; every provider sits behind one
+`Provider` protocol; and every run, turn, tool call and node emits a trace.
 
 ---
 
@@ -98,23 +122,6 @@ It is not a prompt that emits YAML. It is a pipeline with a gate at every step:
 An LLM step cannot read a file however well you word it. The Architect knows that, checks it, and
 **refuses rather than shipping a workflow that invents its results.** Watch it end to end in
 **[tutorial 06](https://naumanhsa.github.io/neurosurfer/tutorials/the-architect/)**.
-
----
-
-## 🧭 Architecture
-
-<div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-dark.jpg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-light.jpg">
-  <img alt="Neurosurfer architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-light.jpg" width="100%">
-</picture>
-</div>
-
-Three ways in — the CLI, the Python API, or the OpenAI-compatible HTTP gateway — over one runtime.
-The **Architect** turns intent into a Workflow package; the **graph engine** runs it; **agents**
-do the reasoning and call **tools**, **MCP servers** and **RAG**; every provider sits behind one
-`Provider` protocol; and every run, turn, tool call and node emits a trace.
 
 ---
 
