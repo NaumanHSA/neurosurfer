@@ -255,12 +255,30 @@ class _ToolCallAccumulator:
 OPENAI_API_URL = "https://api.openai.com/v1"
 
 
+def _is_tools_need_reasoning_effort(exc: Exception) -> bool:
+    """Is this the 400 that says "function tools need reasoning_effort='none'"?
+
+    Matched on the message because the API gives it no distinct code — it arrives
+    as a generic `invalid_request_error` on the `reasoning_effort` param. Both
+    halves are required so an unrelated reasoning_effort complaint (a value we
+    were asked for and got wrong) is not silently retried into submission.
+    """
+    text = str(exc).lower()
+    return "reasoning_effort" in text and (
+        "function tools" in text or "tools are not supported" in text
+    )
+
+
 class OpenAICompatProvider(Provider):
     # Subclasses may override to use 'max_completion_tokens' (newer OpenAI API).
     _tokens_param = "max_tokens"
     # gpt-5 / o-series reasoning models reject any non-default temperature; the
     # native provider flips this off for them (see OpenAIProvider.__init__).
     _send_temperature = True
+    #: Set to "none" the first time this model refuses tools at its default
+    #: reasoning effort, then sent on every later tool-carrying call. Empty means
+    #: "not needed", which is every model that has ever worked here.
+    _reasoning_effort_for_tools: str = ""
 
     def __init__(
         self,
@@ -340,8 +358,37 @@ class OpenAICompatProvider(Provider):
         if config.stop_sequences:
             kwargs["stop"] = config.stop_sequences
 
+        if tools and self._reasoning_effort_for_tools:
+            kwargs["reasoning_effort"] = self._reasoning_effort_for_tools
+
         async def open_stream():
-            return await self._client.chat.completions.create(**kwargs)
+            try:
+                return await self._client.chat.completions.create(**kwargs)
+            except Exception as e:  # noqa: BLE001 - re-raised unless it is the one case
+                if not _is_tools_need_reasoning_effort(e) or "reasoning_effort" in kwargs:
+                    raise
+                # **The newest reasoning models refuse function tools on
+                # chat-completions unless reasoning is switched off.** Their
+                # default effort is not `none`, and we never sent the parameter,
+                # so the first tool-carrying call 400s — which took the Architect
+                # from "works on this model" to "does not exist on this model".
+                #
+                # Learned at runtime rather than from a model-name list, because a
+                # list is wrong the week after it is written. Remembered on the
+                # instance, so exactly one call pays for the discovery.
+                #
+                # The trade is real and worth stating: this model can now be used,
+                # without its reasoning. Full-strength reasoning *with* tools needs
+                # the Responses API, which is a larger piece of work.
+                log.warning(
+                    "%s rejects function tools with its default reasoning effort; "
+                    "retrying with reasoning_effort='none'. Tool calling works, "
+                    "reasoning does not — the Responses API is needed for both.",
+                    self.model,
+                )
+                self._reasoning_effort_for_tools = "none"
+                kwargs["reasoning_effort"] = "none"
+                return await self._client.chat.completions.create(**kwargs)
 
         text_buf: list[str] = []
         thinking_buf: list[str] = []

@@ -128,6 +128,15 @@ class BuildSession:
     # (Phase 5b/5d). Tracked here rather than inferred from the failure, so a
     # second rig problem cannot re-enter the loop.
     fixture_retry_used: bool = False
+    #: Verifications that ran and were judged a failure — rig problems excluded,
+    #: since those are not a verdict on the design. Bounds the repair loop; see
+    #: :attr:`verification_exhausted` for why it needs bounding at all.
+    failed_verifications: int = 0
+    #: How many judged failures before the build may register with a caveat.
+    #: Three is a repair loop that tried, not one that gave up: the transcripts
+    #: that converge do so by the third round, and the ones that do not were
+    #: still going at seventeen.
+    max_verification_attempts: int = 3
     verification: VerificationRecord | None = None
     # How many full graph executions this build has paid for, so the cost of
     # verification is a number in the log rather than an impression.
@@ -519,13 +528,19 @@ class BuildSession:
             and w.node_id not in self.acknowledged_capabilities
         ]
 
-    def pre_register(self) -> tuple[bool, str]:
+    def pre_register(self, *, include_verification: bool = True) -> tuple[bool, str]:
         """Every refusal that costs nothing to decide. Returns (ok, message).
 
         Split out from :meth:`register` so the caller can run these *before* the
         design review, which costs a model call. Reviewing a graph that is about
         to be refused for a missing tool is money spent on an answer nobody will
         read — and the refusal the agent needs to see is the cheap one anyway.
+
+        `include_verification=False` asks the structural question alone — *is
+        this design complete and grounded?* — separately from *has it been proved
+        to work?*. :meth:`blocking_is_justified` needs exactly that split: a
+        design nothing is missing from cannot be infeasible, however its
+        verification went.
         """
         ok, report_text, report = self._validate()
         if not ok:
@@ -578,19 +593,93 @@ class BuildSession:
             ]
             return False, "\n".join(lines)
 
-        if self.verification_mode == "required":
+        if include_verification and self.verification_mode == "required":
             if self.last_verification is None:
                 return False, (
                     "Refusing to register — this build requires a passing "
                     "test_workflow verification of the CURRENT graph first. "
                     "Call test_workflow."
                 )
-            if not self.last_verification[0] and not self.verification_unavailable:
+            if (
+                not self.last_verification[0]
+                and not self.verification_unavailable
+                and not self.verification_exhausted
+            ):
                 return False, (
                     "Refusing to register — the last verification FAILED. Fix the "
                     "design and test_workflow again:\n" + self.last_verification[1]
                 )
         return True, ""
+
+    # ── when a build is allowed to give up ──────────────────────────────────────
+
+    @property
+    def verification_exhausted(self) -> bool:
+        """The repair loop has had its attempts and the judge still says no.
+
+        **An escape, and it exists because the bar is set by the same thing being
+        measured.** The model derives the acceptance criteria, builds against
+        them, and judges the result; a more capable model writes *stricter*
+        criteria, and the judge fails closed, so capability can raise the bar
+        faster than it raises the ability to clear it. `gpt-5.1` derived "no
+        information not present in the source", could not prove it of an LLM
+        summary, and — with no exit from the loop — declared a two-node
+        summarise-and-title workflow infeasible.
+
+        So the loop is bounded. Past the limit the workflow registers **with a
+        loud caveat** rather than not existing: the same trade
+        :attr:`verification_unavailable` already makes for a broken test rig, and
+        for the same reason — refusing forever on something the builder cannot
+        fix helps nobody. What it must never become is silence; see
+        :meth:`verification_caveat`.
+        """
+        return (
+            self.failed_verifications >= self.max_verification_attempts
+            and self.last_verification is not None
+            and not self.last_verification[0]
+        )
+
+    def blocking_is_justified(self) -> tuple[bool, str]:
+        """May this build call `declare_blocked`? Returns (justified, why not).
+
+        **Blocking is for a capability nothing can provide** — a missing
+        integration, a credential nobody supplied, an unsafe or contradictory
+        request. It is *not* for "my output is not good enough": that is what the
+        repair loop and, past its limit, the caveat are for.
+
+        The rule was in the system prompt (*"NEVER block because a step needs
+        analysis, summarising, classifying or writing"*) and prose is the one
+        place a model can ignore. `gpt-5.1` did, ending a build that had a
+        complete, valid, fully grounded two-node design sitting in the session.
+        So it is a gate now, like every other rule here.
+
+        Deliberately permissive about *when* — a build with nothing built yet, an
+        unresolvable plan step, an unmet credential, or a design that does not
+        pass its structural gates may all block. Only the case where nothing is
+        actually missing is refused.
+        """
+        if not self.nodes:
+            return True, ""          # nothing built: the request itself was refused
+        if getattr(self.plan, "impossible_steps", None):
+            return True, ""          # a step nothing anywhere can provide
+        if self.blocking_requirements():
+            return True, ""          # named servers/credentials the user must supply
+        ok, _msg = self.pre_register(include_verification=False)
+        if not ok:
+            return True, ""          # ungrounded, invalid, or missing a planned step
+        return False, (
+            "Not blocked — this workflow is complete, valid, and every capability "
+            "it needs is grounded. `declare_blocked` is for something nothing here "
+            "can provide: a missing integration, a credential you were not given, "
+            "an unsafe or self-contradictory request.\n\n"
+            "If verification will not pass, that is NOT a blocker. An LLM step "
+            "cannot be *proved* free of invention, and no redesign will make it "
+            "so — if the criteria demand a guarantee rather than an observable "
+            "result, the criteria are wrong, not the workflow. Call "
+            "register_workflow: past the attempt limit it registers and records "
+            "the failure as a caveat, which is worth more to the user than no "
+            "workflow at all."
+        )
 
     @property
     def verification_unavailable(self) -> bool:
@@ -614,6 +703,17 @@ class BuildSession:
         """
         rec = self.current_verification()
         report = getattr(rec, "report", None)
+        if self.verification_exhausted:
+            # Registered *despite* a verdict of "no". The loudest caveat there is,
+            # because this is the only path where the machine ran the workflow,
+            # judged it, disagreed — and it registered anyway.
+            return (
+                f" WARNING: this workflow FAILED verification and was registered "
+                f"anyway, after {self.failed_verifications} attempts to repair it. "
+                f"It runs, but the last judged run did not meet the acceptance "
+                f"criteria derived from your request. Read the last test_workflow "
+                f"report and check the output yourself before relying on it."
+            )
         if getattr(report, "fixture_problem", False):
             return (
                 " WARNING: this workflow is UNVERIFIED. The test harness could not "
@@ -646,7 +746,12 @@ class BuildSession:
         caveat = self.verification_caveat()
         note = ""
         if caveat:
-            note = " (UNVERIFIED)" if self.verification_unavailable else " (partial verification)"
+            if self.verification_exhausted:
+                note = " (VERIFICATION FAILED)"
+            elif self.verification_unavailable:
+                note = " (UNVERIFIED)"
+            else:
+                note = " (partial verification)"
         self.notify(f"Workflow '{self.name}' registered at {dest}{note}")
         return True, (
             f"Registered at {dest}. The build is complete — you may finish now."

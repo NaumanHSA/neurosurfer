@@ -9,7 +9,15 @@ workflow or declares the request blocked with a clear reason.
 Terminal contract (enforced after the loop ends):
 - ``session.registered_path`` set  → return it.
 - ``session.blocked_reason`` set   → raise :class:`WorkflowInfeasible`.
-- neither                          → ``RuntimeError`` with the agent's last text.
+- neither, but the design passes every gate → register it and return that.
+- neither, and it does not              → ``RuntimeError`` with the last text.
+
+The third case is deliberate. **A build must end the same way on every model**,
+and the ways a run can stop short are model-shaped: one narrates past its nudges,
+another spends its turns fiddling. None of that is a reason to throw away a
+workflow that passes the same gates a deliberate ``register_workflow`` would
+have. The bar is unchanged — ``pre_register`` still has to pass — only the
+requirement that the *model* be the one to ask.
 """
 
 from __future__ import annotations
@@ -404,6 +412,23 @@ class ArchitectAgent:
             raise WorkflowInfeasible(
                 session.blocked_reason, session.blocking_requirements()
             )
+
+        # **Last chance: a finished design must not die of bookkeeping.** The loop
+        # can end without a terminal state — the model narrates past its nudges,
+        # or burns `max_turns` — and if what it leaves behind passes every gate,
+        # throwing it away serves nobody. Seen on a 9B that built a good workflow
+        # and then spent its budget fiddling with an output node.
+        #
+        # `pre_register` is the whole bar, verification included, so this cannot
+        # smuggle through anything a deliberate `register_workflow` would have
+        # been refused. It only removes the requirement that the *model* be the
+        # one to ask.
+        if session.nodes and session.pre_register()[0]:
+            ok, msg = session.register()
+            if ok:
+                self._notify("registering the finished design the run left behind")
+                return session.registered_path  # type: ignore[return-value]
+            logger.debug("salvage registration declined: %s", msg)
         # Non-convergence. If a workflow was built but couldn't pass required
         # verification, say so with the last report — that's the actionable truth,
         # not "it did nothing".

@@ -230,6 +230,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The Architect gave a different *kind* of answer on different models.**
+  `gpt-5.1` turned "summarise an article and write a title" into
+  `WorkflowInfeasible` while `gpt-5-mini` and a local 9B built it — and the cause
+  was structural, not a quirk of one model. The model **writes the acceptance
+  criteria it is then judged against**, the judge fails closed, and a more capable
+  model writes a stricter bar: it derived "no information not present in the
+  source", which no reading of one output can certify and no prompt can promise.
+  With an unbounded repair loop and an unguarded `declare_blocked`, its only exits
+  were grind forever or give up. Four changes, each closing one of those:
+
+    - **`declare_blocked` is gated.** It is for a capability nothing can provide —
+      a missing integration, a credential nobody supplied, an unsafe or
+      contradictory request. A complete, valid, fully grounded design is never
+      infeasible, and the tool now refuses to say it is and names the alternative.
+      The rule was in the system prompt, and prose is the one place a model can
+      ignore.
+    - **The repair loop is bounded.** After `max_verification_attempts` (3) judged
+      failures the workflow registers **with the loudest caveat in the codebase**
+      rather than not existing — the same trade already made for a broken test
+      rig. Structural gates are unaffected: an invalid graph stays unregisterable
+      however many attempts were spent.
+    - **Unfalsifiable acceptance criteria are dropped before the run.** A
+      criterion demanding a *guarantee* or the absence of something unstated is
+      not a test. Deliberately narrow — "exactly three sentences", "no more than
+      200 words" and "does not include the raw table" all survive; only unprovable
+      absences go.
+    - **A run that stops short hands over its work.** If the loop ends with no
+      terminal state but the design passes every gate, it registers instead of
+      raising. Found by the new matrix on a 9B that built a good workflow and then
+      spent its remaining turns editing an output node.
+
+- **Models that refuse function tools at their default reasoning effort now
+  work.** The newest OpenAI reasoning models 400 on chat-completions the moment a
+  request carries `tools` unless `reasoning_effort` is `"none"`. We never sent the
+  parameter, so `gpt-5.6-terra` could not run the Architect at all. The provider
+  now recognises that one error, retries with `reasoning_effort="none"`, and
+  remembers it for the rest of the session — learned at runtime rather than from a
+  model-name list, because such a list is wrong the week after it is written. The
+  trade is explicit in the warning it logs: tool calling works, reasoning does
+  not, and having both needs the Responses API.
+
 - **A fix made after `register_workflow` reached nothing.** `register()` snapshots
   the staged package into the registry, so anything edited afterwards lived only
   in the session — and with `review_mode="warn"` the design review reports its

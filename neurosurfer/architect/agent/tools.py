@@ -690,8 +690,26 @@ class TestWorkflowTool(Tool):
         )
         if result.passed:
             return ToolResult.ok(rendered)
+
+        # A judged failure, which is the only kind that counts against the repair
+        # budget — a rig problem returned above and is not a verdict on the design.
+        s.failed_verifications += 1
         # A failed verification goes back on the error channel so the model treats
         # it as something to fix, not a success to summarise.
+        if s.verification_exhausted:
+            # Out of attempts. Say what happens next, because the alternative — a
+            # model that has run out of road and is not told so — is the state
+            # that produced a two-node summariser declared infeasible.
+            return ToolResult.error(
+                rendered
+                + f"\n\nThis is attempt {s.failed_verifications} of "
+                f"{s.max_verification_attempts}, and the budget is spent. Do NOT "
+                f"declare this blocked: an LLM step cannot be proved free of "
+                f"invention, and if a criterion demands a guarantee rather than an "
+                f"observable result then the criterion is wrong, not the workflow. "
+                f"Call register_workflow — it will register and record the failure "
+                f"as a caveat the user can see."
+            )
         return ToolResult.error(rendered)
 
 
@@ -1115,7 +1133,9 @@ class DeclareBlockedTool(Tool):
     description = (
         "Declare the requested workflow infeasible as described (missing external "
         "resource, capability that cannot be built safely, contradictory request). "
-        "This ends the build with a clear report instead of a broken workflow."
+        "This ends the build with a clear report instead of a broken workflow. "
+        "NOT for a workflow that merely fails its own verification — a complete, "
+        "grounded design is never blocked, and this refuses one."
     )
     input_model = BlockedArgs
 
@@ -1123,8 +1143,17 @@ class DeclareBlockedTool(Tool):
         self.session = session
 
     async def call(self, args: BlockedArgs, ctx: ToolContext) -> ToolResult:
-        self.session.blocked_reason = args.reason.strip() or "infeasible (no reason given)"
-        self.session.notify("build declared blocked")
+        s = self.session
+        # **The gate that keeps a finished design from being thrown away.** See
+        # `BuildSession.blocking_is_justified`: this rule lived in the system
+        # prompt, and a model that has run out of ideas is exactly the model that
+        # stops reading prompts.
+        justified, why_not = s.blocking_is_justified()
+        if not justified:
+            s.notify("refused a declare_blocked — the design is complete and grounded")
+            return ToolResult.error(why_not)
+        s.blocked_reason = args.reason.strip() or "infeasible (no reason given)"
+        s.notify("build declared blocked")
         return ToolResult.ok(
             "Recorded as blocked. Stop now — reply with a short summary for the user."
         )

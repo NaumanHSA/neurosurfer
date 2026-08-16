@@ -27,6 +27,8 @@ fixes with its normal graph-editing tools — design revision, not field patchin
 from __future__ import annotations
 
 import json
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,8 +40,11 @@ from neurosurfer.llm.types import GenerationConfig, Message
 # model for structured output too, and needs exactly the same tolerance.
 from .jsonio import parse_json as _parse_json
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AcceptanceCriterion",
+    "drop_unfalsifiable",
     "AcceptancePlan",
     "Fixture",
     "VerificationReport",
@@ -277,6 +282,15 @@ Rules:
 - If a clause in the intent is hedged or incidental ("and/or", "for visibility",
   "optionally"), it is NOT a criterion. Criteria are the things the user would be
   disappointed to find missing.
+- NEVER write a criterion that demands a GUARANTEE or the ABSENCE of something
+  unstated — "no information not present in the source", "no hallucinated
+  details", "verifiably grounded", "never invents". You are judging one output by
+  reading it, and reading an output cannot certify an absence; an LLM step cannot
+  be *made* to satisfy such a bar by any wording, so the build repairs forever and
+  then gives up on a workflow that was fine. Write the observable form instead:
+  "every figure in the summary also appears in the article" is checkable, "the
+  summary invents nothing" is not. (Criteria of this shape are dropped before the
+  run, so writing one only costs you a criterion.)
 - test_inputs must contain realistic sample data (e.g. an actual short article
   text, not a placeholder like 'test' or 'lorem ipsum').
 - fixtures: REQUIRED whenever an input is a file or directory path. The workflow
@@ -297,6 +311,69 @@ Rules:
   an obviously-urgent ticket vs. an obviously-trivial one). Max 3. Omit (empty
   list) for linear workflows.
 """
+
+
+#: Criteria that ask for a **guarantee about what is absent**, which no judge
+#: reading one output can establish and no redesign can deliver.
+#:
+#: Deliberately narrow. The failure being prevented is one specific shape — an
+#: LLM step required to be provably free of invention — and over-matching here
+#: would delete good criteria: "exactly three sentences", "no more than 200
+#: words" and "does not include the raw table" are all observable from a single
+#: output and all survive. Each pattern below needs an unfalsifiable *negative*,
+#: not merely a negative.
+_UNFALSIFIABLE = (
+    r"\bno\s+(?:new|additional|extra|invented|fabricated|unsupported|external)\b",
+    r"\bno\s+(?:information|content|details?|facts?|claims?)\s+(?:that\s+)?"
+    r"(?:is\s+|are\s+)?(?:not|beyond|outside)\b",
+    r"\bhallucinat",
+    r"\bnot\s+present\s+in\s+the\s+(?:source|input|original|article|document)\b",
+    r"\bfree\s+of\s+(?:any\s+)?(?:invention|fabrication|hallucination)",
+    # Inflected on purpose: "never invents" is the form a model actually writes,
+    # and `\binvent\b` does not match it.
+    r"\b(?:never|does\s+not\s+ever)\s+\w*\s*(?:invent|fabricat|introduc|add)\w*\b",
+    # The bare assertion, with no verb to hang a pattern on: "nothing invented",
+    # "nothing fabricated".
+    r"\bnothing\s+(?:invented|fabricated|made\s+up|hallucinated|added)\b",
+    r"\bverifiabl[ey]\b",
+    r"\bguarantee[sd]?\b",
+    r"\bstrictly\s+extractive\b",
+    r"\bonly\s+(?:information|content|facts?)\s+(?:that\s+)?(?:appears?|is)\s+in\b",
+)
+
+
+def drop_unfalsifiable(
+    criteria: list[AcceptanceCriterion],
+) -> list[AcceptanceCriterion]:
+    """Remove criteria that demand a guarantee rather than an observable result.
+
+    **The bar is written by the same model that is measured against it**, and a
+    more capable model writes a stricter bar. `gpt-5.1` derived "no information
+    not present in the source" for a summariser, could not prove it of an LLM
+    step, repaired the prompt until it ran out of ideas, and declared a two-node
+    workflow infeasible. The criterion was not unreasonable as an *aspiration*;
+    it was impossible as a *test*, because a judge reading one output cannot
+    certify an absence and no wording of a prompt can promise one.
+
+    The prompt already says to judge the outcome and not invent a bar. This is
+    the enforcing half, because prose is what a model drops when it is
+    struggling — the same reason the capability ladder runs in code.
+
+    Everything left is kept: if *every* criterion is unfalsifiable the caller
+    falls back to a single criterion straight from the intent, which is a bar
+    that can at least be met.
+    """
+    keep: list[AcceptanceCriterion] = []
+    for c in criteria:
+        text = (c.description or "").lower()
+        if any(re.search(p, text) for p in _UNFALSIFIABLE):
+            logger.info(
+                "dropped an unfalsifiable acceptance criterion (%s): %s",
+                c.id, c.description,
+            )
+            continue
+        keep.append(c)
+    return keep
 
 
 async def derive_acceptance(
@@ -348,6 +425,7 @@ async def derive_acceptance(
                 id=str(c.get("id") or f"criterion_{len(criteria) + 1}"),
                 description=str(c["description"]),
             ))
+    criteria = drop_unfalsifiable(criteria)
     if not criteria:
         # Fail-safe: a single criterion straight from the intent.
         criteria = [AcceptanceCriterion(
