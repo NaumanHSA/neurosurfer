@@ -263,8 +263,8 @@ def test_the_new_rules_all_fire(tmp_path):
 
 
 #: The rules rewritten to the plain-language contract. Older messages have not
-#: been swept yet — see `.dev/` — and scoping this list is what keeps the
-#: contract enforced for new rules instead of asserted for all and skipped.
+#: all been swept yet, and scoping this list is what keeps the contract enforced
+#: for new rules instead of asserted for all and skipped.
 PLAIN = {
     "agent.no_instructions", "agent.no_model", "agent.no_model_available",
     "agent.structured_without_schema", "output.no_source", "input.single_field",

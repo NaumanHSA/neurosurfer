@@ -5,9 +5,8 @@
 ``output_schema`` began as an import path — ``my_module:ResultModel`` — which
 means the only way to get structured output from a node was to put a Python file
 on the server and restart it. That is the same defect ``callable`` had on the
-``function`` node (see ``.dev/01_NODES_AND_GRAPH_PLAN.md`` §0.1): *the field that
-decides what the node produces cannot be filled in from the surface you build the
-node on.* An author working in the studio could pick "structured" and then had
+``function`` node: *the field that decides what the node produces cannot be
+filled in from the surface you build the node on.* An author working in the studio could pick "structured" and then had
 nowhere to say what the structure was.
 
 JSON Schema is the answer rather than a bespoke field list because it is a format

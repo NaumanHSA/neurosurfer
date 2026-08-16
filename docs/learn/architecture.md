@@ -4,10 +4,18 @@ Neurosurfer is a set of layers you can adopt independently. Use a bare provider 
 agent for multi-step tool use, a graph for orchestration, or the gateway to serve any of them behind
 an OpenAI-compatible API.
 
-## The layers
+## The picture
 
-![Neurosurfer architecture — six layers, from providers at the base to the gateway on top](../assets/diagrams/neurosurfer-architecture-light.jpg#only-light){ .architecture-diagram }
-![Neurosurfer architecture — six layers, from providers at the base to the gateway on top](../assets/diagrams/neurosurfer-architecture-dark.jpg#only-dark){ .architecture-diagram }
+![Neurosurfer architecture — the Architect's pipeline above, the runtime it feeds below](../assets/diagrams/neurosurfer-architecture.png){ .architecture-diagram }
+
+Two ways in. Along the top, the **Architect** turns a plain-English intent into a workflow —
+planning it, grounding every capability against what actually exists, building it, validating it,
+**running** it, and either registering it or refusing and naming what is missing. Below, the
+**runtime** it hands that workflow to: the graph engine, the agents, and the tools, MCP servers and
+retrieval they draw on. The second arrow into the runtime is the other door — writing the graph
+yourself and skipping the Architect entirely.
+
+## The layers
 
 - **Providers** ([`neurosurfer.llm`](../guides/providers.md)) normalise every model behind one
   `Provider` protocol and a canonical message/response model, so nothing above cares which vendor you

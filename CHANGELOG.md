@@ -250,6 +250,15 @@ than in source, so it is the one worth checking before upgrading: run
 
 ### Fixed
 
+- **A field named `title` was silently deleted from every schema it appeared in.**
+  The helper that strips pydantic's `"title"` *annotations* filtered that key at
+  every level — and in JSON Schema, `properties` is keyed by **field names**, so a
+  field called `title` went with them. The model was shown a schema without the
+  field while `required` still demanded it, so structured output failed on every
+  attempt with `title Field required`, three retries deep, looking like the
+  model's fault. It affected any tool argument or output schema using that name.
+  Measured 0/3 before and 3/3 after on the same prompt and model.
+
 - **A build now ends as a workflow or as a reason, never as anything else.** A run
   that stopped short with an unrunnable design raised `RuntimeError` carrying
   whatever the model last said — on one `gpt-5-mini` transcript, a paragraph

@@ -59,11 +59,7 @@ exactly what is missing. Serve any of it behind an OpenAI-compatible FastAPI gat
 ## 🧭 Architecture
 
 <div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-dark.jpg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-light.jpg">
-  <img alt="Neurosurfer architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture-light.jpg" width="100%">
-</picture>
+  <img alt="Neurosurfer architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture.png" width="100%">
 </div>
 
 Three ways in — the CLI, the Python API, or the OpenAI-compatible HTTP gateway — over one runtime.
