@@ -138,8 +138,12 @@ what makes the row read as one flowing pipeline.
 Borrowing the Watchtower globe idea, but as a **hexagonal core**, not a planet:
 
 A central dark hexagon badge with the Neurosurfer node-network mark, labelled
-**RUNTIME**. Around it, on a dashed circular orbit, six small white circular
+**RUNTIME**. Around it, on a dashed circular orbit, **five** small white circular
 icon-nodes connected to the core by thin dashed lines with endpoint dots:
+
+There is deliberately no `Providers` node here. It was one, and it said the same
+thing as the Providers card in region F two inches away — the card carries the
+actual list, so the orbit keeps the space instead.
 
 | Position | Icon | Label |
 |---|---|---|
@@ -148,7 +152,6 @@ icon-nodes connected to the core by thin dashed lines with endpoint dots:
 | right | wrench | **Tools**<br>15+ built-in · plus your own |
 | bottom-right | plug | **MCP**<br>external servers |
 | bottom-left | database + magnifier | **RAG**<br>hybrid · rerank · citations |
-| left | cpu | **Providers**<br>one protocol |
 
 **Two streams enter the core, and both must land on it.**
 
@@ -303,3 +306,25 @@ REGISTERED / REFUSED fork and its wording. All verified against the code.
 `Anthropic` (not Anthropric) · `Qdrant` (not Qdrant/Quadrant) · `OpenTelemetry`
 (one word, capital T) · `Langfuse` (lowercase f) · `AgenticLoop` (one word, two
 capitals) · `graph.yaml` (lowercase).
+
+
+---
+
+## 9. Third pass — what is still wrong
+
+Most of it is right and should not be touched: the pipeline, the palette, the
+icons, the outcome fork, the footer, the green stream landing on the hexagon.
+Three things.
+
+| # | Change | Why |
+|---|---|---|
+| 1 | **Route the grey `or write the graph yourself` arrow clear of the pipeline.** It currently drops from the top, passes behind the *Build* card, and re-emerges below it into the runtime. Take it down the far-left gutter, or through the gap between the pipeline and the orbit — it must not cross or touch any of the six stage cards. | Occlusion reads as connection. Threaded through Build, it says "Build feeds the runtime", which is the same wrong statement the second pass fixed, drawn a different way. The whole point of that arrow is a path that **bypasses** the Architect. |
+| 2 | **Delete the `Providers · one protocol` node from the orbit.** Five nodes, not six. | It duplicates the Providers card in region F, which sits two inches away and carries the actual list. |
+| 3 | **Check `Anthropic` at full resolution.** | It is the most reliably mangled word in the set — `Anthropric` and `Antropic` both appear in generated output. Worth one look before shipping. |
+
+### Composition note
+
+With the wordmark gone and the orbit down to five nodes there is slack under the
+left-hand cards. Do not fill it with new content. Spend it on the pipeline: taller
+stage cards and more air around the numbered badges. **The pipeline is the
+subject; everything else is context.**
