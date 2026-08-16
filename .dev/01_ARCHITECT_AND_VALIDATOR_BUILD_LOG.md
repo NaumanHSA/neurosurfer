@@ -614,6 +614,9 @@ and has never been pointed at anything.
 - [x] **The full suite including the live tests**, run once against OpenAI
       `gpt-4o-mini`: **1145 passed, 1 failed** in 3m54s. See below — the failure
       is a model-capability boundary, not a defect.
+      **Superseded 2026-08-16** — that run predates plans 02 and 03 and ~50
+      commits. Re-run in full; see *§11 — the pre-merge verification* at the end
+      of this log.
 - [x] **Ruff clean** across `neurosurfer/` and `tests/`; `mkdocs build --strict`
       clean.
 - [x] **CHANGELOG drafted** under `[Unreleased]`, with the submodule-import break
@@ -949,3 +952,60 @@ section rather than one filename.
 **Worth stating plainly: the suite was not being run green before this.** Both
 numbers in §9 and the roadmap should be read as "on the author's machine, with
 whatever logging state that shell had".
+
+
+---
+
+## §11 — The pre-merge verification, 2026-08-16
+
+Run because the §8 tick was two plans and fifty commits stale. **It found two
+real defects that 1500 passing tests did not**, which is the argument for doing
+this deliberately rather than trusting the offline number.
+
+### The gate
+
+| Check | Result |
+|---|---|
+| Offline suite | **1521 passed, 5 skipped**, ~59s |
+| Live suite, local `qwen/qwen3.5-9b` | 1521 passed, **1 failed** — `test_agent_designs_a_branch_with_real_llm` |
+| Live suite, hosted `gpt-5-mini` | 1521 passed, **1 failed** — `test_agent_declares_blocked_with_real_llm` |
+| ruff, `mkdocs build --strict`, both docs gates | clean |
+| Tutorials 00–06 | **0 errors**, every one |
+| Windows | **deferred** — see `WINDOWS_TEST_FAILURES.md` |
+
+**Neither live failure is a defect, and each was checked rather than assumed.**
+The branching one is the same model-capability boundary §8 recorded: the 9B built
+two `base` nodes where a router was wanted, and the identical test passes on
+`gpt-5-mini` in 274s. The blocked one is variance, not a boundary — `gpt-5-mini`
+planned nine steps to do the Oracle request instead of refusing it, ran out of
+nudges fixing validation, and the **same test passed on re-run** in 160s. Worth
+knowing that it is variance and not a wall; worth not pretending it is a pass.
+
+### The two defects, and why nothing caught them earlier
+
+**A field named `title` was deleted from every schema it appeared in.**
+`_strip_titles` filtered `k != "title"` at every level to remove pydantic's
+annotation noise — and `properties` is keyed by *field names*. The model was shown
+a schema without the field while `required` still demanded it, so structured
+output failed on every attempt with "title Field required". Measured 0/3 before
+and 3/3 after on the same prompt. It had been failing every run of tutorial 01,
+and no test covered a field with that name.
+
+**The OTLP dead-collector protection had been switched off by a library
+upgrade.** `opentelemetry-exporter-otlp-proto-http` 1.44 retries internally and
+returns `FAILURE` rather than raising, so a wrapper watching only for exceptions
+never tripped: 6–7.6s per flush, on Linux, for anyone with `NEUROSURFER_EXPORTERS=otel`
+and no collector. **The test that would have caught it had never run** — the
+optional extra was not installed, so it skipped, silently, forever.
+
+That second one is the transferable lesson: *an optional extra that is not
+installed is a test that does not run*. The suite reported 7 skips and nobody read
+them.
+
+### The version
+
+§5 recommended `1.1.0`, weighing only the `tools.builtin` submodule move. That
+predates the cost removal. Four things now break on upgrade — the submodule paths,
+`llm/pricing`, three public methods/fields, and a validation warning promoted to
+an error that un-runs workflows already on disk. **`2.0.0`**, with the CHANGELOG's
+upgrade table as the migration note.
