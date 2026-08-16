@@ -110,18 +110,56 @@ class _QuietSpanExporter:
             seconds,
         )
 
-    def _attempt(self, call: Any, on_dead: Any) -> Any:
+    #: A call that took longer than this reached the network and got nothing.
+    #: Belt to the braces below: the SDK could stop raising *and* stop reporting
+    #: failure, and a six-second export would still be a six-second export.
+    _SLOW_S = 2.0
+
+    def _attempt(self, call: Any, on_dead: Any, *, watch_result: bool = False) -> Any:
+        """Run *call*, and trip on **any** shape of "the collector is not there".
+
+        Three shapes, because the SDK has used three:
+
+        - **It raises.** The original behaviour, and still what a wrapped
+          exporter may do.
+        - **It returns FAILURE.** `opentelemetry-exporter-otlp-proto-http` 1.44
+          retries internally (three times, with backoff) and returns
+          `SpanExportResult.FAILURE` instead of propagating. Catching only
+          exceptions meant `_dead` was never set, so **every** flush paid the
+          full retry schedule — measured at 6–7.6s per flush on *Linux*, where
+          the original bug cost nothing. The protection this class exists for
+          had been silently switched off by a library upgrade.
+        - **Neither, but it was slow.** A future version could report success
+          it did not have. A local collector answers in milliseconds; anything
+          near a second has been out on the network, and paying that per run is
+          the thing being prevented.
+        """
         if self._dead:
             return on_dead
         started = perf_counter()
         try:
-            return call()
+            result = call()
         except Exception as e:  # noqa: BLE001 — a dead collector must never break a run
             self._disable(e, perf_counter() - started)
             return on_dead
+        elapsed = perf_counter() - started
+        failed = watch_result and result is self._failure
+        if failed or elapsed >= self._SLOW_S:
+            self._disable(
+                RuntimeError(
+                    "the exporter reported a failed batch"
+                    if failed else
+                    f"the export took {elapsed:.1f}s, so nothing is listening"
+                ),
+                elapsed,
+            )
+            return on_dead if failed else result
+        return result
 
     def export(self, spans: Any) -> Any:
-        return self._attempt(lambda: self._inner.export(spans), self._failure)
+        return self._attempt(
+            lambda: self._inner.export(spans), self._failure, watch_result=True
+        )
 
     def force_flush(self, timeout_millis: int = 30_000) -> bool:
         return self._attempt(lambda: self._inner.force_flush(timeout_millis), False)

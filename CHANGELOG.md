@@ -9,6 +9,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Upgrading from 1.0.0 — what breaks, and the fix
+
+Four changes can stop working code or a working workflow. Everything else in this
+release is additive.
+
+| What breaks | Fix |
+|---|---|
+| `from neurosurfer.tools.builtin.read_file import ReadFileTool` — and every other **submodule** path under `tools.builtin` | Import from the package: `from neurosurfer.tools.builtin import ReadFileTool`. That form is unchanged and always works. Tools now live under `neurosurfer/registry/core/<domain>/`. |
+| `from neurosurfer.llm.pricing import …` — the module is gone | Nothing replaces it. This framework counts tokens; pricing belongs to your trace backend. `result.usage` still carries input/output/cache tokens, and the exporters send them with the model name so Langfuse or OTel can attribute spend. |
+| `RunResult.cost()`, `GraphExecutionResult.total_cost()`, `RunResult.model`, `NodeExecutionResult.model` | Same: read `result.usage` / `graph_result.total_usage()`. The model name reaches your tracer already. |
+| **A registered workflow that declares an input no step reads now refuses to run.** It used to warn. | The workflow was ignoring that parameter — name it in a step as `{name}`, or drop it from `inputs`. The error names which input and both options. If you need the old behaviour for one run, `GraphExecutor(..., validate=False)`. |
+
+The last one is the only change that can break something already on disk rather
+than in source, so it is the one worth checking before upgrading: run
+`validate_package` over your registry and read what comes back.
+
 ### Added
 
 - **Retrieval, and the backends behind it** — plan 03, eight phases.

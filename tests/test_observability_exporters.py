@@ -445,7 +445,14 @@ class TestUnreachableCollector:
 
     def test_batch_processor_emits_no_traceback(self, caplog, monkeypatch):
         """The guarantee, through the real SDK: a run against a dead endpoint
-        produces our one warning and nothing from ``BatchSpanProcessor``."""
+        produces our one warning and no traceback from anybody.
+
+        It used to assert *silence* from the `opentelemetry` loggers, which was
+        stricter than the guarantee and version-dependent: the 1.44 exporter logs
+        its own one-line retry warnings before giving up. Those are not the
+        problem — the problem was `BatchSpanProcessor.logger.exception` printing a
+        full stack per batch, none of whose frames name neurosurfer.
+        """
         pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
         from neurosurfer.observability.exporters.otel import OtelExporter
 
@@ -459,11 +466,48 @@ class TestUnreachableCollector:
             exporter.flush()
             exporter.close()
 
-        otel_records = [r for r in caplog.records if r.name.startswith("opentelemetry")]
-        assert otel_records == [], f"SDK still logging: {[r.getMessage() for r in otel_records]}"
+        # Nothing anywhere may carry a stack: that is the whole complaint.
+        with_stacks = [r for r in caplog.records if r.exc_info is not None]
+        assert with_stacks == [], f"traceback logged by {[r.name for r in with_stacks]}"
+        # And specifically not the batch processor, which is where they came from.
+        assert not [r for r in caplog.records if "BatchSpanProcessor" in r.name]
+
         ours = [r for r in caplog.records if r.name == "neurosurfer.observability"]
         assert len(ours) == 1 and "not reachable" in ours[0].getMessage()
-        assert ours[0].exc_info is None
+
+    def test_a_failed_batch_disables_the_exporter(self, monkeypatch):
+        """**The protection, against the SDK as it actually behaves now.**
+
+        `opentelemetry-exporter-otlp-proto-http` 1.44 retries internally and
+        returns `SpanExportResult.FAILURE` rather than raising, so a wrapper that
+        watched only for exceptions never tripped — and every flush paid the full
+        retry schedule. Measured at 6-7.6s per flush on *Linux*, where the
+        original bug cost nothing at all: the fix had been silently switched off
+        by a library upgrade, and only an installed optional extra could see it.
+        """
+        pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+        import time
+
+        from neurosurfer.observability.exporters.otel import OtelExporter
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:9")
+        exporter = OtelExporter(service_name="test")
+        ctx = TraceContext(metadata={"agent_type": "Agent"})
+
+        def one_run(i: int) -> float:
+            started = time.perf_counter()
+            exporter.on_run_start(ctx, name=f"Agent.run{i}", input="hi")
+            exporter.on_run_finish(ctx, status="completed", output="there")
+            exporter.flush()
+            return time.perf_counter() - started
+
+        one_run(0)                      # pays for the discovery, however long
+        after = [one_run(i) for i in (1, 2, 3)]
+        exporter.close()
+
+        assert all(d < 0.5 for d in after), (
+            f"still contacting a dead collector after the first failure: {after}"
+        )
 
 
 # ── Phase 5: a graph workflow renders as one nested trace ───────────────────
