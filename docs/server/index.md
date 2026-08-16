@@ -9,6 +9,13 @@ and lets you serve two kinds of backends behind them:
 - **[Native agent backends](backends.md#agent-backends)** — expose a Neurosurfer `AgenticLoop` /
   `ReactAgent` / `Agent` as a model ID.
 
+It also serves **two surfaces that are not chat**:
+
+- **[Workflows API](workflows-api.md)** — `/v1/workflows` and `/v1/runs`, with SSE, for running
+  registered [workflow packages](../graph/packages.md).
+- **[Architect API](architect-api.md)** — `/v1/architect/*`, for building workflows, including a
+  build that parks to ask a person and resumes when answered.
+
 Install the extra:
 
 ```bash

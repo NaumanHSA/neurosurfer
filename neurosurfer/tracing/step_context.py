@@ -30,6 +30,7 @@ class TraceStepContext:
         inputs: Dict[str, Any],
         agent_id: Optional[str],
         meta: Dict[str, Any],
+        node_id: Optional[str] = None,
     ) -> None:
         self._tracer = tracer
         self._start_message = start_message
@@ -40,6 +41,9 @@ class TraceStepContext:
             "kind": kind,
             "label": label,
             "agent_id": agent_id,
+            # Which graph node this step belongs to — what lets a UI group the
+            # steps of one run into a per-node tree.
+            "node_id": node_id,
             "inputs": inputs,
             "outputs": {},
             "meta": meta,

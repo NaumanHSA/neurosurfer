@@ -27,6 +27,20 @@ def artifacts_home() -> Path:
     return Path.cwd() / ".neurosurfer"
 
 
+def config_dir() -> Path:
+    """Host-level configuration: MCP servers, provider profiles.
+
+    Deliberately *not* per-workspace. An MCP server is a process the gateway
+    spawns as its own OS user, so a per-account copy of `mcp.json` would look
+    like isolation while providing none.
+    """
+    return artifacts_home() / "config"
+
+
+def mcp_config_path() -> Path:
+    return config_dir() / "mcp.json"
+
+
 def projects_dir() -> Path:
     """Staging area for in-progress workflow builds."""
     return artifacts_home() / "projects"
@@ -40,6 +54,16 @@ def workflows_dir() -> Path:
 def generated_tools_dir() -> Path:
     """On-disk store for Architect-generated tools."""
     return artifacts_home() / "tools"
+
+
+def runs_dir() -> Path:
+    """Durable run records — one directory per run.
+
+    Sibling of `workflows_dir()`: a workflow is the thing you registered, a run is
+    one execution of it. Kept apart because a registry is edited and a run record
+    is append-only.
+    """
+    return artifacts_home() / "runs"
 
 
 def traces_dir() -> Path:

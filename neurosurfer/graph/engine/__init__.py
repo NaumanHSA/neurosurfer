@@ -7,6 +7,9 @@ features layered on top of it.
 # ── errors ────────────────────────────────────────────────────────────────────
 # ── misc ──────────────────────────────────────────────────────────────────────
 from .artifacts import ArtifactStore  # noqa: F401
+
+# ── control flow (Phase 1) ─────────────────────────────────────────────────────
+from .builder import GraphBuilder  # noqa: F401
 from .errors import (  # noqa: F401
     AgentError,
     CodeExecutionError,
@@ -33,6 +36,7 @@ from .executor import (  # noqa: F401
     GraphExecutor,
     _topo_layers,
 )
+from .expressions import ExpressionError, evaluate, safe_bool  # noqa: F401
 
 # ── loader ────────────────────────────────────────────────────────────────────
 from .loader import (  # noqa: F401
@@ -51,7 +55,9 @@ from .schema import (  # noqa: F401
     NodeExecutionResult,
     NodeMode,
     NodePolicy,
+    RouterCase,
 )
+from .state import WorkflowState  # noqa: F401
 from .utils import import_string, topo_sort  # noqa: F401
 
 __all__ = [
@@ -83,6 +89,13 @@ __all__ = [
     "NodeExecutionResult",
     "NodeMode",
     "NodePolicy",
+    "RouterCase",
+    # control flow
+    "WorkflowState",
+    "ExpressionError",
+    "evaluate",
+    "safe_bool",
+    "GraphBuilder",
     # executor
     "GraphExecutor",
     "_topo_layers",

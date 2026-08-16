@@ -1,0 +1,891 @@
+from __future__ import annotations
+
+import inspect
+import logging
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel as PydModel
+
+# Native-stack (R3+R4)
+from neurosurfer.llm.base import Provider
+from neurosurfer.observability.run import traced_run
+from neurosurfer.tools.base import ToolContext, ToolPool
+from neurosurfer.tracing import Tracer, TraceStepContext
+
+if TYPE_CHECKING:
+    pass
+
+from ..artifacts import ArtifactStore
+from ..errors import (
+    GraphConfigurationError,
+    GraphExecutionError,
+)
+from ..export import GraphExporter
+from ..manager import ManagerAgent, ManagerConfig
+from ..nodes import (
+    FunctionNode,
+    InputNode,
+    LoopNode,
+    MapNode,
+    OutputNode,
+    PythonNode,
+    RouterNode,
+    SubgraphNode,
+    ToolNode,
+)
+from ..schema import Graph, GraphExecutionResult, GraphNode, NodeExecutionResult
+from ..state import WorkflowState
+from ..templates import NODE_SYSTEM_PROMPT, render_scope
+from ..utils import normalize_and_validate_graph_inputs, topo_sort
+from . import deterministic, io_nodes, iteration, llm, routing
+
+
+def _accepts_scope(callback: Any) -> bool:
+    """True if *callback* can take a third ``scope`` argument.
+
+    The node-event callback was historically ``(node_id, status)``. Nested body
+    events carry a scope dict as a third argument, so older two-argument callbacks
+    (CLI progress bars, tests) keep working unchanged — they simply never see the
+    nested events' context.
+    """
+    try:
+        sig = inspect.signature(callback)
+    except (TypeError, ValueError):  # builtins / C callables — assume the old shape
+        return False
+    positional = 0
+    for p in sig.parameters.values():
+        if p.kind is p.VAR_POSITIONAL:
+            return True
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+            positional += 1
+    return positional >= 3
+
+
+class GraphExecutor:
+    """Execute a Graph DAG using a native Provider + ToolPool (R4 native path).
+
+    Parameters
+    ----------
+    graph:       The loaded Graph spec.
+    provider:    Native LLM provider for base/react nodes.
+    native_tools: Native ToolPool for tool nodes and react agents.
+    tool_ctx:    ToolContext supplied to tool/react nodes.
+    llm, toolkit:  Accepted but ignored (legacy compat — pass provider= instead).
+    """
+
+    def __init__(
+        self,
+        graph: Graph,
+        *,
+        provider: Provider | None = None,
+        native_tools: ToolPool | None = None,
+        tool_ctx: ToolContext | None = None,
+        # Legacy params — accepted but ignored so old call-sites don't crash.
+        llm: Any = None,
+        toolkit: Any = None,
+        manager_llm: Any = None,
+        rag_agent: Any | None = None,
+        manager_config: ManagerConfig | None = None,
+        exporter: GraphExporter | None = None,
+        tracer: Tracer | None = None,
+        artifact_store: ArtifactStore | None = None,
+        logger: logging.Logger | None = None,
+        log_traces: bool = True,
+        parallelism: int = 1,
+        provider_resolver: Any = None,
+        validate: bool = True,
+    ) -> None:
+        self.graph = graph
+        # Validation is the first step of every run — see `_validate_before_running`.
+        # The escape hatch exists for the validator's own tests and for
+        # deliberately running a graph you know is broken; it is not a
+        # performance switch, and nothing in the library sets it.
+        self.validate = validate
+        self.provider = provider
+        # Per-node provider selection. Without one, every node runs on `provider`
+        # and `node.model` rebinds a copy of it — so a graph that names a model
+        # finally gets that model rather than a trace that merely claims it.
+        if provider_resolver is None:
+            from neurosurfer.llm.resolver import ProviderResolver
+            provider_resolver = ProviderResolver(provider)
+
+        self.providers = provider_resolver
+        self.native_tools = native_tools
+        self._tool_ctx = tool_ctx
+        self.rag_agent = rag_agent
+        self.exporter = exporter
+        self.logger = logger or logging.getLogger(__name__)
+        self.tracer = tracer
+        self.log_traces = log_traces
+        self.artifacts = artifact_store or ArtifactStore()
+        self.parallelism = max(1, parallelism)
+
+        self.manager = ManagerAgent(
+            config=manager_config,
+            tracer=tracer,
+            log_traces=log_traces,
+        )
+
+        # Set for the duration of run(); nested body executors inherit it so their
+        # node events reach the same consumer.
+        self._active_node_event: Any | None = None
+
+        self._node_map: dict[str, GraphNode] = self.graph.node_map()
+        self._order = topo_sort(self.graph.nodes)
+        self._layers: list[list[str]] = _topo_layers(self.graph.nodes)
+
+        self._validate_tools()
+
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _topo_layers_static(nodes) -> list[list[str]]:
+        return _topo_layers(nodes)
+
+    def _validate_before_running(self) -> None:
+        """Refuse a graph the validator says cannot run. **The first step of a run.**
+
+        Validation used to be an *optional* gate that only some callers passed
+        through: the Architect ran it, the registry ran it, and a graph handed
+        straight to `GraphExecutor` — which is what the Python API and every
+        tutorial does — ran no checks at all.
+
+        The cost of that was demonstrated by renaming one node: a router still
+        routing to the old name selected a branch that did not exist, a node that
+        depended on the router but was nobody's target ran unconditionally, and
+        the whole thing reported success. Every fact needed to refuse it was
+        available before the first model call.
+
+        **Errors block; warnings do not.** An error means the graph will not run
+        correctly, so starting it only spends tokens on the way to a worse
+        message. A warning means it will run and may surprise you, which is the
+        author's call and not the engine's.
+
+        Validation failing to *run* — no tool registry, an import this
+        deployment cannot resolve — is logged and skipped rather than raised.
+        Refusing to execute because the checker itself broke would make the gate
+        more fragile than the thing it guards.
+        """
+        if not self.validate:
+            return
+        try:
+            from pathlib import Path
+
+            from neurosurfer.graph.workflow.package import WorkflowPackage
+            from neurosurfer.graph.workflow.schema import WorkflowManifest
+            from neurosurfer.graph.workflow.validation import validate_package
+
+            pkg = getattr(self, "_package", None) or WorkflowPackage(
+                manifest=WorkflowManifest(name=self.graph.name or "graph"),
+                graph=self.graph,
+                path=Path("."),
+            )
+            # Tools the executor was *given* are as real as registered ones for
+            # this run — see `validate_package`'s `extra_tools`.
+            pool = self.native_tools
+            given = set(pool.names()) if pool is not None else set()
+            report = validate_package(pkg, extra_tools=given)
+        except Exception as e:  # noqa: BLE001 - see the docstring
+            self.logger.debug("Pre-run validation could not run: %s", e)
+            return
+
+        for issue in report.warnings:
+            self.logger.warning("%s: %s", issue.node_id or self.graph.name, issue.message)
+
+        blocking = report.errors + report.gaps
+        if blocking:
+            lines = "\n".join(f"  - {i.render()}" for i in blocking)
+            raise GraphConfigurationError(
+                f"This workflow cannot run as written:\n{lines}\n\n"
+                f"Validation runs before every graph, so this was caught without "
+                f"spending a model call. Pass `validate=False` to the executor to "
+                f"run it anyway."
+            )
+
+    def run(
+        self,
+        inputs: Any,
+        *,
+        manager_temperature: float = None,
+        manager_max_new_tokens: int = None,
+        trace_step: TraceStepContext | None = None,
+        node_event: Any | None = None,
+        event_scope: dict[str, Any] | None = None,
+        seed_state: WorkflowState | None = None,
+    ) -> GraphExecutionResult:
+        """
+        Execute the entire graph once.
+
+        Parameters
+        ----------
+        inputs:
+            Runtime inputs to the graph.
+
+            If the graph declares `inputs` in YAML:
+              - Must be a mapping (dict)
+              - Validated and cast according to GraphInput
+              - Extra keys are warned and ignored
+
+            If the graph does NOT declare `inputs`:
+              - If `inputs` is a dict, it's used as-is
+              - Otherwise, it's wrapped as: {"query": inputs}
+        manager_temperature:
+            Temperature used for ManagerAgent when composing prompts.
+        manager_max_new_tokens:
+            Max new tokens for ManagerAgent responses.
+
+        Returns
+        -------
+        GraphExecutionResult
+            Contains the graph spec, all node results, and the final outputs.
+        """
+        self._validate_before_running()
+        graph_inputs = normalize_and_validate_graph_inputs(self.graph, inputs)
+        # Typed shared state threaded through the whole run (Phase 1a). Node outputs
+        # and explicit `writes` land here so conditional edges / routers / loops can
+        # read them via the expression evaluator. A `seed_state` (passed by loop/map
+        # body execution) pre-populates prior node outputs / vars / iteration scope.
+        if seed_state is not None:
+            state = WorkflowState(
+                inputs=dict(graph_inputs),
+                nodes=dict(seed_state.nodes),
+                vars=dict(seed_state.vars),
+                scope=dict(seed_state.scope),
+            )
+        else:
+            state = WorkflowState(inputs=dict(graph_inputs))
+        nodes_results: dict[str, NodeExecutionResult] = {}
+        # Nodes that errored (or were skipped because an upstream errored). These
+        # propagate AND-skip semantics to dependents (an error taints the branch).
+        failed_ids: set[str] = set()
+        # Nodes deliberately not taken — a false `when` guard, a router not selecting
+        # them, or all incoming branches pruned. Distinct from `failed_ids`: a join
+        # node still runs if *any* incoming branch is live (OR-join).
+        pruned_ids: set[str] = set()
+        # `on_error` targets that a real failure activated. A handler is pruned
+        # when its guarded node succeeds, but several nodes may share one handler,
+        # so an activation by any of them outranks a prune by the others —
+        # regardless of the order the two complete in.
+        error_handled: set[str] = set()
+
+        # Nested bodies (loop/map/subgraph) run on a child executor that is handed
+        # this same callback plus a scope describing where it sits — so a UI can
+        # show per-iteration progress instead of one opaque container node.
+        self._active_node_event = node_event
+        emit_scope = _accepts_scope(node_event) if node_event is not None else False
+
+        def _emit(node_id: str, status: str) -> None:
+            """Fire the optional per-node lifecycle callback, ignoring callback errors."""
+            if node_event is None:
+                return
+            if event_scope and not emit_scope:
+                # We're inside a body and the consumer takes only (node_id, status):
+                # it has no way to tell a body node from a top-level one, and would
+                # file `step` alongside real graph nodes. Stay silent for it.
+                return
+            try:
+                if emit_scope:
+                    node_event(node_id, status, event_scope)
+                else:
+                    node_event(node_id, status)
+            except Exception:  # noqa: BLE001 - progress UI must never break execution
+                pass
+
+        def _prune(nid: str, reason: str, *, quiet: bool = False) -> None:
+            node = self._node_map[nid]
+            nodes_results[nid] = NodeExecutionResult(
+                node_id=nid, mode=node.mode, raw_output=None,
+                started_at=time.time(), duration_ms=0,
+                skipped=True, skip_reason=reason,
+            )
+            pruned_ids.add(nid)
+            _emit(nid, "skipped")
+            if quiet:
+                # Router non-selection is already announced positively by the
+                # "routing to" line — per-target prune lines would just be noise.
+                self.logger.debug("Node %s pruned (%s)", nid, reason)
+            else:
+                self._log(f"Node {nid} pruned ({reason})", tracer=trace_step, type="info")
+
+        def _post_run(nid: str, result: NodeExecutionResult) -> None:
+            """Record a completed node: update state, propagate failure/pruning, emit."""
+            nodes_results[nid] = result
+            node = self._node_map[nid]
+            if result.error and not result.skipped:
+                # Error/fallback routing: a handled error activates the on_error branch
+                # and prunes the normal successors, instead of AND-skipping dependents.
+                if node.on_error:
+                    state.set_var(f"{nid}__error", result.error)
+                    error_handled.add(node.on_error)
+                    # Another node guarded by this same handler may have already
+                    # pruned it by succeeding; a real error wins.
+                    pruned_ids.discard(node.on_error)
+                    for other in self.graph.nodes:
+                        if nid in (other.depends_on or []) and other.id != node.on_error:
+                            pruned_ids.add(other.id)
+                    _emit(nid, "error")
+                    self._log(
+                        f"Node {nid} errored; routing to fallback '{node.on_error}': "
+                        f"{result.error}",
+                        tracer=trace_step, type="warning",
+                    )
+                    return
+                failed_ids.add(nid)
+                _emit(nid, "error")
+                self._log(f"Node {nid} failed: {result.error}", tracer=trace_step, type="error")
+                if self.graph.fail_fast:
+                    raise GraphExecutionError(
+                        f"Node '{nid}' failed (fail_fast=True): {result.error}",
+                        failed_node=nid,
+                    )
+                return
+            # Success: the error branch is not taken. Without this the handler is
+            # just an ordinary dependent whose dependency was satisfied, so every
+            # workflow with a fallback ran its fallback on the happy path.
+            if node.on_error and node.on_error not in error_handled:
+                pruned_ids.add(node.on_error)
+            # Success: publish output to state (+ named variable), then handle routing.
+            state.set_node_output(nid, result.raw_output)
+            if node.writes:
+                state.set_var(node.writes, result.raw_output)
+            if isinstance(node, RouterNode):
+                self._apply_router_pruning(node, result, pruned_ids)
+                selected = result.raw_output
+                label = (result.structured_output or {}).get("label")
+                if selected is None:
+                    msg = f"Node {nid}: no route matched — all targets pruned"
+                elif label and str(label) != str(selected):
+                    msg = f"Node {nid}: routing to '{selected}' (label: {label})"
+                else:
+                    msg = f"Node {nid}: routing to '{selected}'"
+                self._log(msg, tracer=trace_step, type="info")
+            _emit(nid, "ok")
+
+        for layer in self._layers:
+            to_run: list[str] = []
+            for nid in layer:
+                node = self._node_map[nid]
+                deps = node.depends_on
+                # 1. Upstream error → skip (AND-propagation; preserves prior behaviour).
+                failed_dep = next((d for d in deps if d in failed_ids), None)
+                if failed_dep is not None:
+                    upstream_err = nodes_results[failed_dep].error or "unknown error"
+                    nodes_results[nid] = NodeExecutionResult(
+                        node_id=nid, mode=node.mode, raw_output=None,
+                        started_at=time.time(), duration_ms=0,
+                        error=f"Skipped: upstream node '{failed_dep}' failed: {upstream_err}",
+                        skipped=True, skip_reason=f"upstream '{failed_dep}' failed",
+                    )
+                    failed_ids.add(nid)
+                    _emit(nid, "skipped")
+                    continue
+                # 2. Explicitly pruned by an upstream router.
+                if nid in pruned_ids:
+                    reason = (
+                        "error handler not needed — the guarded node succeeded"
+                        if any(n.on_error == nid for n in self.graph.nodes)
+                        else "not selected by router"
+                    )
+                    _prune(nid, reason, quiet=True)
+                    continue
+                # 3. OR-join: prune only if the node has deps and EVERY dep was pruned
+                #    (no live branch reached it). A single live dep keeps it alive.
+                if deps and all(d in pruned_ids for d in deps):
+                    _prune(nid, "no active branch reached this node")
+                    continue
+                # 4. Switched off by hand. Same outcome as a false guard — the
+                #    node is *not taken*, which is a normal branch and not an
+                #    error, so dependents still run if another branch is live.
+                #    Checked before `when` because it is unconditional: a
+                #    disabled node should not evaluate an expression that could
+                #    itself fail.
+                if node.disabled:
+                    _prune(nid, "disabled")
+                    continue
+                # 5. Conditional-edge guard.
+                if node.when:
+                    from ..expressions import safe_bool
+                    if not safe_bool(node.when, state.namespace(), default=False):
+                        _prune(nid, f"condition false: {node.when}")
+                        continue
+                to_run.append(nid)
+
+            if not to_run:
+                continue
+
+            def _execute_one(nid: str) -> NodeExecutionResult:
+                node = self._node_map[nid]
+                dep_results = {d: state.get_node_output(d) for d in node.depends_on}
+                # Find the most-recently completed live node for prev context.
+                prev_result = None
+                for past_id in reversed(list(nodes_results.keys())):
+                    past = nodes_results[past_id]
+                    if not past.skipped and past.raw_output is not None:
+                        prev_result = past.raw_output
+                        break
+                # One trace span per node: makes non-agent (function/tool/router) nodes
+                # visible and nests each node's agent under its *node* row. Pushes an
+                # ambient TraceContext the node agent inherits (across threads too,
+                # via the copy_context() used for parallel/timeout nodes).
+                retries = node.policy.retries if (node.policy and node.policy.retries) else 0
+                # The span carries the node's real I/O so the trace UI shows what
+                # went in (graph inputs + upstream outputs) and what came out —
+                # not just on the nested agent generation.
+                from ..state import _jsonable
+
+                span_input: dict[str, Any] = {"graph_inputs": _jsonable(graph_inputs)}
+                if dep_results:
+                    span_input["dependencies"] = _jsonable(dep_results)
+                with traced_run(
+                    f"node:{node.id}",
+                    metadata={"node_id": node.id, "kind": node.kind, "mode": node.mode},
+                    input=span_input,
+                    flush=False,
+                ) as span:
+                    attempt = 0
+                    while True:
+                        result = self._run_node(
+                            node=node,
+                            graph_inputs=graph_inputs,
+                            dependency_results=dep_results,
+                            previous_result=prev_result,
+                            state=state,
+                            manager_temperature=manager_temperature,
+                            manager_max_new_tokens=manager_max_new_tokens,
+                            trace_step=trace_step,
+                        )
+                        # Retry a genuinely-failed node up to policy.retries times.
+                        if result.error and not result.skipped and attempt < (retries or 0):
+                            attempt += 1
+                            self._log(
+                                f"Node {nid} retry {attempt}/{retries} after error: {result.error}",
+                                tracer=trace_step, type="warning",
+                            )
+                            continue
+                        break
+                    if span is not None:
+                        if result.error and not result.skipped:
+                            span.error(result.error)
+                        else:
+                            span.output = _jsonable(result.raw_output)
+                    return result
+
+            if self.parallelism == 1 or len(to_run) == 1:
+                for nid in to_run:
+                    _emit(nid, "start")
+                    _post_run(nid, _execute_one(nid))
+            else:
+                for nid in to_run:
+                    _emit(nid, "start")
+                with ThreadPoolExecutor(max_workers=min(self.parallelism, len(to_run))) as pool:
+                    # Each worker thread runs inside a *fresh* copy of the current
+                    # context so the ambient observability TraceContext propagates and
+                    # parallel node agents nest under the workflow trace. One snapshot
+                    # per node — a Context can't be entered by two threads at once.
+                    futures: dict[str, Future] = {
+                        nid: pool.submit(copy_context().run, _execute_one, nid)
+                        for nid in to_run
+                    }
+                    for nid, fut in futures.items():
+                        try:
+                            result = fut.result()
+                        except Exception as exc:
+                            node = self._node_map[nid]
+                            result = NodeExecutionResult(
+                                node_id=nid, mode=node.mode, raw_output=None,
+                                started_at=time.time(), duration_ms=0,
+                                error=f"Unexpected thread error: {exc}",
+                            )
+                        _post_run(nid, result)
+
+        final = self._select_final_outputs(nodes_results)
+        all_errors = {nid: r.error for nid, r in nodes_results.items() if r.error and not r.skipped}
+        all_skipped = [nid for nid, r in nodes_results.items() if r.skipped]
+        if all_errors:
+            self._log("Graph completed with errors. Returning partial results.", tracer=trace_step, type="warning")
+        return GraphExecutionResult(
+            graph=self.graph,
+            nodes=nodes_results,
+            final=final,
+            errors=all_errors,
+            skipped=all_skipped,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers
+    # ------------------------------------------------------------------ #
+    def _validate_tools(self) -> None:
+        """Ensure all YAML tool names exist in whichever tool source is active."""
+        if self.native_tools is not None:
+            missing = {
+                name
+                for node in self.graph.nodes
+                for name in node.tools
+                if self.native_tools.get(name) is None
+            }
+            if missing:
+                raise GraphConfigurationError(
+                    f"YAML refers to unknown tools not in ToolPool: {sorted(missing)}"
+                )
+            return
+
+
+    # ------------------------------------------------------------------ #
+    # Non-LLM node runners
+    # ------------------------------------------------------------------ #
+    # ── deterministic kinds: function / python / tool ────────────────────
+    #
+    # Thin forwarders; the runners live in `deterministic.py`.
+
+    def _run_function_node(
+        self,
+        node: GraphNode,
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
+        state: WorkflowState | None = None,
+    ) -> NodeExecutionResult:
+        return deterministic.run_function_node(
+            self, node, graph_inputs, dependency_results, state
+        )
+
+    def _run_tool_node(
+        self,
+        node: GraphNode,
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
+        state: WorkflowState | None = None,
+    ) -> NodeExecutionResult:
+        return deterministic.run_tool_node(
+            self, node, graph_inputs, dependency_results, state
+        )
+
+    # ------------------------------------------------------------------ #
+    # Router node (Phase 1d)
+    # ------------------------------------------------------------------ #
+    # ── routing ──────────────────────────────────────────────────────────
+    #
+    # Thin forwarders; the runners live in `routing.py`.
+
+    def _run_router_node(
+        self, node: GraphNode, state: WorkflowState
+    ) -> NodeExecutionResult:
+        return routing.run_router_node(self, node, state)
+
+    @staticmethod
+    def _route_by_expression(cases, default, state: WorkflowState):
+        return routing.route_by_expression(cases, default, state)
+
+    @staticmethod
+    def _apply_router_pruning(
+        node: GraphNode, result: NodeExecutionResult, pruned_ids: set[str]
+    ) -> None:
+        routing.apply_router_pruning(node, result, pruned_ids)
+
+    # ------------------------------------------------------------------ #
+    # Iteration nodes (Phase 1e loop / 1f map)
+    # ------------------------------------------------------------------ #
+    def _child_executor(self, node: GraphNode) -> GraphExecutor:
+        """Build a nested executor for a loop/map ``body`` sub-graph.
+
+        **The body is not re-validated**, and that is not an oversight. A body is
+        not a standalone workflow: `{item}`, `{index}` and `{iteration}` are
+        injected by the container at run time and are *not* graph inputs, so
+        validating the body in isolation reports them as references nothing
+        provides — and a perfectly good `map` fails before its first iteration.
+
+        The parent's validation already covered these nodes: the rule runner
+        walks into `body` (see `validation/context.py::body_nodes`), where it can
+        see the container that supplies the loop variable.
+        """
+        body_graph = Graph(
+            name=f"{node.id}__body",
+            nodes=node.body or [],
+            outputs=list(node.body_outputs or []),
+            functions=self.graph.functions,
+        )
+        # The sidecar module itself, not just its path: a nested loop resolves
+        # its `until` against the same file as the parent, and re-importing per
+        # body would be both wasteful and a second module object for one file.
+        body_graph._sidecar = self.graph.sidecar
+        child = GraphExecutor(
+            body_graph,
+            validate=False,
+            provider=self.provider,
+            native_tools=self.native_tools,
+            tool_ctx=self._tool_ctx,
+            exporter=self.exporter,
+            tracer=self.tracer,
+            log_traces=self.log_traces,
+            parallelism=self.parallelism,
+            # Shared, not rebuilt: body nodes may name providers too, and a fresh
+            # resolver per iteration would rebuild a client on every pass.
+            provider_resolver=self.providers,
+        )
+        return child
+
+    @staticmethod
+    def _body_value(result: GraphExecutionResult) -> Any:
+        return iteration.body_value(result)
+
+    def _run_loop_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        return iteration.run_loop_node(self, node, state)
+
+    def _run_map_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        return iteration.run_map_node(self, node, state)
+
+    def _run_subgraph_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        return iteration.run_subgraph_node(self, node, state)
+
+    def _error_result(self, node: GraphNode, started_at: float, message: str) -> NodeExecutionResult:
+        return NodeExecutionResult(
+            node_id=node.id,
+            mode=node.mode,
+            raw_output=None,
+            started_at=started_at,
+            duration_ms=int((time.time() - started_at) * 1000),
+            error=message,
+        )
+
+    # ── the edges of a run: input / output ───────────────────────────────
+    #
+    # Thin forwarders; the runners live in `io_nodes.py`.
+
+    def _run_input_node(self, node: GraphNode, state: WorkflowState) -> NodeExecutionResult:
+        return io_nodes.run_input_node(self, node, state)
+
+    def _run_output_node(
+        self,
+        node: GraphNode,
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
+        state: WorkflowState,
+    ) -> NodeExecutionResult:
+        return io_nodes.run_output_node(
+            self, node, graph_inputs, dependency_results, state
+        )
+
+    def _run_node(
+        self,
+        *,
+        node: GraphNode,
+        graph_inputs: dict[str, Any],
+        dependency_results: dict[str, Any],
+        previous_result: Any,
+        state: WorkflowState | None = None,
+        manager_temperature: float,
+        manager_max_new_tokens: int,
+        trace_step: TraceStepContext | None = None,
+    ) -> NodeExecutionResult:
+
+        # Non-LLM dispatch — no prompt building, no agent needed.
+        #
+        # `isinstance` rather than `node.kind == ...`: `Graph` upgrades every node
+        # to its kind's class on the way in (schema._as_kind_classes), including
+        # nodes that arrived as `kind=` strings or from YAML, so the two are
+        # equivalent — but the class is the thing a reader can follow to a
+        # docstring, and mypy narrows it.
+        _state = state or WorkflowState(inputs=dict(graph_inputs))
+        if isinstance(node, (FunctionNode, PythonNode)):
+            return self._run_function_node(node, graph_inputs, dependency_results, _state)
+        if isinstance(node, ToolNode):
+            return self._run_tool_node(node, graph_inputs, dependency_results, _state)
+        if isinstance(node, RouterNode):
+            return self._run_router_node(node, _state)
+        if isinstance(node, LoopNode):
+            return self._run_loop_node(node, _state)
+        if isinstance(node, MapNode):
+            return self._run_map_node(node, _state)
+        if isinstance(node, SubgraphNode):
+            return self._run_subgraph_node(node, _state)
+        if isinstance(node, InputNode):
+            return self._run_input_node(node, _state)
+        if isinstance(node, OutputNode):
+            return self._run_output_node(node, graph_inputs, dependency_results, _state)
+
+        # LLM-based node (base | react)
+        #
+        # Interpolate templates over graph inputs *and* upstream state — a node's
+        # `goal`/`purpose` commonly references an upstream node's output by its
+        # `writes` name (e.g. "…based on the summary: {summary}"). `writes` vars are
+        # in `_state.vars`; dependency outputs are also exposed by node id. Explicit
+        # `writes` take precedence over a same-named graph input.
+        #
+        # **What this scope holds is not what the node is told.** It is what the
+        # node's placeholders may *reach*; the turn carries what they actually
+        # named. That distinction is the whole of `compose_user_prompt`.
+        interp_scope = render_scope(
+            graph_inputs,
+            nodes=dependency_results,
+            variables=_state.vars,
+            scope=_state.scope,
+        )
+        system_prompt = NODE_SYSTEM_PROMPT
+        user_prompt = self.manager.compose_user_prompt(
+            node=node,
+            task=self._render_task(node, interp_scope),
+            dependency_results=dependency_results,
+            previous_result=previous_result,
+            temperature=manager_temperature,
+            max_new_tokens=manager_max_new_tokens,
+        )
+        output_schema = self._load_output_schema_if_needed(node)
+        timeout_s = node.policy.timeout_s if node.policy and node.policy.timeout_s else None
+
+        if self.provider is None and node.provider is None:
+            raise GraphConfigurationError(
+                f"Node '{node.id}' is a base/react node but no provider was given to the executor."
+            )
+
+        # Reading the two halves of a turn is how the prompt-assembly defects of
+        # the last few days were all found, so the view stays — as logging, not
+        # as `print`. A library writing to stdout on every node makes it the
+        # caller's problem to filter, and there is no filtering a `print`.
+        #
+        #     logging.getLogger("neurosurfer.graph").setLevel(logging.DEBUG)
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(
+                "node %s prompts\n--- system ---\n%s\n--- user ---\n%s",
+                node.id, system_prompt, user_prompt,
+            )
+        return self._run_node_native(
+            node=node,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            output_schema=output_schema,
+            timeout_s=timeout_s,
+            provider=self._provider_for(node),
+            # For a react node's bound `tool_args`; the same scope its
+            # prompts are rendered against.
+            scope=interp_scope,
+        )
+
+    def _provider_for(self, node: GraphNode) -> Provider:
+        """The client this node runs on — its own, or the run's default.
+
+        A bad name fails here, before the call, naming the alternatives; the same
+        treatment an unresolvable tool gets, and for the same reason: the alternative
+        is a confusing provider-side error halfway through a paid run.
+        """
+        from neurosurfer.llm.resolver import UnknownProviderError
+
+        try:
+            return self.providers.resolve(node.provider, node.model)
+        except UnknownProviderError as e:
+            raise GraphConfigurationError(f"Node '{node.id}': {e}") from e
+
+    # ── the kinds that call a model: base / react ────────────────────────
+    #
+    # Thin forwarders; the runner and the prompt builder live in `llm.py`.
+
+    def _run_node_native(
+        self,
+        *,
+        node: GraphNode,
+        system_prompt: str,
+        user_prompt: str,
+        output_schema: type | None = None,
+        timeout_s: float | None = None,
+        provider: Provider | None = None,
+        scope: dict[str, Any] | None = None,
+    ) -> NodeExecutionResult:
+        return llm.run_node_native(
+            self,
+            node=node,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            output_schema=output_schema,
+            timeout_s=timeout_s,
+            provider=provider,
+            scope=scope,
+        )
+
+    def _render_task(self, node: GraphNode, scope: dict[str, Any]) -> str:
+        return llm.render_task(self, node, scope)
+
+    def _load_output_schema_if_needed(self, node: GraphNode) -> type[PydModel] | None:
+        return llm.load_output_schema_if_needed(self, node)
+
+    def _select_final_outputs(
+        self, results: dict[str, NodeExecutionResult]
+    ) -> dict[str, Any]:
+        """
+        Pick which node outputs are considered "final" for the graph.
+
+        Three sources, in order of how *deliberately* they say it:
+
+        1. **`output` nodes** — the graph states its return value as a node you
+           can see. Only ones that actually ran count, so a router that took the
+           left branch returns the left branch's output and not an empty entry
+           for the right one.
+        2. **`graph.outputs`** — the older form, a list of node ids. Kept working
+           because every workflow on disk uses it.
+        3. **The last node in topological order** — a guess, and the reason the
+           first two exist.
+        """
+        ran = {
+            n.id for n in self.graph.nodes
+            if isinstance(n, OutputNode) and n.id in results and not results[n.id].skipped
+        }
+        if ran:
+            return {nid: results[nid].raw_output for nid in ran}
+
+        if self.graph.outputs:
+            return {
+                nid: results[nid].raw_output
+                for nid in self.graph.outputs
+                if nid in results
+            }
+
+        if not self._order:
+            return {}
+        last_nid = self._order[-1]
+        if last_nid not in results:
+            return {}
+        return {last_nid: results[last_nid].raw_output}
+
+    def _log(self, message: str, tracer: TraceStepContext | None = None, type: str = "info") -> None:
+        if tracer:
+            tracer.log(message=message, type=type)
+        else:
+            self.logger.info(message)
+
+
+# ── Module-level helpers ────────────────────────────────────────────────────────
+
+def _topo_layers(nodes) -> list[list[str]]:
+    """Group nodes into topological execution layers.
+
+    All nodes in the same layer have their dependencies satisfied by earlier layers
+    and can therefore run in parallel.  This is the approach used by LangChain's
+    ``RunnableParallel`` and Apache Airflow's task-group scheduling.
+
+    Example (diamond graph A→B, A→C, B→D, C→D):
+        Layer 0: [A]
+        Layer 1: [B, C]   ← can run in parallel
+        Layer 2: [D]
+    """
+    if not nodes:
+        return []
+
+    node_ids = {n.id for n in nodes}
+    deps: dict[str, set[str]] = {n.id: set(n.depends_on) & node_ids for n in nodes}
+    remaining = dict(deps)
+    layers: list[list[str]] = []
+    completed: set[str] = set()
+
+    while remaining:
+        # Nodes whose all deps are already in completed layers.
+        ready = [nid for nid, ds in remaining.items() if ds <= completed]
+        if not ready:
+            # Cycle or unresolvable — fall back to serial (topo_sort will catch the cycle).
+            ready = list(remaining.keys())
+        layers.append(ready)
+        completed.update(ready)
+        for nid in ready:
+            del remaining[nid]
+
+    return layers

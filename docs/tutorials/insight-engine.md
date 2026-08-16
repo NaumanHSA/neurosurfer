@@ -31,4 +31,4 @@ print(answer.final_text)
 Follow the [Colab notebook](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb)
 for the complete build — schema, MCP wiring, and example questions.
 
-**Next:** [Tutorial 6 →](sql-agent.md)
+**Next:** [Tutorial 6 →](the-architect.md) · [SQL Agent guide](sql-agent.md)

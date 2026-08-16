@@ -349,7 +349,7 @@ def test_executor_function_node_missing_callable():
         nodes=[GraphNode(id="bad", kind="function")],
         outputs=["bad"],
     )
-    executor = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False)
+    executor = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False, validate=False)
     result = executor.run({})
     assert result.nodes["bad"].error is not None
     assert "callable" in result.nodes["bad"].error
@@ -361,7 +361,7 @@ def test_executor_function_node_bad_import():
         nodes=[GraphNode(id="bad", kind="function", callable="no_such_module.fn")],
         outputs=["bad"],
     )
-    executor = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False)
+    executor = GraphExecutor(graph, provider=_EchoProvider(), log_traces=False, validate=False)
     result = executor.run({})
     assert result.nodes["bad"].error is not None
 

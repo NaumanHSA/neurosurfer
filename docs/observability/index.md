@@ -34,7 +34,7 @@ changes. The mapping:
 | mode change / context compaction | a trace **event** |
 
 **Nesting is automatic.** A run started *inside* another run — a spawned [sub-agent](../guides/subagents.md)
-or a [workflow](../guides/graph-workflows.md) node — inherits the active trace context and nests under
+or a [workflow](../graph/index.md) node — inherits the active trace context and nests under
 it, so one trace shows `parent → child → tool` instead of disconnected top-level traces. This works
 across `await` and parallel `asyncio.gather` spawns alike.
 
@@ -52,11 +52,50 @@ Both can be active at once. Override detection with `NEUROSURFER_EXPORTERS=langf
 everything off with `NEUROSURFER_EXPORTERS=none`. For explicit control in code, use
 `configure_exporters([...])` — see [Custom Exporters](custom-exporters.md#choosing-exporters-in-code).
 
+## Export never runs on the agent's thread
+
+Tracing is a side channel. It is allowed to be slow, to fail, and to lose data; it is **not**
+allowed to make a run slower.
+
+Every exporter hook and every flush is submitted to a **single daemon worker over a bounded FIFO**.
+The agent thread enqueues and returns.
+
+This matters more than it sounds. Exporter calls used to run inline, and `flush()` is not the cheap
+thing its name suggests — OpenTelemetry's `BatchSpanProcessor` already owns a queue and a worker,
+and `force_flush` exists to *bypass* them and drain on the caller. With tracing on and no collector
+listening, nine spans blocked a run for **0.116s instead of 74s**.
+
+### What it guarantees
+
+- **Order is preserved.** One worker draining a FIFO means `on_run_start` really does reach an
+  exporter before the `on_turn` that follows it.
+- **Exporter state stops being racy.** A `map` node runs its body concurrently, so several agent
+  threads used to call into the same exporter's state at once. Everything now lands on one thread.
+
+### What it does not
+
+- **Delivery is best-effort by design.** The queue is bounded and **drops** rather than growing
+  without limit — a process that dies of its own monitoring is worse than one missing spans.
+- An `atexit` drain lets a script that ends right after a run still ship what it has.
+
+```python
+from neurosurfer.observability import dispatch
+
+dispatch.drain(timeout=5.0)   # tests and shutdown paths that must observe delivery
+dispatch.dropped()            # how many items the bounded queue discarded
+```
+
 ## Guarantees
 
 - **Zero overhead when off.** With no backend configured, no observer is even created.
 - **Never breaks a run.** A misbehaving or unreachable exporter is isolated — its errors are
   swallowed, the agent run is unaffected.
+- **An exporter named but not configured is skipped, not built.** `NEUROSURFER_EXPORTERS=otel` with
+  no endpoint set used to build the exporter anyway, and the OTel SDK filled in its own
+  `http://localhost:4318` — so an install pointing at no collector still opened one. The explicit
+  list now applies the same requirement auto-detection does, and warns what is missing. Passing a
+  constructed instance to `register_exporter` still bypasses the check, since that is a deliberate
+  choice by the caller.
 - **Optional dependency.** A base install (without the `observability` extra) resolves to no
   exporters; nothing to import, nothing to fail.
 

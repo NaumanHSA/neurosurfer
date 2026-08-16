@@ -38,37 +38,49 @@ class ManagerAgent:
     def compose_user_prompt(
         self,
         node: GraphNode,
-        graph_inputs: dict[str, Any],
+        task: str,
         dependency_results: dict[str, Any],
-        previous_result: Any,
+        previous_result: Any = None,
         *,
         temperature: float | None = None,
         max_new_tokens: int | None = None,
     ) -> str:
-        user_intent = str(graph_inputs.get("user_intent", "(not specified)"))
+        """The turn a node is given: what to do, then what fed into it.
 
-        # Other graph inputs (clarifying answers, etc.) listed separately.
-        # Skip internal plumbing keys that are surfaced elsewhere (e.g.
-        # `available_tools` is interpolated into the system prompt already).
-        _internal = {"user_intent", "available_tools"}
-        extra_lines = [
-            f"  {k}: {v}"
-            for k, v in graph_inputs.items()
-            if k not in _internal
-        ]
+        ## What is deliberately not here any more
 
-        # Only include deps this node declared.
+        Every graph input, printed for every node, under an `Inputs:` heading.
+        It went because it could not be made correct — only less wrong:
+
+        - a `map` body was handed the whole collection it was iterating over,
+          once per item, beside the single item it was working on;
+        - a value the instruction had already interpolated was then printed
+          again underneath it, which is Phase 6's defect in a third place;
+        - and none of it was *asked for*. A node received every input because
+          the graph had them, not because the step needed them.
+
+        Narrowing it kept running into the same wall: any rule for "which
+        inputs matter to this node" is a worse version of a rule the author has
+        already written, in the placeholders of the instruction itself.
+
+        So the contract is now the small one, and it matches what a LangGraph
+        node gets: **what the task text names, plus the outputs of the steps it
+        declared as dependencies.** Nothing ambient. A node that names nothing
+        and depends on nothing is a node with no input, which is a defect the
+        validator reports before the run rather than something the engine papers
+        over by reciting the whole graph at it.
+        """
+        parts: list[str] = [task]
+
+        # Only include deps this node declared. `depends_on` is the whole of
+        # what a node inherits — the rest of the graph is not its business.
         depends_on = getattr(node, "depends_on", None) or []
         if depends_on:
-            dependency_results = {k: v for k, v in dependency_results.items() if k in depends_on}
+            dependency_results = {
+                k: v for k, v in dependency_results.items() if k in depends_on
+            }
 
         mode = node.mode.value if hasattr(node.mode, "value") else str(node.mode)
-
-        parts: list[str] = [f"User request: {user_intent}"]
-
-        if extra_lines:
-            parts.append("Additional inputs:\n" + "\n".join(extra_lines))
-
         if mode == "structured":
             parts.append(
                 "Output contract: return STRICT JSON only, matching the schema in "
@@ -79,7 +91,7 @@ class ManagerAgent:
         if dep_block:
             parts.append(dep_block)
 
-        return "\n\n".join(parts)
+        return "\n\n".join(p for p in parts if p.strip())
 
     def _format_dependency_context(self, dependency_results: dict[str, Any]) -> str:
         if not dependency_results:

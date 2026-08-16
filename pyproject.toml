@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neurosurfer"
-version = "1.0.0"
+version = "2.0.0"
 description = "Build intelligent apps that blend LLM reasoning, tools, and retrieval, with a ready-to-run OpenAI-compatible gateway."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -65,6 +65,12 @@ search = [
 ]
 browser = [
     "playwright>=1.40",     # headless browser for the `browse` tool (run: playwright install chromium)
+]
+bedrock = [
+    "anthropic[bedrock]>=0.40.0",  # Claude on Amazon Bedrock (brings boto3 for SigV4)
+]
+qdrant = [
+    "qdrant-client>=1.7",         # vector store: strongest filtering, runs in-process or remote
 ]
 rag = [
     "chromadb>=1.0",              # vector store for RAG nodes
@@ -136,3 +142,6 @@ check_untyped_defs = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "slow: spawns real subprocesses, or drives a real model through a repair loop; ~half the suite's wall time",
+]

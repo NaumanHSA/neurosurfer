@@ -120,3 +120,14 @@ class RunResult:
     report: str = ""
     usage: Usage = field(default_factory=Usage)
     turns: int = 0
+    #: Reasoning from the run, kept separate from `final_text`.
+    #:
+    #: `TextDelta` is the answer and `ThinkingDelta` is reasoning — a distinction
+    #: the whole event API rests on, so these must not be concatenated into one
+    #: field. But a thinking-capable local model sometimes ends a turn having
+    #: emitted *only* reasoning, and then `final_text` is empty for a run that
+    #: plainly produced something. `CanonicalResponse.text()` already falls back
+    #: to thinking for exactly this reason; this is the same fallback made
+    #: available to a caller collecting a stream, as its own channel so the
+    #: caller decides rather than being handed reasoning labelled as an answer.
+    final_thinking: str = ""

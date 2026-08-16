@@ -58,23 +58,26 @@ designed workflow.
 
 ## Run what it produced
 
-A registered package runs like any other [Workflow](../guides/graph-workflows.md#workflow-packages):
+A registered package runs like any other [Workflow](../graph/packages.md):
 
 ```python
 from neurosurfer.graph.workflow import WorkflowRegistry, WorkflowRunner
 
 pkg = WorkflowRegistry().get(pkg_path)                 # or load_package(pkg_path)
-result = WorkflowRunner(provider, cwd=".").run(pkg, inputs={"user_intent": "…"})
+
+# The package declares what it takes — pass those names, not a generic intent.
+print([i.name for i in pkg.graph.inputs])              # e.g. ['article']
+result = WorkflowRunner(provider, cwd=".").run(pkg, inputs={"article": "…"})
 ```
 
 ## Recommended workflow
 
-Given the module is [experimental](index.md), the reliable path is:
+Because [output quality tracks the model](index.md), the reliable path is:
 
 1. **Bootstrap** — let the Architect design a first draft from a *narrow, specific* intent.
 2. **Review** — open the generated package; read the graph and any authored tool.
 3. **Refine** — edit the nodes/tools by hand where the draft is weak.
-4. **Run** — execute the refined package through the [graph runtime](../guides/graph-workflows.md).
+4. **Run** — execute the refined package through the [graph runtime](../graph/index.md).
 
 Narrow intents (“summarise a URL and extract N bullets”) work far better than broad ones (“build me a
 research assistant”). Split big goals into smaller workflows.

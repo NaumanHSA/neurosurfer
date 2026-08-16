@@ -125,3 +125,6 @@ test.py
 
 # neurosurfer runtime data (traces, generated projects, transcripts, state)
 .neurosurfer/
+
+# Development plans, build logs and design briefs — the branch keeps these.
+.dev/

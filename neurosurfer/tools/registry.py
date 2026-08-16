@@ -6,6 +6,7 @@ all selected schemas are sent every turn (no deferred/ToolSearch indirection).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from .base import Tool, ToolPool
@@ -24,10 +25,13 @@ from .builtin import (
     SearchTool,
     SetPythonEnvTool,
     SpawnAgentTool,
+    SqlTool,
     TodoTool,
     WebSearchTool,
     WriteFileTool,
 )
+
+logger = logging.getLogger(__name__)
 
 # Plugin hook: product/feature layers (app, workflows) register their own tool
 # factories here so the framework registry never imports product/feature code.
@@ -51,20 +55,43 @@ def register_tool_factory(factory: Callable[[], Tool]) -> None:
 # discovered by an :class:`~neurosurfer.mcp.manager.McpManager` after it connects.
 # Unlike factories/generated tools these are *already-constructed* instances bound to
 # a live connection, so the manager sets the whole list and clears it on shutdown.
-# They appear in :func:`all_tools` (so agents/sub-agents can call them) but NOT in
-# :func:`workflow_node_tools` (the Architect must not compose graphs from ephemeral
-# connections — see the Integrations plan, Phase 2).
+# They appear in both :func:`all_tools` and :func:`workflow_node_tools` — the
+# connection is ephemeral but the server config persists, so a workflow naming an
+# MCP tool reconnects on demand (see that function's docstring).
 _LIVE_TOOLS: list[Tool] = []
+
+# Notified whenever the live set changes. Anything holding a *derived* view of the
+# tools — the catalog's manifest is one, cached once per process — has no other way
+# to learn that starting a server just changed the answer. Making it a subscription
+# rather than a call at each site means a future path that publishes tools cannot
+# forget to say so.
+_TOOLS_CHANGED: list[Callable[[], None]] = []
+
+
+def subscribe_tools_changed(listener: Callable[[], None]) -> None:
+    """Call *listener* whenever the live tool set changes. Idempotent per callable."""
+    if listener not in _TOOLS_CHANGED:
+        _TOOLS_CHANGED.append(listener)
+
+
+def _notify_tools_changed() -> None:
+    for listener in _TOOLS_CHANGED:
+        try:
+            listener()
+        except Exception:  # noqa: BLE001 - a stale view must not break connecting
+            logger.warning("tools-changed listener failed", exc_info=True)
 
 
 def set_live_tools(tools: list[Tool]) -> None:
     """Replace the live (MCP) tool set. Called by the MCP manager after connecting."""
     _LIVE_TOOLS[:] = list(tools)
+    _notify_tools_changed()
 
 
 def clear_live_tools() -> None:
     """Drop all live tools (called when the MCP manager shuts down)."""
     _LIVE_TOOLS.clear()
+    _notify_tools_changed()
 
 
 def live_tools() -> list[Tool]:
@@ -79,6 +106,7 @@ def _builtin_tools() -> list[Tool]:
         ListDirTool(),
         SearchTool(),
         DataTool(),
+        SqlTool(),
         RunCommandTool(),
         PythonExecTool(),
         InstallPythonPackageTool(),
@@ -129,6 +157,7 @@ _BUILTIN_WORKFLOW_NODE_TOOLS: frozenset[str] = frozenset({
     "list_dir",
     "search",
     "data",
+    "sql",
     "run_command",
     "web_search",
     "http",
@@ -254,8 +283,14 @@ def normalize_tool_names(tools: list[str]) -> list[str]:
 
 
 def workflow_node_tools() -> list[Tool]:
-    """Tools usable inside a generated workflow node: the built-in worker subset
-    plus every Architect-generated tool."""
+    """Tools usable inside a generated workflow node: the built-in worker subset,
+    every Architect-generated tool, and any live (MCP) tools.
+
+    MCP tools are workflow-usable because their server configs persist in the
+    ``McpStore``: the workflow runtime reconnects on demand
+    (:func:`neurosurfer.mcp.runtime.ensure_mcp_tools`), so a registered workflow
+    referencing an MCP tool keeps working across sessions — the connection is
+    ephemeral, the capability is not."""
     from .generated import load_generated_tools  # noqa: PLC0415 - avoid import cycle
 
     tools = [t for t in _builtin_tools() if t.name in _BUILTIN_WORKFLOW_NODE_TOOLS]
@@ -264,6 +299,10 @@ def workflow_node_tools() -> list[Tool]:
         if gen.name not in known:
             tools.append(gen)
             known.add(gen.name)
+    for live in live_tools():
+        if live.name not in known:
+            tools.append(live)
+            known.add(live.name)
     return tools
 
 

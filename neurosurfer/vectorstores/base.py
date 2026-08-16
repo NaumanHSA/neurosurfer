@@ -1,110 +1,138 @@
+"""The vector-store contract, and what a backend may decline to implement.
+
+`BaseVectorDB` had one working implementation, and an interface with one
+implementation is a description of that implementation rather than a contract.
+It showed: `delete_documents` was declared taking `list[Doc]` and implemented
+taking `list[str]`, `metadata_filter` meant something different in each backend,
+and `upsert` was reached for with `hasattr` rather than promised.
+
+Three things make it a contract instead:
+
+* **A declared filter grammar** — :mod:`neurosurfer.vectorstores.filters`, so a
+  backend translates from a canonical form rather than re-deriving shorthand.
+* **Capability flags** — :class:`StoreCapability`, following the same rule as
+  ``mcp/sources``: a caller *asks* what a backend can do rather than inferring it
+  from an empty result. A backend that cannot express a filter says so and
+  raises, instead of quietly returning rows it did not filter.
+* **A conformance suite** — ``tests/vectorstores/conformance.py``. "Implements
+  ``BaseVectorDB``" means "passes that suite"; adding a backend is writing one
+  class and one three-line test module.
+
+**Similarity is cosine, and higher is better.** Every backend returns scores on
+that scale whatever its native distance metric is, because a caller comparing
+scores across two stores — or applying `similarity_threshold` — has no way to
+know what it is holding otherwise.
 """
-Base Vector Store Module
-=========================
 
-This module provides the abstract base class and data structures for vector databases
-in Neurosurfer. It defines a unified interface for storing and retrieving document
-embeddings across different vector store backends (Chroma, in-memory, etc.).
+from __future__ import annotations
 
-The module includes:
-    - Doc: Dataclass representing a document with text, embedding, and metadata
-    - BaseVectorDB: Abstract base class for all vector store implementations
-
-All vector store implementations must inherit from BaseVectorDB and implement
-methods for adding documents, similarity search, and collection management.
-"""
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from .filters import UnsupportedFilter, matches, normalize
+
+__all__ = ["BaseVectorDB", "Doc", "StoreCapability", "UnsupportedFilter"]
+
+
 # --------------------------
 # Data structures
 # --------------------------
 
+
 @dataclass
 class Doc:
+    """One stored chunk: its text, its vector, and whatever else is known about it.
+
+    ``id`` is the identity the store upserts and deletes on. Leave it empty and
+    :meth:`BaseVectorDB.stable_id` derives one from the content, so re-ingesting
+    an unchanged document overwrites its row rather than duplicating it.
     """
-    Document data structure for vector stores.
 
-    Represents a single document with its text content, embedding vector,
-    and associated metadata. Used throughout Neurosurfer's RAG and retrieval systems.
-
-    Attributes:
-        id (str): Unique identifier for the document
-        text (str): The actual text content of the document
-        embedding (Optional[List[float]]): Vector embedding of the text. None if not yet embedded.
-        metadata (Dict[str, Any]): Additional metadata (e.g., filename, source, chunk_idx, etc.)
-
-    Example:
-        >>> doc = Doc(
-        ...     id="doc_123",
-        ...     text="Machine learning is a subset of AI.",
-        ...     embedding=[0.1, 0.2, 0.3, ...],
-        ...     metadata={"source": "textbook.pdf", "page": 42}
-        ... )
-    """
     id: str
     text: str
     embedding: list[float] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+
+class StoreCapability:
+    """What a backend can do, so a caller can ask instead of finding out.
+
+    A missing capability is not a failure and not a bug — it decides whether a
+    query is worth forming. Offering a range filter against a store that ignores
+    ranges is worse than not offering it, because the results look right.
+    """
+
+    RANGE_FILTERS = "range_filters"
+    """`$gt` / `$gte` / `$lt` / `$lte` are honoured."""
+
+    BOOLEAN_FILTERS = "boolean_filters"
+    """`$and` / `$or` compose filters."""
+
+    NEGATION = "negation"
+    """`$not` and `$nin` are honoured."""
+
+    NATIVE_UPSERT = "native_upsert"
+    """The store replaces by id itself, rather than delete-then-add."""
+
+    PERSISTENT = "persistent"
+    """Data survives the process."""
+
+    #: Everything the in-memory reference implementation supports. A backend that
+    #: manages less is declaring a real limitation, not lagging behind.
+    ALL = frozenset(
+        {RANGE_FILTERS, BOOLEAN_FILTERS, NEGATION, NATIVE_UPSERT, PERSISTENT}
+    )
+
+
 class BaseVectorDB(ABC):
-    """
-    Abstract base class for all vector database implementations in Neurosurfer.
+    """A store of embedded documents that can be searched by vector similarity."""
 
-    This class defines a unified interface for vector stores, enabling seamless
-    switching between different backends (Chroma, in-memory, etc.) without
-    changing application code.
+    #: Subset of :class:`StoreCapability`. Declared per class; a backend whose
+    #: support depends on how it was constructed may override it per instance.
+    capabilities: frozenset[str] = frozenset()
 
-    Core Operations:
-        - add_documents(): Store documents with embeddings
-        - similarity_search(): Find similar documents using vector similarity
-        - list_all_documents(): Retrieve all documents (with optional filtering)
-        - delete_documents(): Remove specific documents
-        - clear_collection(): Remove all documents from collection
-        - delete_collection(): Delete the entire collection
+    # ── writing ──────────────────────────────────────────────────────────────
 
-    Abstract Methods:
-        All methods must be implemented by concrete vector store classes.
-
-    Example:
-        >>> class MyVectorDB(BaseVectorDB):
-        ...     def add_documents(self, docs):
-        ...         # Implementation
-        ...         pass
-        ...     # ... implement other methods
-        >>>
-        >>> vectordb = MyVectorDB()
-        >>> vectordb.add_documents([doc1, doc2])
-        >>> results = vectordb.similarity_search(query_embedding, top_k=5)
-    """
     @abstractmethod
-    def add_documents(self, docs: list[Doc]):
+    def add_documents(self, docs: list[Doc]) -> None:
+        """Insert or replace *docs*, keyed on ``Doc.id``.
+
+        **This is an upsert.** Adding a document whose id is already present
+        replaces it; it does not duplicate it and does not raise. That is what
+        makes re-ingesting a corpus idempotent, which every ingestion path here
+        assumes.
+
+        A doc with no ``id`` is assigned :meth:`stable_id`, derived from content,
+        so the same chunk lands on the same row across runs.
+
+        A doc with no ``embedding`` is an error — the store does not embed.
         """
-        Add documents with embeddings to the vector store.
 
-        This method stores documents along with their vector embeddings and metadata.
-        Documents can be retrieved later using similarity_search().
+    @abstractmethod
+    def delete_documents(self, ids: list[str]) -> None:
+        """Delete by id. Unknown ids are ignored rather than raising.
 
-        Args:
-            docs (List[Doc]): List of Doc objects to add. Each Doc must have:
-                - id: Unique identifier
-                - text: Document text content
-                - embedding: Vector embedding (List[float])
-                - metadata: Optional metadata dict
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-
-        Example:
-            >>> docs = [
-            ...     Doc(id="1", text="Hello", embedding=[0.1, 0.2], metadata={"source": "file.txt"}),
-            ...     Doc(id="2", text="World", embedding=[0.3, 0.4], metadata={"source": "file.txt"})
-            ... ]
-            >>> vectordb.add_documents(docs)
+        **Ids, not documents.** Every backend's delete API takes ids, and
+        requiring a whole :class:`Doc` to remove one means reading it back first
+        just to throw it away. :meth:`delete_docs` is the convenience for when a
+        caller does happen to hold the documents.
         """
-        raise NotImplementedError("Subclasses must implement this method")
+
+    def delete_docs(self, docs: list[Doc]) -> None:
+        """Delete the given documents, by their ids."""
+        self.delete_documents([d.id for d in docs if d.id])
+
+    @abstractmethod
+    def clear_collection(self) -> None:
+        """Remove every document, leaving the collection usable."""
+
+    @abstractmethod
+    def delete_collection(self) -> None:
+        """Drop the collection entirely. The store is unusable afterwards."""
+
+    # ── reading ──────────────────────────────────────────────────────────────
 
     @abstractmethod
     def similarity_search(
@@ -112,160 +140,150 @@ class BaseVectorDB(ABC):
         query_embedding: list[float],
         top_k: int = 5,
         metadata_filter: dict[str, Any] | None = None,
-        similarity_threshold: float | None = None
+        similarity_threshold: float | None = None,
     ) -> list[tuple[Doc, float]]:
+        """The *top_k* documents closest to *query_embedding*, best first.
+
+        Scores are **cosine similarity in [-1, 1], higher is better**, whatever
+        the backend's native metric. `similarity_threshold` drops anything below
+        it, and is applied on that same scale.
+
+        `metadata_filter` follows :mod:`neurosurfer.vectorstores.filters`. A
+        backend that cannot express part of it raises
+        :class:`~neurosurfer.vectorstores.filters.UnsupportedFilter` rather than
+        returning rows it did not filter.
         """
-        Perform similarity search to find documents most similar to the query.
-
-        Uses vector similarity (typically cosine similarity) to find and rank
-        documents by their relevance to the query embedding.
-
-        Args:
-            query_embedding (List[float]): Query vector to search for
-            top_k (int): Maximum number of results to return. Default: 5
-            metadata_filter (Optional[Dict[str, Any]]): Filter results by metadata.
-                Only documents matching all key-value pairs are returned. Default: None
-            similarity_threshold (Optional[float]): Minimum similarity score (0.0-1.0).
-                Documents below this threshold are excluded. Default: None
-
-        Returns:
-            List[Tuple[Doc, float]]: List of (document, similarity_score) tuples,
-                sorted by similarity in descending order (most similar first)
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-
-        Example:
-            >>> query_emb = embedder.embed("machine learning")
-            >>> results = vectordb.similarity_search(
-            ...     query_embedding=query_emb,
-            ...     top_k=10,
-            ...     metadata_filter={"category": "AI"},
-            ...     similarity_threshold=0.7
-            ... )
-            >>> for doc, score in results:
-            ...     print(f"Score: {score:.3f} - {doc.text[:50]}")
-        """
-        raise NotImplementedError("Subclasses must implement this method")
-
-    @abstractmethod
-    def count(self) -> int:
-        """
-        Get the total number of documents in the collection.
-
-        Returns:
-            int: Number of documents currently stored
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-
-        Example:
-            >>> count = vectordb.count()
-            >>> print(f"Collection contains {count} documents")
-        """
-        raise NotImplementedError("Subclasses must implement this method")
 
     @abstractmethod
     def list_all_documents(
-        self,
-        metadata_filter: dict[str, Any] | None = None
+        self, metadata_filter: dict[str, Any] | None = None
     ) -> list[Doc]:
-        """
-        Retrieve all documents from the collection.
-
-        Args:
-            metadata_filter (Optional[Dict[str, Any]]): Filter by metadata.
-                Only documents matching all key-value pairs are returned. Default: None
-
-        Returns:
-            List[Doc]: List of all documents (or filtered subset)
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-
-        Example:
-            >>> # Get all documents
-            >>> all_docs = vectordb.list_all_documents()
-            >>>
-            >>> # Get documents from specific source
-            >>> filtered_docs = vectordb.list_all_documents(
-            ...     metadata_filter={"source": "manual.pdf"}
-            ... )
-        """
-        raise NotImplementedError("Subclasses must implement this method")
+        """Every document, optionally filtered. Ids round-trip: what comes back
+        here can be handed to :meth:`delete_documents`."""
 
     @abstractmethod
-    def delete_documents(self, docs: list[Doc]):
+    def count(self) -> int:
+        """How many documents are stored."""
+
+    # ── which model wrote these vectors ──────────────────────────────────────
+
+    def embedding_identity(self) -> tuple[str | None, int | None]:
+        """The ``(model, dimensions)`` this collection was embedded with.
+
+        ``(None, None)`` when unknown — an empty collection, or one written
+        before this was recorded.
         """
-        Delete specific documents from the collection.
+        return getattr(self, "_embedding_model", None), getattr(self, "_embedding_dim", None)
 
-        Args:
-            docs (List[Doc]): List of documents to delete (matched by ID)
+    def set_embedding_identity(self, model: str, dimensions: int | None) -> None:
+        """Record which model wrote this collection's vectors.
 
-        Raises:
-            NotImplementedError: If not implemented by subclass
-
-        Example:
-            >>> docs_to_delete = vectordb.list_all_documents(
-            ...     metadata_filter={"source": "old_file.txt"}
-            ... )
-            >>> vectordb.delete_documents(docs_to_delete)
+        Backends with somewhere durable to put it override this; the default
+        keeps it for the life of the object, which is still enough to catch the
+        mistake inside one process.
         """
-        raise NotImplementedError("Subclasses must implement this method")
+        self._embedding_model = model
+        self._embedding_dim = dimensions
 
-    @abstractmethod
-    def delete_collection(self):
+    def check_embedding_identity(self, model: str, dimensions: int | None) -> None:
+        """Refuse a query embedded by a different model than the collection holds.
+
+        Nothing recorded this before, so pointing a differently-embedded query at
+        an existing store returned confident nonsense: the vectors are the right
+        width and the arithmetic succeeds, the neighbours are just meaningless.
+        An empty or unlabelled collection adopts the identity instead of
+        refusing, so this never blocks a first ingest or an upgrade.
         """
-        Delete the entire collection permanently.
+        known_model, known_dim = self.embedding_identity()
+        if known_model is None or self.count() == 0:
+            self.set_embedding_identity(model, dimensions)
+            return
+        if known_model != model:
+            raise ValueError(
+                f"This collection was embedded with {known_model!r} and the query "
+                f"was embedded with {model!r}. Their vectors are not comparable — "
+                f"re-ingest the collection with one model, or point at another."
+            )
+        if dimensions and known_dim and dimensions != known_dim:
+            raise ValueError(
+                f"This collection holds {known_dim}-wide vectors and {model!r} "
+                f"produces {dimensions}-wide ones."
+            )
 
-        This removes the collection and all its documents from the vector store.
-        The collection cannot be recovered after deletion.
+    # ── helpers for implementations ──────────────────────────────────────────
 
-        Raises:
-            NotImplementedError: If not implemented by subclass
+    @staticmethod
+    def stable_id(doc: Doc) -> str:
+        """A deterministic id for *doc*, from its content.
 
-        Example:
-            >>> vectordb.delete_collection()
+        The ingestor sets ``content_hash`` when it has one; otherwise the text is
+        hashed. Suffixed with the chunk index so two chunks of one document do
+        not collide.
         """
-        raise NotImplementedError("Subclasses must implement this method")
+        h = doc.metadata.get("content_hash") or hashlib.sha256(
+            (doc.text or "").encode("utf-8")
+        ).hexdigest()
+        return f"{h[:32]}:{doc.metadata.get('chunk_idx', 0)}"
 
-    @abstractmethod
-    def clear_collection(self):
-        """
-        Remove all documents from the collection.
+    #: Kept as the old private name — `chroma.py` and any downstream subclass
+    #: called it. It is the same function.
+    _stable_id = stable_id
 
-        This clears the collection but keeps it available for new documents.
-        Typically implemented by dropping and recreating the collection.
+    def _prepare(self, docs: list[Doc]) -> list[Doc]:
+        """Validate and id-fill *docs* on the way into a backend."""
+        out: list[Doc] = []
+        for d in docs:
+            if d.embedding is None:
+                raise ValueError(
+                    f"Doc {d.id or '(no id)'!r} has no embedding; a vector store "
+                    f"stores vectors, it does not make them. Embed first."
+                )
+            out.append(
+                d if d.id else Doc(self.stable_id(d), d.text, d.embedding, d.metadata)
+            )
+        return out
 
-        Raises:
-            NotImplementedError: If not implemented by subclass
+    def _check_supported(self, flt: dict[str, Any] | None) -> None:
+        """Raise `UnsupportedFilter` if *flt* needs a capability this store lacks."""
+        if not flt:
+            return
+        needed = _capabilities_required(flt)
+        missing = needed - set(self.capabilities)
+        if missing:
+            raise UnsupportedFilter(
+                f"{type(self).__name__} cannot express this filter: it needs "
+                f"{sorted(missing)}. Declared capabilities: "
+                f"{sorted(self.capabilities) or 'none'}."
+            )
 
-        Example:
-            >>> vectordb.clear_collection()
-            >>> vectordb.count()  # Returns 0
-        """
-        raise NotImplementedError("Subclasses must implement this method")
+    def _filter_locally(
+        self, docs: list[Doc], metadata_filter: dict[str, Any] | None
+    ) -> list[Doc]:
+        """Apply a canonical filter in Python — for backends with no query language."""
+        flt = normalize(metadata_filter)
+        self._check_supported(flt)
+        return [d for d in docs if matches(d.metadata, flt)]
 
-    def _stable_id(self, doc: Doc) -> str:
-        """
-        Generate a stable, deterministic ID for a document.
 
-        Creates a unique identifier based on content hash and chunk index.
-        This ensures the same content always gets the same ID, preventing duplicates.
+_RANGE = frozenset({"$gt", "$gte", "$lt", "$lte"})
+_NEGATING = frozenset({"$ne", "$nin"})
 
-        Args:
-            doc (Doc): Document to generate ID for
 
-        Returns:
-            str: Stable ID in format "hash[:32]:chunk_idx"
-
-        Example:
-            >>> doc = Doc(id="temp", text="Hello", metadata={"chunk_idx": 0})
-            >>> stable_id = vectordb._stable_id(doc)
-            >>> print(stable_id)  # e.g., "a591a6d40bf420404a011733cfb7b190:0"
-        """
-        # Prefer content_hash set by your ingestor; else derive from text
-        h = doc.metadata.get("content_hash") or hashlib.sha256((doc.text or "").encode("utf-8")).hexdigest()
-        # optional: add a per-source offset index if you have it:
-        chunk_idx = str(doc.metadata.get("chunk_idx", "0"))
-        return f"{h[:32]}:{chunk_idx}"
+def _capabilities_required(flt: dict[str, Any]) -> set[str]:
+    """Which :class:`StoreCapability` flags a canonical filter depends on."""
+    needed: set[str] = set()
+    for key, value in flt.items():
+        if key in ("$and", "$or"):
+            needed.add(StoreCapability.BOOLEAN_FILTERS)
+            for clause in value:
+                needed |= _capabilities_required(clause)
+        elif key == "$not":
+            needed.add(StoreCapability.NEGATION)
+            needed |= _capabilities_required(value)
+        else:
+            ops = set(value)
+            if ops & _RANGE:
+                needed.add(StoreCapability.RANGE_FILTERS)
+            if ops & _NEGATING:
+                needed.add(StoreCapability.NEGATION)
+    return needed

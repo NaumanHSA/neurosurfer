@@ -27,11 +27,17 @@ class WorkflowInfeasible(RuntimeError):
     Carries a human-readable ``report`` (the blockers + what the user must provide)
     so the front-end can render a clean "this isn't doable as described" message
     rather than a traceback.
+
+    ``requirements`` (V3 Phase 2) is the same answer in a shape a UI can act on:
+    the MCP servers that would provide the missing capability and the credentials
+    each needs. A paragraph saying "you need Gmail access" is an apology; a list of
+    two environment variables and the server that wants them is a checklist.
     """
 
-    def __init__(self, report: str) -> None:
+    def __init__(self, report: str, requirements: list[dict] | None = None) -> None:
         super().__init__(report)
         self.report = report
+        self.requirements: list[dict] = list(requirements or [])
 
 
 class ArchitectBuilder:

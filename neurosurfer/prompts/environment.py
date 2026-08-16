@@ -41,8 +41,8 @@ def _git_status(cwd: Path) -> str | None:
 
 def environment_section(ctx: ToolContext) -> str:
     """Render the environment section for ``ctx``. Never raises."""
-    from ..tools.builtin.python_exec.interpreter import describe_interpreter
-    from ..tools.builtin.python_exec.managed_env import installed_packages
+    from ..registry.core.system.python_exec.interpreter import describe_interpreter
+    from ..registry.core.system.python_exec.managed_env import installed_packages
 
     lines = [
         "# Environment",

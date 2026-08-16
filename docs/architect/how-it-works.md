@@ -1,4 +1,10 @@
-# How It Works
+# How It Works — the `ArchitectBuilder` pipeline
+
+!!! note "This documents the older path"
+    `ArchitectBuilder` is the original fixed pipeline. The current entrypoint is the ReAct
+    **[`ArchitectAgent`](agent.md)**, which replaces this sequence with one planner and a toolbelt.
+    `ArchitectBuilder` still works and this page is still accurate for it — but for a new build,
+    start at [The Agent](agent.md).
 
 The Architect is a **meta-workflow**: a fixed pipeline of LLM-driven nodes whose *output* is another
 workflow. Understanding the stages helps you read its results — and know why a build sometimes comes
@@ -59,12 +65,13 @@ Two distinct "not built" outcomes:
 
 Because every stage is LLM-driven, the output tracks the **model** you pass to `ArchitectBuilder`.
 A stronger model plans better graphs and writes better nodes; a weaker one produces plans that may
-validate but underperform. This is the main reason the module is still marked
-[experimental](index.md) — the scaffolding is solid, but the generated content is only as good as the
-model behind it, and complex intents still stress it. Treat the output as a first draft to refine.
+validate but underperform. This is why [output quality tracks the model](index.md) — the scaffolding
+is solid (and the ReAct `ArchitectAgent` now self-verifies its builds), but the generated content is
+only as good as the model behind it, and complex intents still stress it. Treat the output as a first
+draft to refine.
 
 ## Next
 
 - [Building Workflows](building.md) — the API to drive all of this.
-- [Graph & Workflows](../guides/graph-workflows.md) — the runtime that executes what the Architect
+- [Graph & Workflows](../graph/index.md) — the runtime that executes what the Architect
   produces.

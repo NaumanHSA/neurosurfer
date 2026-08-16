@@ -40,6 +40,43 @@ key is required). For a local collector, run one on `:4318` and point the endpoi
     `/v1/traces` path. Auth headers come from `OTEL_EXPORTER_OTLP_HEADERS` (comma-separated
     `key=value`).
 
+### When there is no collector listening
+
+The first export failure reports itself and then turns the exporter off for the session:
+
+```
+Trace exporter 'otel': the OTLP collector at http://localhost:4318/v1/traces is not
+reachable (ConnectionRefusedError: …). That attempt blocked the run for 8.2s, so
+tracing is now disabled for this session and later spans are dropped without touching
+the network. Point OTEL_EXPORTER_OTLP_ENDPOINT at a running collector, or set
+NEUROSURFER_EXPORTERS=none to keep it off from the start.
+```
+
+The run itself is unaffected — spans are dropped, nothing raises. Because the exporter stays
+off once disabled, a collector started *after* a run begins will not pick it up; restart the
+process.
+
+"Failure" here means any of three things, because the OTLP exporter has reported it three ways
+across versions: it raised, it returned a failed batch, or it simply took more than two seconds.
+Older releases only watched for the exception — and when
+`opentelemetry-exporter-otlp-proto-http` 1.44 started retrying internally and *returning* failure
+instead, the exporter was never disabled and every flush paid the full retry schedule again, on
+Linux as well as Windows. A local collector answers in milliseconds; anything near a second has
+been out on the network.
+
+!!! warning "On Windows, a missing collector is expensive — once"
+    Exporters are flushed at every run finish, and `force_flush` blocks the calling thread.
+    Linux refuses a connection to a closed port immediately; Windows retries the SYN for ~2s,
+    and `localhost` resolves to **both** `::1` and `127.0.0.1`, so a single attempt costs ~4s
+    and the OTLP exporter's built-in retry doubles it to **~8.2s**. That is why the exporter
+    disables itself rather than retrying per batch — otherwise every node in a workflow pays it.
+    If you do not want tracing at all, set `NEUROSURFER_EXPORTERS=none` and it costs nothing.
+
+If you see this and did not expect tracing to be on at all, check `NEUROSURFER_EXPORTERS`: an
+explicit value **overrides** auto-detection, so `otel` listed there turns the exporter on even
+with no endpoint set, and the OTel SDK then falls back to its own default of
+`http://localhost:4318`.
+
 ## The span shape
 
 One trace per run, with GenAI-convention attributes any OTel backend renders:

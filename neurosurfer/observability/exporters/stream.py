@@ -23,6 +23,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from neurosurfer.agents.conversation import events
+from neurosurfer.observability import dispatch
 from neurosurfer.observability.context import pop_trace_context, push_trace_context
 
 if TYPE_CHECKING:
@@ -74,11 +75,16 @@ class TraceStreamObserver:
         *,
         model: str | None,
         name: str,
+        system: str | None = None,
     ) -> None:
         self._ctx = ctx
         self._exporters = exporters
         self._model = model
         self._name = name
+        # The agent's system prompt — prepended to each generation's traced input so
+        # the trace shows the FULL prompt the model saw (a node's interpolated
+        # purpose/goal lives here, not in the message history).
+        self._system = system
         self._answer: list[str] = []       # whole-run answer text (→ run output)
         self._last_output = None            # last turn's assistant message (fallback output)
         self._status: str | None = None
@@ -87,11 +93,31 @@ class TraceStreamObserver:
 
     # ── fan-out helper ──────────────────────────────────────────────────────
     def _fan(self, hook: str, **kw) -> None:
+        """Queue the hook for every exporter; never run it on this thread.
+
+        The agent's thread does the enqueue and nothing else — see
+        `neurosurfer/observability/dispatch.py` for why an inline call here was
+        costing seconds per node. The guard stays even though the worker has one
+        of its own: it keeps the failure attributable to *this* exporter and hook.
+        """
         for exp in self._exporters:
-            try:
-                getattr(exp, hook)(self._ctx, **kw)
-            except Exception:  # noqa: BLE001 — an exporter must never break the run
-                logger.debug("trace exporter %s.%s failed", exp.name, hook, exc_info=True)
+            def _call(exp=exp, hook=hook, kw=kw) -> None:
+                try:
+                    getattr(exp, hook)(self._ctx, **kw)
+                except Exception:  # noqa: BLE001 — an exporter must never break the run
+                    logger.debug(
+                        "trace exporter %s.%s failed", exp.name, hook, exc_info=True
+                    )
+
+            dispatch.submit(_call)
+
+    def _turn_input(self, messages: list | None) -> list[dict] | None:
+        """The generation's input: the turn's messages, with the system prompt
+        prepended so the trace shows the full prompt the model actually saw."""
+        summarized = _summarize_messages(messages) or []
+        if self._system:
+            return [{"role": "system", "content": self._system}, *summarized]
+        return summarized or None
 
     # ── lifecycle ───────────────────────────────────────────────────────────
     def start(self, *, input: str | None = None) -> None:
@@ -121,7 +147,7 @@ class TraceStreamObserver:
                 usage=ev.usage,
                 model=self._model,
                 stop_reason=ev.stop_reason,
-                input=_summarize_messages(ev.input),
+                input=self._turn_input(ev.input),
                 # The model's own output this turn — thinking + text + tool_use —
                 # so each generation shows what *it* produced, not just the answer text.
                 output=_summarize_message(ev.output) if ev.output is not None else None,
@@ -161,8 +187,14 @@ class TraceStreamObserver:
             status=self._status or "completed",
             output=_run_output("".join(self._answer), self._last_output),
         )
+        # Queued, not awaited. FIFO puts it after this run's hooks, so the flush
+        # still ships this run — it just does not bill the run for the network.
+        # `flush()` takes no ctx, so it cannot go through `_fan`.
         for exp in self._exporters:
-            try:
-                exp.flush()
-            except Exception:  # noqa: BLE001
-                logger.debug("trace exporter %s.flush failed", exp.name, exc_info=True)
+            def _flush(exp=exp) -> None:
+                try:
+                    exp.flush()
+                except Exception:  # noqa: BLE001
+                    logger.debug("trace exporter %s.flush failed", exp.name, exc_info=True)
+
+            dispatch.submit(_flush)

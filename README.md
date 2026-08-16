@@ -1,16 +1,19 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-V2.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-V2.png">
-  <img alt="Neurosurfer — AI Agent Framework" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-V2.png" width="100%">
-</picture>
-
-<!-- <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-light.png">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-dark.png">
   <img alt="Neurosurfer — AI Agent Framework" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/banner/neurosurfer-banner-dark.png" width="62%">
-</picture> -->
+</picture>
+
+<br/>
+
+### The open-source framework for building AI agents — and the Architect that builds them for you.
+
+**Reasoning, tools, and retrieval in one Python package.** Write a workflow yourself with a
+typed DAG engine, or describe it in plain English and let the **Architect** plan it, source the
+tools it needs, build it, **run it**, judge the result, and register it — or refuse, and tell you
+exactly what is missing. Serve any of it behind an OpenAI-compatible FastAPI gateway.
 
 <br/>
 
@@ -19,37 +22,141 @@
 <a href="https://naumanhsa.github.io/neurosurfer/tutorials/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/examples-light.png"><img height="42" alt="Examples" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/examples-dark.png"></picture></a>
 <a href="https://pypi.org/project/neurosurfer/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/pypi-light.png"><img height="42" alt="PyPI" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/buttons/pngs/pypi-dark.png"></picture></a>
 
+<br/><br/>
 
-<a href="https://pypi.org/project/neurosurfer/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/neurosurfer?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&labelColor=111111&color=111111"></a>
-<a href="https://pypi.org/project/neurosurfer/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/neurosurfer?style=for-the-badge&logo=python&logoColor=white&label=Python&labelColor=111111&color=111111"></a>
-<a href="https://naumanhsa.github.io/neurosurfer/"><img alt="Documentation" src="https://img.shields.io/badge/Docs-online-111111?style=for-the-badge&logo=readthedocs&logoColor=white&labelColor=111111"></a>
-<a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache--2.0-111111?style=for-the-badge&labelColor=111111"></a>
-<a href="https://github.com/NaumanHSA/neurosurfer/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/NaumanHSA/neurosurfer?style=for-the-badge&logo=github&logoColor=white&label=Stars&labelColor=111111&color=111111"></a>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="PyPI" src="https://img.shields.io/pypi/v/neurosurfer?style=flat-square&logo=pypi&logoColor=white&label=PyPI&labelColor=1F2328&color=3775A9"></a>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/neurosurfer?style=flat-square&logo=python&logoColor=white&label=Python&labelColor=1F2328&color=FFD43B"></a>
+<a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache--2.0-D22128?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/"><img alt="Docs" src="https://img.shields.io/badge/Docs-online-526CFE?style=flat-square&logo=readthedocs&logoColor=white&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/tutorials/"><img alt="Tutorials" src="https://img.shields.io/badge/Tutorials-7_notebooks-F9AB00?style=flat-square&logo=googlecolab&logoColor=white&labelColor=1F2328"></a>
+<br/>
+<a href="https://naumanhsa.github.io/neurosurfer/guides/providers/"><img alt="Providers" src="https://img.shields.io/badge/LLMs-Anthropic_·_OpenAI_·_Gemini_·_Bedrock-6E56CF?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/guides/rag/"><img alt="Vector stores" src="https://img.shields.io/badge/Vectors-Chroma_·_Qdrant_·_memory-E5484D?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/guides/mcp/"><img alt="MCP" src="https://img.shields.io/badge/MCP-client_+_registry-1F883D?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/observability/"><img alt="Observability" src="https://img.shields.io/badge/Traces-Langfuse_·_OpenTelemetry-F5A623?style=flat-square&labelColor=1F2328"></a>
+<a href="https://naumanhsa.github.io/neurosurfer/architect/"><img alt="Architect" src="https://img.shields.io/badge/Architect-plan_·_ground_·_verify-0EA5E9?style=flat-square&labelColor=1F2328"></a>
+<br/>
+<a href="https://pypi.org/project/neurosurfer/"><img alt="Downloads" src="https://img.shields.io/pypi/dm/neurosurfer?style=flat-square&logo=python&logoColor=white&label=Downloads&labelColor=1F2328&color=4C1"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/NaumanHSA/neurosurfer?style=flat-square&logo=github&logoColor=white&label=Stars&labelColor=1F2328&color=FFB000"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/discussions"><img alt="Discussions" src="https://img.shields.io/badge/Discussions-join-8250DF?style=flat-square&logo=github&logoColor=white&labelColor=1F2328"></a>
+<a href="https://github.com/NaumanHSA/neurosurfer/blob/main/CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/Changelog-read-57606A?style=flat-square&labelColor=1F2328"></a>
+
+<br/><br/>
+
+**[Quick start](https://naumanhsa.github.io/neurosurfer/getting-started/quickstart/)** ·
+**[The Architect](https://naumanhsa.github.io/neurosurfer/architect/)** ·
+**[Graph & workflows](https://naumanhsa.github.io/neurosurfer/graph/)** ·
+**[RAG](https://naumanhsa.github.io/neurosurfer/guides/rag/)** ·
+**[Tools & MCP](https://naumanhsa.github.io/neurosurfer/guides/tools/)** ·
+**[Gateway](https://naumanhsa.github.io/neurosurfer/server/)** ·
+**[Observability](https://naumanhsa.github.io/neurosurfer/observability/)** ·
+**[Tutorials](https://naumanhsa.github.io/neurosurfer/tutorials/)**
 
 </div>
 
-**Neurosurfer** helps you build intelligent apps that blend **LLM reasoning**, **tools**, and **retrieval**, with a ready-to-run **OpenAI-compatible FastAPI gateway**. Start lean, add power as you go.
+---
+
+## 🧭 Architecture
+
+<div align="center">
+  <img alt="Neurosurfer architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture.png" width="100%">
+</div>
+
+Three ways in — the CLI, the Python API, or the OpenAI-compatible HTTP gateway — over one runtime.
+The **Architect** turns intent into a Workflow package; the **graph engine** runs it; **agents**
+do the reasoning and call **tools**, **MCP servers** and **RAG**; every provider sits behind one
+`Provider` protocol; and every run, turn, tool call and node emits a trace.
+
+---
+
+## 🏗️ Two ways to build a workflow
+
+Most frameworks give you the first. Neurosurfer gives you both, over the same engine.
+
+**Write it** — a typed DAG with 11 node kinds, control flow, and a validator that refuses a graph
+that cannot run *before* it spends a model call:
+
+```python
+from neurosurfer.graph import Graph, BaseNode
+
+graph = Graph(
+    name="summarise_and_title",
+    inputs=[{"name": "article", "type": "string"}],
+    nodes=[
+        BaseNode(id="summary", goal="Summarise {article} in three sentences."),
+        BaseNode(id="title", goal="Write a catchy title for the summary.",
+                 depends_on=["summary"]),
+    ],
+    outputs=["title"],
+)
+```
+
+**Or describe it** — and the **Architect** does the rest:
+
+```python
+from neurosurfer.architect import ArchitectAgent
+
+path = await ArchitectAgent(provider).build(
+    "Read a text file of customer feedback, pull out the recurring complaints, "
+    "and write a short summary for the support lead."
+)
+```
+
+### What makes the Architect different
+
+It is not a prompt that emits YAML. It is a pipeline with a gate at every step:
+
+| Stage | What actually happens |
+|---|---|
+| **Plan** | One structured call decides the steps — the shape a weaker model is most reliable at |
+| **Ground** | Every step that reaches outside the model is resolved **in code** against the live tool catalog, then the MCP registry. The builder is *told* which tool to use rather than asked to remember one |
+| **Build** | An agent with 15+ purpose-built tools writes the graph one node at a time, reading every warning as it goes |
+| **Validate** | A rule table, not a prompt. Errors block registration — including a workflow that declares an input no step reads |
+| **Verify** | It **runs what it built** on real fixtures it creates, then judges the output per criterion, fail-closed |
+| **Register** | A versioned Workflow package on disk — or `WorkflowInfeasible`, naming the credential or integration that is missing |
+
+An LLM step cannot read a file however well you word it. The Architect knows that, checks it, and
+**refuses rather than shipping a workflow that invents its results.** Watch it end to end in
+**[tutorial 06](https://naumanhsa.github.io/neurosurfer/tutorials/the-architect/)**.
 
 ---
 
 ## 📰 What's new
 
-- **Observability: pluggable trace exporters** *(latest)*: ship **every agent run** to a real monitoring backend with **no code changes**. Ships with **[Langfuse](https://naumanhsa.github.io/neurosurfer/observability/langfuse/)** (traces, token cost, sessions) and **[OpenTelemetry](https://naumanhsa.github.io/neurosurfer/observability/opentelemetry/)** (GenAI-semconv spans over OTLP → Phoenix / Grafana / Datadog). Auto-on from the environment; runs → traces, LLM turns → generations, tool calls → spans, sub-agents & workflow nodes nest automatically. `pip install "neurosurfer[observability]"`; see [Observability](#-observability).
-- **Trace nesting & sessions**: a run spawned inside another run nests under it in the same trace (propagated across `await` and `asyncio.gather`); agents accept a `session_id` so a whole conversation groups into one session.
-- **v1.0.0: first stable release** *(2026-07-01)*: the public API (`neurosurfer.agents`, `.llm`, `.tools`, `.rag`, `.graph`, `.architect`, `.mcp`, `.app.server`) is now stable under semantic versioning.
+- **Retrieval you can measure** *(latest)*: **hybrid** dense + BM25 fused by reciprocal rank,
+  cross-encoder **reranking**, MMR diversity and **citations** with character spans. **Qdrant**
+  joins Chroma and in-memory behind one vector-store contract with a **conformance suite** —
+  "implements `BaseVectorDB`" now means "passes the suite". Embeddings became a plugin point:
+  sentence-transformers, OpenAI, or any `/v1/embeddings` server. Plus contextual retrieval,
+  parent-document, multi-query/HyDE, sentence-window and semantic chunking, and an ingest manifest
+  so one edited file costs one file's embeddings. See **[RAG](https://naumanhsa.github.io/neurosurfer/guides/rag/)**.
+- **Google Gemini and Claude on Amazon Bedrock**: Gemini natively over `httpx` with no new
+  dependency; Bedrock as a thin subclass of the Anthropic provider. Four provider families, one
+  `Provider` protocol.
+- **The Architect grounds, verifies, and refuses**: it resolves every capability against what
+  actually exists *before* designing a node, proves what it built by **running** it, and ends a
+  build the same way on every model — a workflow, or a reason. New
+  **[tutorial 06](https://naumanhsa.github.io/neurosurfer/tutorials/the-architect/)** drives the whole thing on a local 9B model.
+- **Observability: pluggable trace exporters**: ship **every agent run** to a real backend with no
+  code changes — **[Langfuse](https://naumanhsa.github.io/neurosurfer/observability/langfuse/)** and
+  **[OpenTelemetry](https://naumanhsa.github.io/neurosurfer/observability/opentelemetry/)** (GenAI-semconv over OTLP → Phoenix /
+  Grafana / Datadog). Runs → traces, LLM turns → generations, tool calls → spans; sub-agents and
+  workflow nodes nest automatically.
 
-> Full history in the [Changelog](CHANGELOG.md).
+> Upgrading from 1.0.0? Four things changed that need an action from you — see
+> **[Upgrading](https://naumanhsa.github.io/neurosurfer/about/upgrading/)**. Full history in the [Changelog](CHANGELOG.md).
 
 ---
 
 ## 📦 What's in the box
 
 - 🤖 **Agent family:** `AgenticLoop` (native multi-step tool-use), `ReactAgent` (text-parsing ReAct for models without a native tool API), and `Agent` (one-shot, optionally with structured output).
-- 🧠 **LLM providers:** Anthropic Claude, OpenAI, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp) behind one `Provider` protocol.
-- 🔧 **Rich tool ecosystem:** 15+ built-in tools: web search (DuckDuckGo/SerpAPI), sandboxed Python execution, file ops, HTTP, headless browser, and memory, plus a simple framework for your own.
-- 📚 **RAG pipeline:** ingest → chunk → embed → retrieve → token-aware context injection.
-- 🕸️ **Graph & Workflows:** a standalone DAG engine and persisted, runnable Workflow packages.
-- 🏗️ **Architect:** describe a workflow in plain English; it designs and builds the graph for you.
+- 🧠 **LLM providers:** Anthropic Claude (direct or on Amazon Bedrock), OpenAI, Google Gemini, and any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp) behind one `Provider` protocol — with canonical types, so swapping provider changes one line.
+- 🔧 **Rich tool ecosystem:** 19 built-in tools: web search (DuckDuckGo/SerpAPI), sandboxed Python execution, file ops, HTTP, headless browser, SQL, and sub-agents, plus a simple framework for your own.
+- 📚 **RAG pipeline:** ingest → chunk → embed → retrieve → token-aware context injection, with hybrid (dense + BM25) retrieval, reranking, and citations. Chroma, Qdrant or in-memory behind one vector-store contract; embeddings from sentence-transformers, OpenAI, or any `/v1/embeddings` server.
+- 📊 **Token accounting:** input, output and cache tokens on every agent run and every graph node, carried into traces for Langfuse/OTel to attribute.
+- 🕸️ **Graph & Workflows:** a standalone DAG engine — 11 node kinds including `router`, `loop`, `map` and `subgraph` — with a rules-based validator and persisted, runnable Workflow packages.
+- 🏗️ **Architect:** describe a workflow in plain English; it plans, sources the tools, builds the graph, **runs it**, judges the result, and registers it — or refuses and says what is missing.
 - 🔌 **MCP client:** connect external Model Context Protocol servers and expose their tools to agents.
 - ⚙️ **OpenAI-compatible gateway:** `/v1/models` + `/v1/chat/completions` with SSE streaming; proxy upstream backends or route to your own agents; request/response hooks.
 - 🔭 **Observability:** pluggable trace exporters (Langfuse, OpenTelemetry) with zero-overhead-when-off tracing.
@@ -69,6 +176,7 @@ Hands-on notebooks: open any of them directly in Google Colab.
 | 3 | **[Graph Agents](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/03_graph_agents.ipynb)** | Compose multi-step workflows with the graph engine and Workflow packages. |
 | 4 | **[MCP Servers](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/04_mcp_servers.ipynb)** | Connect external Model Context Protocol servers and expose their tools to agents. |
 | 5 | **[Capstone: Insight Engine](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/05_capstone_insight_engine.ipynb)** | Put it all together: a database-backed insight engine over MCP. |
+| 6 | **[The Architect](https://colab.research.google.com/github/NaumanHSA/neurosurfer/blob/main/tutorials/06_the_architect.ipynb)** | Hand an agent an intent and watch it design, build, test and register the workflow itself. |
 
 ---
 
@@ -188,6 +296,8 @@ That's it. Run any agent and the traces show up. Full guide: **[Observability do
 | `browser` | Headless browser tool via Playwright |
 | `local` | `tiktoken` for accurate token counting with local models |
 | `rag` | ChromaDB, sentence-transformers, PDF/DOCX/PPTX readers |
+| `qdrant` | Qdrant vector store client |
+| `bedrock` | Claude on Amazon Bedrock (boto3) |
 | `serve` | FastAPI + uvicorn for the OpenAI-compatible gateway |
 | `mcp` | Model Context Protocol client SDK |
 | `observability` | Langfuse + OpenTelemetry trace exporters |

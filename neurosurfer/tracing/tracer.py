@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, List, Literal
+import threading
 import time
 import logging
 
@@ -107,6 +108,10 @@ class Tracer:
         self._counter: int = 0
         self._depth: int = depth
         self._stream_started: set[int] = set()
+        # Workflow nodes are traced from executor worker threads, and a `map`
+        # node runs its body concurrently — so step ids must not be handed out
+        # twice. (`_result.steps.append` is already atomic under the GIL.)
+        self._counter_lock = threading.Lock()
 
 
     # ------------------------------------------------------------------
@@ -157,6 +162,7 @@ class Tracer:
         label: Optional[str] = None,
         inputs: Optional[Dict[str, Any]] = None,
         agent_id: Optional[str] = None,
+        node_id: Optional[str] = None,
         meta: Optional[Dict[str, Any]] = None,
     ) -> TraceStepContext:
         """
@@ -174,8 +180,9 @@ class Tracer:
         if not self.config.enabled:
             return _NoOpStepContext()
 
-        self._counter += 1
-        step_id = self._counter
+        with self._counter_lock:
+            self._counter += 1
+            step_id = self._counter
 
         start_message = self._format_message((start_message or f"Starting {kind}...").strip("\\"), tag=f"[{agent_id}]")
         end_message = self._format_message((end_message or f"Completed {kind}!").strip("\\"), tag=f"[{agent_id}]")
@@ -189,6 +196,7 @@ class Tracer:
             label=label,
             inputs=inputs or {},
             agent_id=agent_id,
+            node_id=node_id,
             meta=meta or {},
         )
 

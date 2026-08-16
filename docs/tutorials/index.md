@@ -1,8 +1,8 @@
 # Tutorials
 
-Hands-on lessons that build from installation to a full capstone. Each has a **short written guide**
-here (the essence, copy-pasteable) plus the **full notebook** you can open in Google Colab. Browse
-them in order, or jump to whichever fits.
+Hands-on lessons that build from installation to a full capstone. Each numbered tutorial has a
+**short written guide** here (the essence, copy-pasteable) plus the **full notebook** you can open
+in Google Colab. Browse them in order, or jump to whichever fits.
 
 | # | Tutorial | What you'll build |
 |---|----------|-------------------|
@@ -12,9 +12,15 @@ them in order, or jump to whichever fits.
 | 3 | [Graph Agents](graph-agents.md) | Compose multi-step workflows with the graph engine. |
 | 4 | [MCP Servers](mcp-servers.md) | Connect an external MCP server and expose its tools to an agent. |
 | 5 | [Capstone: Insight Engine](insight-engine.md) | A database-backed insight engine over MCP. |
-| 6 | [Capstone: SQL Agent](sql-agent.md) | A SQL agent — `ReactAgent` vs `AgenticLoop` on the same task. |
+| 6 | [The Architect](the-architect.md) | An agent that designs, builds, tests and registers a workflow from an intent. |
 
-All notebooks also live under
+Those notebooks live under
 [`tutorials/`](https://github.com/NaumanHSA/neurosurfer/tree/main/tutorials) in the repo.
+
+**Written guides without a notebook:**
+
+| Guide | What it covers |
+|---|---|
+| [SQL Agent](sql-agent.md) | The built-in `sql` tool — `ReactAgent` vs `AgenticLoop` on the same task. |
 
 Prefer reference prose? The [guides](../guides/agents.md) cover the same concepts in depth.

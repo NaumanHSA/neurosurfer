@@ -122,28 +122,38 @@ plugins:
       type: timeago
 
 nav:
-  - Home: index.md
-  - Getting Started:
+  - Home:
+    - index.md
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
-  - CLI Agent: cli/index.md
-  - Learn:
     - Architecture: learn/architecture.md
     - Core Concepts: learn/concepts.md
     - Permissions & Safety: learn/permissions.md
+  - CLI Agent: cli/index.md
   - Guides:
     - Providers: guides/providers.md
     - Agents: guides/agents.md
     - Structured Output: guides/structured-output.md
     - Tools: guides/tools.md
+    - Tools Catalog: guides/tools-catalog.md
+    - Tool Registry: guides/tool-registry.md
     - Sub-agents: guides/subagents.md
     - Background Tasks: guides/tasks.md
     - Context & Memory: guides/context.md
     - RAG: guides/rag.md
-    - Graph & Workflows: guides/graph-workflows.md
     - MCP: guides/mcp.md
+    - MCP Discovery: guides/mcp-discovery.md
     - Configuration: guides/configuration.md
-    - Tools Catalog: guides/tools-catalog.md
+  - Graph & Workflows:
+    - Overview: graph/index.md
+    - Node Kinds: graph/node-kinds.md
+    - Control Flow: graph/control-flow.md
+    - Authoring in YAML: graph/yaml.md
+    - Python in a Graph: graph/functions.md
+    - State & Secrets: graph/state.md
+    - Validation: graph/validation.md
+    - Workflow Packages: graph/packages.md
+    - Building in Python: graph/building.md
   - Observability:
     - Overview: observability/index.md
     - Langfuse: observability/langfuse.md
@@ -153,12 +163,18 @@ nav:
     - Overview: server/index.md
     - Serving Agents: server/agents.md
     - Backends: server/backends.md
+    - Workflows API: server/workflows-api.md
+    - Architect API: server/architect-api.md
     - Hooks: server/hooks.md
     - Deployment: server/deployment.md
   - Architect:
     - Overview: architect/index.md
-    - How It Works: architect/how-it-works.md
+    - The Agent: architect/agent.md
+    - Grounding & Refusal: architect/grounding.md
+    - Verification: architect/verification.md
+    - Self-knowledge: architect/knowledge.md
     - Building Workflows: architect/building.md
+    - How It Works (legacy): architect/how-it-works.md
   - Tutorials:
     - Overview: tutorials/index.md
     - Installation: tutorials/installation.md
@@ -167,10 +183,12 @@ nav:
     - Graph Agents: tutorials/graph-agents.md
     - MCP Servers: tutorials/mcp-servers.md
     - Insight Engine: tutorials/insight-engine.md
+    - The Architect: tutorials/the-architect.md
     - SQL Agent: tutorials/sql-agent.md
   - About:
     - Contributing: about/contributing.md
-    - Roadmap: about/roadmap.md
+    - Upgrading: about/upgrading.md
+    - Observability Roadmap: about/roadmap.md
     - Changelog: about/changelog.md
 
 extra_css:

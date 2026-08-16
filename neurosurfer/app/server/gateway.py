@@ -180,11 +180,30 @@ class NeurosurferServer:
                 "Install it with: pip install 'neurosurfer[serve]'"
             ) from e
 
+        worker_count = kwargs.get("workers", self.settings.workers)
+        if worker_count and worker_count > 1:
+            # **The run store is per-process.** Records live in memory and are
+            # mirrored to `runs_dir/<id>.json`, loaded once at startup — so two
+            # workers keep two divergent views, and `GET /v1/runs/{id}` answers
+            # from whichever one the load balancer picked. A run created on
+            # worker A is simply absent from worker B.
+            #
+            # Refused rather than warned: the failure is intermittent and looks
+            # like data loss, which is the worst thing to debug from a log line
+            # nobody read at boot.
+            raise RuntimeError(
+                f"--workers {worker_count} is not supported: the workflow run "
+                f"store is per-process, so runs created on one worker are "
+                f"invisible to the others and `GET /v1/runs/{{id}}` would answer "
+                f"from whichever process took the request. Run a single worker, "
+                f"or put a shared store behind the gateway first."
+            )
+
         uvicorn.run(
             self.app,
             host=host or self.settings.host,
             port=port or self.settings.port,
             reload=kwargs.get("reload", self.settings.reload),
             log_level=kwargs.get("log_level", self.settings.log_level),
-            workers=kwargs.get("workers", self.settings.workers),
+            workers=worker_count,
         )

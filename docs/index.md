@@ -12,7 +12,7 @@ you go.
 
     Install the package and run your first agent in a few minutes.
 
-    [:octicons-arrow-right-24: Getting Started](getting-started/quickstart.md)
+    [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
 
 -   :material-console:{ .lg .middle } **Interactive CLI Agent**
 
@@ -39,6 +39,15 @@ you go.
 
     [:octicons-arrow-right-24: Server guide](server/index.md)
 
+-   :material-graph:{ .lg .middle } **Graph & Workflows**
+
+    ---
+
+    Eleven node kinds, branching, loops, fan-out, and a validation gate — saved as runnable
+    packages.
+
+    [:octicons-arrow-right-24: Graph guide](graph/index.md)
+
 -   :material-school:{ .lg .middle } **Tutorials**
 
     ---
@@ -56,13 +65,18 @@ you go.
 - **Provider layer** — Anthropic Claude, OpenAI, and any OpenAI-compatible server (Ollama, LM
   Studio, vLLM, llama.cpp) behind one `Provider` protocol.
 - **Tools** — 15+ built-in tools (web search, sandboxed Python, file ops, HTTP, headless browser,
-  and more) plus a simple framework for your own.
+  read-only SQL, and more) plus a simple framework for your own.
+- **A tool registry** — every tool declares a capability tag from a closed vocabulary, so a need
+  resolves against a declaration rather than against words a description happens to share.
 - **RAG** — ingest → chunk → embed → retrieve → token-aware context injection.
-- **Graph & Workflows** — a standalone DAG engine and persisted, runnable Workflow packages.
-- **Architect** — describe a workflow in plain English; it designs and builds the graph for you.
-- **MCP client** — connect external Model Context Protocol servers and expose their tools to agents.
+- **Graph & Workflows** — a standalone DAG engine with eleven node kinds, branching, loops,
+  fan-out, human-in-the-loop pauses, and a validation gate — saved as runnable Workflow packages.
+- **Architect** — describe a workflow in plain English; it plans, grounds every capability against
+  what exists, builds the graph, and **proves it by running it** — or refuses with a reason.
+- **MCP client** — connect external Model Context Protocol servers, or **discover and install** one
+  from the registry when a capability is missing.
 - **OpenAI-compatible gateway** — `/v1/models` + `/v1/chat/completions` with SSE streaming, upstream
-  proxying, native-agent backends, and request/response hooks.
+  proxying, native-agent backends, and request/response hooks — plus workflow and architect APIs.
 - **Interactive CLI agent** — a full REPL for chat, provider profiles, MCP servers, and workflow
   building, plus a `serve` command for the gateway.
 
@@ -74,7 +88,7 @@ pip install -U neurosurfer
 pip install -U "neurosurfer[search,serve]"
 ```
 
-See [Getting Started](getting-started/quickstart.md) for the full list of optional extras.
+See [Installation](getting-started/installation.md) for the full list of optional extras, and [Upgrading](about/upgrading.md) if you are moving from an earlier release.
 
 ## License
 

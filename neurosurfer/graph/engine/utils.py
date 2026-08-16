@@ -100,27 +100,118 @@ def import_string(path: str) -> Any:
         raise ImportError(f"Module {mod_name!r} has no attribute {attr!r}") from e
 
 
+def input_node_keys(graph: Graph) -> dict[str, str]:
+    """``{key: node id}`` for every human-input node in *graph*.
+
+    The key an ``input`` node reads its value from is ``writes`` if set, else the
+    node id — the rule ``_run_input_node`` applies. It is stated once here
+    because it is a *contract with the caller*, and three places were separately
+    reimplementing it: the executor, the studio (in TypeScript), and anything
+    resuming a run.
+    """
+    keys: dict[str, str] = {}
+    for node in graph.nodes:
+        if getattr(node, "kind", None) != "input":
+            continue
+        # A `dict`-mode node collects the graph's *declared* inputs, which are
+        # already allowed by name — it has no key of its own, and inventing one
+        # would let a bare string land on a node that wants several values.
+        if (getattr(node, "input_mode", None) or "text") == "dict":
+            continue
+        keys[node.writes or node.id] = node.id
+    return keys
+
+
 # Normalize and Validate Graph Inputs
+#: Kinds handed the whole inputs mapping as keyword arguments, so any key at all
+#: could be the one they take — see `executor/deterministic.py`. Nothing here can
+#: tell which, and a warning that fires on a working graph is worse than one that
+#: misses, so their presence silences the check entirely.
+_KINDS_TAKING_INPUTS_AS_KWARGS = {"function", "python", "tool"}
+
+
+def _warn_about_keys_nothing_reads(
+    graph: Graph, provided: dict[str, Any], node_keys: set[str]
+) -> None:
+    """Say so when a run is handed a value no step could be reading.
+
+    The declared path already warns about undeclared extras. This is the *other*
+    path — a graph that declares no inputs at all, where the mapping was taken
+    as-is and never looked at again.
+
+    That is not hypothetical. Tutorial 03's `content_pipeline` declared no
+    inputs, its goals interpolated nothing, and it was run with
+    `{"user_intent": …}`. The run went green and the model replied "please
+    provide the specific topic you would like me to research" — a broken
+    flagship tutorial that sat in the repo because nothing anywhere was in a
+    position to notice. `declared_inputs_are_read_by_something` could not: it
+    inspects *declared* inputs, and there were none.
+
+    A warning, not a refusal. The engine cannot prove a key is unused — only
+    that no template, expression or argument names it — and a graph mid-edit
+    should not be stopped at the door.
+    """
+    if not provided:
+        return
+    try:
+        from neurosurfer.graph.workflow.validation.context import (
+            ValidationContext,
+            body_nodes,
+        )
+        from neurosurfer.graph.workflow.validation.graph import _names_read_anywhere
+
+        all_nodes = [*graph.nodes, *body_nodes(graph.nodes)]
+        if any(
+            getattr(n, "kind", None) in _KINDS_TAKING_INPUTS_AS_KWARGS
+            for n in all_nodes
+        ):
+            return
+        read = _names_read_anywhere(ValidationContext(package=None, graph=graph))
+    except Exception:  # noqa: BLE001 — a diagnostic must never fail a run
+        return
+
+    unread = sorted(set(provided) - read - set(node_keys))
+    if unread:
+        logger.warning(
+            "Graph %r was given %s, but no step names %s and the graph declares "
+            "no inputs — the value will not reach any node. Interpolate it as "
+            "{%s} in a step, or declare it in the graph's inputs.",
+            graph.name,
+            ", ".join(repr(k) for k in unread),
+            "them" if len(unread) > 1 else "it",
+            unread[0],
+        )
+
+
 def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> dict[str, Any]:
     """
     Enforce graph-level input spec if declared.
 
     - If `graph.inputs` is empty:
-        - dict -> used as-is
-        - anything else -> wrapped as `{"query": inputs}`
+        - dict -> used as-is, with keys nothing reads warned about
+        - anything else -> wrapped under the sole input node's key, else `query`
     - If `graph.inputs` is non-empty:
         - inputs must be a dict
         - missing required keys -> GraphConfigurationError
-        - extra keys -> warned and ignored
+        - extra keys -> warned and ignored, EXCEPT an input node's own key
         - values are cast according to GraphInput.type
     """
     specs = graph.inputs
+    node_keys = input_node_keys(graph)
 
     # No spec: be permissive
     if not specs:
         if isinstance(inputs, dict):
+            _warn_about_keys_nothing_reads(graph, inputs, node_keys)
             return dict(inputs)
-        # Common ergonomic case: user passes a single query string
+        # A bare value is an ergonomic shortcut, and it used to be wrapped as
+        # `{"query": ...}` unconditionally — a key nothing reads. A graph whose
+        # only way in is a human-input node would take the string, file it under
+        # `query`, find nothing under the key the node actually reads, and park
+        # as `awaiting_input`. The shortcut now lands where the graph is
+        # listening; `query` remains the answer when nothing is.
+        if len(node_keys) == 1:
+            return {next(iter(node_keys)): inputs}
         return {"query": inputs}
 
     # Spec exists: require mapping
@@ -133,18 +224,39 @@ def normalize_and_validate_graph_inputs(graph: Graph, inputs: Any) -> dict[str, 
 
     provided = inputs
     allowed_names = {s.name for s in specs}
-    extra = set(provided.keys()) - allowed_names
+    # An input node's key is always allowed through, declared or not. Dropping it
+    # was a silent data loss with no way to see it: the value a person typed was
+    # discarded before the node that asked for it ever looked, and the run parked
+    # as `awaiting_input` reporting that nothing had been supplied. Declaring the
+    # key in `graph.inputs` is the tidy form and validation nudges towards it —
+    # but a workflow that has not been migrated must not eat its own input.
+    extra = set(provided.keys()) - allowed_names - set(node_keys)
     if extra:
         logger.warning(
             "Ignoring extra inputs not declared in graph spec: %s",
             ", ".join(sorted(extra)),
         )
 
-    normalized: dict[str, Any] = {}
+    # A `dict`-mode input node collects the declared inputs *during the run*, so
+    # they cannot be required *before* it. Demanding them here fails the run with
+    # `GraphConfigurationError` at the front door — the opposite of the whole
+    # point of a node that pauses and asks. The node itself reports precisely
+    # which are missing and parks as `awaiting_input`.
+    collected_by_a_node = any(
+        getattr(n, "kind", None) == "input"
+        and (getattr(n, "input_mode", None) or "text") == "dict"
+        for n in graph.nodes
+    )
+
+    normalized: dict[str, Any] = {
+        key: provided[key]
+        for key in node_keys
+        if key in provided and key not in allowed_names
+    }
     for spec in specs:
         name = spec.name
         if name not in provided:
-            if spec.required:
+            if spec.required and not collected_by_a_node:
                 raise GraphConfigurationError(
                     f"Missing required graph input '{name}' (type {spec.type})."
                 )

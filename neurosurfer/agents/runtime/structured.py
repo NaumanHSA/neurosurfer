@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from neurosurfer.llm.base import Provider
-from neurosurfer.llm.types import GenerationConfig, Message, ToolResultBlock, ToolSchema
+from neurosurfer.llm.types import (
+    GenerationConfig,
+    Message,
+    ToolResultBlock,
+    ToolSchema,
+    Usage,
+)
 from neurosurfer.tools.schema import model_to_schema
 
 logger = logging.getLogger(__name__)
@@ -41,12 +48,17 @@ async def structured_completion(
     system: str | None = None,
     config: GenerationConfig | None = None,
     max_attempts: int = 3,
+    on_usage: Callable[[Usage], None] | None = None,
 ) -> T:
     """Return an instance of *schema*, produced by *provider* via a submit tool.
 
     The model is given one tool (``submit_result``) whose input schema is *schema*
     and instructed to call it once. Invalid calls are fed back for repair, up to
     *max_attempts*. Raises :class:`StructuredCompletionError` on exhaustion.
+
+    ``on_usage`` is called with each attempt's token usage — including the failed
+    repair attempts, which cost real tokens. Without it a structured node reports
+    zero usage no matter how many repairs it took.
     """
     submit = ToolSchema(
         name=_SUBMIT_TOOL,
@@ -68,6 +80,8 @@ async def structured_completion(
 
     for attempt in range(1, max_attempts + 1):
         response = await provider.complete(messages, sys, [submit], cfg)
+        if on_usage is not None and response.usage is not None:
+            on_usage(response.usage)
         tool_uses = [t for t in response.tool_uses() if t.name == _SUBMIT_TOOL]
         if not tool_uses:
             tool_uses = response.tool_uses()  # accept a misnamed call as a fallback

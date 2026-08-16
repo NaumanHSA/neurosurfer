@@ -86,6 +86,73 @@ from neurosurfer.llm import anthropic_capabilities, openai_capabilities
 caps = anthropic_capabilities("claude-opus-4-8")
 ```
 
+## Google Gemini
+
+```python
+from neurosurfer.llm.providers.gemini import GeminiProvider
+
+provider = GeminiProvider(model="gemini-2.5-flash")   # GEMINI_API_KEY or GOOGLE_API_KEY
+```
+
+Speaks Gemini's native REST API over `httpx` — no extra dependency. Native tool calling, thinking
+(surfaced as `ThinkingDelta`, separate from the answer), vision, and a real `countTokens` endpoint.
+
+Gemini's wire format differs from the other two in four places the adapter handles for you: the
+assistant role is called `model`, the system prompt is out-of-band, tool arguments arrive already
+parsed, and tool results are matched to their call by **function name** rather than call id.
+Thinking is not replayed on later turns — Gemini will not accept it back.
+
+## Claude on Amazon Bedrock
+
+```python
+from neurosurfer.llm.providers.bedrock import BedrockProvider
+
+provider = BedrockProvider("claude-opus-5", region="us-east-1")
+```
+
+Needs the `bedrock` extra (`pip install "neurosurfer[bedrock]"`, which brings boto3). Credentials
+come from boto3's usual chain — environment, shared profile, instance role — unless you pass them
+explicitly.
+
+The `anthropic.` model-id prefix Bedrock requires is added for you, so the same model string works
+against either provider. Bedrock has no token-counting endpoint, so `count_tokens` estimates locally.
+
+## Reasoning models and function tools
+
+The newest OpenAI reasoning models refuse function tools on `/v1/chat/completions` unless
+`reasoning_effort` is `"none"`:
+
+```
+Function tools with reasoning_effort are not supported for <model> in /v1/chat/completions.
+To use function tools, use /v1/responses or set reasoning_effort to 'none'.
+```
+
+The provider recognises that one error, retries with `reasoning_effort="none"`, and remembers it
+for the rest of the session — so exactly one call pays for the discovery and the model works.
+Learned at runtime rather than from a list of model names, because such a list is wrong the week
+after it is written.
+
+**The trade is real and the provider logs it:** tool calling works, reasoning does not. Having both
+needs the Responses API, which this adapter does not speak. If you want a reasoning model's full
+strength *and* tools, use a model that allows both on chat-completions.
+
+## Token usage
+
+Every run reports the tokens it used, and nothing converts them to money:
+
+```python
+result = await agent.run_collect("...")
+result.usage.input_tokens, result.usage.output_tokens
+result.usage.cache_read_input_tokens, result.usage.cache_creation_input_tokens
+
+graph_result.total_usage()   # summed across every node that called a model
+```
+
+`Usage` is what the [trace exporters](../observability/index.md) carry alongside the model name, so
+Langfuse, OpenTelemetry and anything else downstream can attribute spend with their own rate tables.
+Pricing is deliberately **not** this framework's job: rates change per vendor, per contract and per
+region, and a table that goes stale here would be confidently wrong about money.
+
 ## Canonical types & streaming
 
 All providers speak the same canonical types (`Message`, `CanonicalResponse`, `StreamEvent`,
