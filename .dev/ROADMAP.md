@@ -190,6 +190,20 @@ that shape.
 
 ---
 
+## Notes, not yet plans
+
+- **[04 — Plan review, as a feature rather than a hook](04_PLAN_REVIEW_NOTES.md)**
+  — reviewing a plan is the cheapest place to correct a build, and today it is a
+  callback the caller must write, off by default, showing a flat text list, with
+  no way to say *what* to change. Should be one `approve` parameter defaulting to
+  yes, a rendering that draws the DAG, and a fourth answer — plain-English
+  feedback the model replans against. Notes record the four behaviours an
+  implementation must not lose; the sharpest is that supplying a reviewer today
+  *disables* the automatic infeasibility gate, which flipping the default would
+  turn off for everyone.
+
+---
+
 ## What is deliberately not a plan of its own
 
 - **The studio.** It lives at `NaumanHSA/neurosurfer-studio` and is not
