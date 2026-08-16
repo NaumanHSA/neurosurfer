@@ -53,6 +53,19 @@ async def test_agent_builds_simple_workflow_with_real_llm(provider, tmp_path):
     )
     pkg = load_package(Path(path))
     assert validate_package(pkg).ok
+
+    # **The registered file is the design the build ended with.** `register()`
+    # snapshots to disk, so an edit made afterwards — which is exactly what the
+    # design review asks for — used to live only in the session and never reach
+    # the registry. A real transcript had the reviewer name a node, the model
+    # patch it, and the registered graph.yaml keep the flaw.
+    import yaml
+    on_disk = yaml.safe_load((Path(path) / "graph.yaml").read_text())
+    assert on_disk == agent.session.graph_dict(), (
+        "the registered package does not match the session's final design"
+    )
+    assert not agent.session.registration_is_stale()
+
     # A real design: at least two LLM nodes wired in sequence.
     assert len(pkg.graph.nodes) >= 2
     kinds = {n.kind for n in pkg.graph.nodes}

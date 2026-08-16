@@ -392,6 +392,12 @@ class ArchitectAgent:
 
         final_text = (getattr(result, "final_text", "") or "").strip()
 
+        # The loop may have edited the design *after* registering it — which is
+        # exactly what the review note asks for. `register()` snapshots to disk,
+        # so without this the last fix of a build is the one that never lands.
+        # Unchanged is the common case and writes nothing.
+        session.sync_registration()
+
         if session.registered_path:
             return session.registered_path
         if session.blocked_reason:

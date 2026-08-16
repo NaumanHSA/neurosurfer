@@ -230,6 +230,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A fix made after `register_workflow` reached nothing.** `register()` snapshots
+  the staged package into the registry, so anything edited afterwards lived only
+  in the session — and with `review_mode="warn"` the design review reports its
+  findings *after* the package is written. A real transcript: the reviewer said a
+  node titled the article where the request asked for a title of the summary, the
+  tool invited a fix, the model patched the node, and the registered `graph.yaml`
+  still carried the flaw. The review was advice nobody could act on.
+
+  Two halves. `BuildSession.sync_registration()` re-saves when the design has
+  moved on since the write — fingerprint-compared, so an unchanged design writes
+  nothing — and `build()` calls it on the terminal path. And the tool message no
+  longer contradicts itself: it used to say *"The build is complete — you may
+  finish now"* and *"consider fixing and re-registering"* in the same breath, and
+  a small model takes the shorter road. With a review finding, the "you may
+  finish" half is dropped.
+
+- **`remove_node` said nothing**, so a node added, removed and added again read as
+  "added twice" in the build log — a model thrashing and a model repeating itself
+  looked identical. It narrates like every other mutating tool now.
+
 - **`InMemoryVectorStore` can be instantiated.** It was exported by name and
   recommended by `docs/guides/rag.md`, and never implemented `delete_documents`
   — so the abstract base refused to construct it. Nothing in the package or the

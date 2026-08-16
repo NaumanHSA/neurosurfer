@@ -184,6 +184,10 @@ class RemoveNodeTool(Tool):
         self.session.nodes = [n for n in self.session.nodes if n.get("id") != args.id]
         if len(self.session.nodes) == before:
             return ToolResult.error(f"No node '{args.id}' to remove.")
+        # Every other mutating tool narrates; this one did not, so a node that was
+        # added, removed and added again read as "added twice" in the transcript —
+        # a model thrashing and a model repeating itself look identical there.
+        self.session.notify(f"node removed: {args.id} [{len(self.session.nodes)} left]")
         return ToolResult.ok(f"Removed '{args.id}'. Remaining: {self.session.node_ids()}")
 
 
@@ -333,9 +337,18 @@ class RegisterWorkflowTool(Tool):
         if review is not None and review.issues:
             # Registered, but the reviewer disagreed. Saying so on the success
             # channel keeps it in the transcript instead of only in the log.
+            #
+            # **The "you may finish" half of `register`'s message is dropped.**
+            # Sent whole, this said the build was complete *and* asked for a fix
+            # in the same breath, and a small model takes the shorter road: a
+            # real transcript has it patch the node the reviewer named and then
+            # stop, leaving the flaw in the registered copy. One instruction.
+            # (`sync_registration` is what makes the fix land either way.)
+            msg = msg.split(" The build is complete")[0].rstrip()
             msg += (
-                "\n\nNOTE — the design review flagged the following. Nothing is "
-                "blocking, but consider fixing and re-registering:\n" + review.render()
+                "\n\nThe design review flagged the following. Nothing blocks the "
+                "build, but fix these now — your edits are saved automatically, so "
+                "correcting a node here is the last thing to do:\n" + review.render()
             )
         return ToolResult.ok(msg)
 

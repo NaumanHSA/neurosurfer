@@ -81,6 +81,10 @@ class BuildSession:
 
     # terminal outcome
     registered_path: str | None = None
+    #: The graph fingerprint at the moment `register()` wrote the package. What
+    #: makes "the registry copy is stale" a question that can be asked — see
+    #: :meth:`sync_registration`.
+    registered_fingerprint: str = ""
     blocked_reason: str | None = None
     authored_tools: list[str] = field(default_factory=list)
     # Node ids whose capability warning the agent has explicitly argued past, with
@@ -638,6 +642,7 @@ class BuildSession:
         pkg = load_package(self.staging_root / self.name)
         dest = self.registry.save(pkg)
         self.registered_path = str(dest)
+        self.registered_fingerprint = self.graph_fingerprint()
         caveat = self.verification_caveat()
         note = ""
         if caveat:
@@ -647,3 +652,36 @@ class BuildSession:
             f"Registered at {dest}. The build is complete — you may finish now."
             + caveat
         )
+
+    def registration_is_stale(self) -> bool:
+        """Has the design changed since the package was written to the registry?"""
+        return bool(
+            self.registered_path
+            and self.graph_fingerprint() != self.registered_fingerprint
+        )
+
+    def sync_registration(self) -> tuple[bool, str]:
+        """Re-save the registered package when the session has moved on. **The
+        guarantee that the registry copy is the design the build ended with.**
+
+        `register()` snapshots to disk, so anything edited afterwards lived only
+        here. That is not a hypothetical: with `review_mode="warn"` the reviewer
+        reports its findings *after* the package is written, the tool invites the
+        model to fix them, the model does — and the fix reached nothing. The
+        registered artifact is the deliverable, so it tracks the session or the
+        review is advice nobody can act on.
+
+        Returns ``(changed, message)``. Unchanged is the overwhelmingly common
+        case and writes nothing, so this is safe to call on every terminal path.
+        A re-save runs the same gates as the first one; if the edit broke
+        something, the earlier good copy is left in place and the caller is told,
+        because a stale-but-valid package beats a fresh broken one.
+        """
+        if not self.registration_is_stale():
+            return False, ""
+        ok, msg = self.register()
+        if not ok:
+            self.notify(f"edits after registering were NOT saved — {msg}")
+            return False, msg
+        self.notify("re-registered: the design changed after it was first saved")
+        return True, msg

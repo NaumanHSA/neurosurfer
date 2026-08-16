@@ -317,3 +317,80 @@ def test_the_build_record_carries_the_review():
     ArchitectManager._capture_review(rec, agent)
     assert rec.review["summary"] == "s"
     assert [e["type"] for e in rec.events] == ["review"]
+
+
+# ── the registry must match what the session says ───────────────────────────────
+
+
+async def test_an_edit_after_registering_reaches_the_registry(tmp_path, kb, ctx):
+    """A fix applied after `register_workflow` must not be thrown away.
+
+    The defect this covers, from a real `gpt-5.6` transcript: with `review="warn"`
+    the reviewer found that a node titled the *article* where the request asked for
+    a title of the *summary*. Registration had already written the package, the
+    tool reported the finding as advisory, the model dutifully patched the node —
+    and the registered `graph.yaml` still carried the flawed prompt, because
+    `register()` snapshots to disk and later edits live only in the session.
+
+    The registered artifact is the deliverable. It tracks the session, or the
+    review is advice nobody can act on.
+    """
+    import yaml
+
+    s = _session(tmp_path, kb)
+    await _build(s, ctx, "a")
+    await _tool(s, "set_outputs").run({"outputs": ["a"]}, ctx)
+    assert not (await _tool(s, "register_workflow").run({}, ctx)).is_error
+
+    # The model reads the review and fixes the node — after registering. This is
+    # `update_node`, which is exactly what the transcript shows it calling.
+    res = await _tool(s, "update_node").run(
+        {"id": "a", "patch": {"description": "the fix the reviewer asked for"}}, ctx)
+    assert not res.is_error, res.content
+
+    changed, msg = s.sync_registration()
+    assert changed, msg
+
+    on_disk = yaml.safe_load((Path(s.registered_path) / "graph.yaml").read_text())
+    assert on_disk["nodes"][0]["description"] == "the fix the reviewer asked for"
+
+
+async def test_registering_an_unchanged_design_rewrites_nothing(tmp_path, kb, ctx):
+    """Only a *changed* design is re-saved. Same fingerprint, no write — so the
+    terminal path does not rewrite the package on every build that ends cleanly."""
+    s = _session(tmp_path, kb)
+    await _build(s, ctx, "a")
+    await _tool(s, "set_outputs").run({"outputs": ["a"]}, ctx)
+    await _tool(s, "register_workflow").run({}, ctx)
+
+    changed, msg = s.sync_registration()
+    assert not changed and msg == ""
+
+
+async def test_a_warned_review_does_not_tell_the_model_it_may_finish(tmp_path, kb, ctx):
+    """The message that caused the defect said both things at once.
+
+    `register()` ends with "The build is complete — you may finish now", and the
+    review note appended "consider fixing and re-registering". A real transcript
+    has a model take the shorter road: it patched the node the reviewer named and
+    then stopped, leaving the flaw in the registered copy. One instruction, and
+    `sync_registration` is what makes the fix land.
+    """
+    raw = _review_json(ok=False, issues=[
+        {"node": "a", "problem": "titles the article, not the summary",
+         "fix": "say summary"}])
+    s = _session(tmp_path, kb, provider=ScriptedProvider([(raw, [])]), review="warn")
+    await _build(s, ctx, "a")
+    await _tool(s, "set_outputs").run({"outputs": ["a"]}, ctx)
+
+    result = await _tool(s, "register_workflow").run({}, ctx)
+    assert not result.is_error, result.content
+    assert "you may finish now" not in result.content
+    assert "titles the article" in result.content
+    # And a clean review keeps the original ending — nothing to act on.
+    s2 = _session(tmp_path / "b", kb, provider=ScriptedProvider([(_review_json(), [])]),
+                  review="warn")
+    await _build(s2, ctx, "a")
+    await _tool(s2, "set_outputs").run({"outputs": ["a"]}, ctx)
+    clean = await _tool(s2, "register_workflow").run({}, ctx)
+    assert "you may finish now" in clean.content
