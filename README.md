@@ -114,7 +114,7 @@ It is not a prompt that emits YAML. It is a pipeline with a gate at every step:
 |---|---|
 | **Plan** | One structured call decides the steps — the shape a weaker model is most reliable at |
 | **Ground** | Every step that reaches outside the model is resolved **in code** against the live tool catalog, then the MCP registry. The builder is *told* which tool to use rather than asked to remember one |
-| **Build** | An agent with its own toolbelt writes the graph one node at a time, reading every warning as it goes |
+| **Build** | An agent with 15+ purpose-built tools writes the graph one node at a time, reading every warning as it goes |
 | **Validate** | A rule table, not a prompt. Errors block registration — including a workflow that declares an input no step reads |
 | **Verify** | It **runs what it built** on real fixtures it creates, then judges the output per criterion, fail-closed |
 | **Register** | A versioned Workflow package on disk — or `WorkflowInfeasible`, naming the credential or integration that is missing |

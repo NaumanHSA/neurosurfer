@@ -118,7 +118,7 @@ a path or a fraction. Line one, line break, line two.
 |---|---|---|---|
 | 1 | clipboard / list | **Plan** | One structured call<br>steps, inputs, outputs |
 | 2 | plug into socket | **Ground** | Capability ladder, in code<br>catalog → MCP registry |
-| 3 | blocks assembling | **Build** | An agent with its own toolbelt<br>writes the graph, node by node |
+| 3 | blocks assembling | **Build** | An agent with 15+ tools<br>writes the graph, node by node |
 | 4 | checklist shield | **Validate** | A rule table, not a prompt<br>errors block registration |
 | 5 | play inside a beaker | **Verify** | Runs it on real fixtures<br>judges the output |
 | 6 | package / box | **Register** | A versioned Workflow<br>package on disk |
@@ -145,7 +145,7 @@ icon-nodes connected to the core by thin dashed lines with endpoint dots:
 |---|---|---|
 | top | flow chart | **Graph Engine**<br>DAG · 11 node kinds |
 | top-right | robot | **Agents**<br>AgenticLoop · ReAct · one-shot |
-| right | wrench | **Tools**<br>19 built-in + your own |
+| right | wrench | **Tools**<br>15+ built-in · plus your own |
 | bottom-right | plug | **MCP**<br>external servers |
 | bottom-left | database + magnifier | **RAG**<br>hybrid · rerank · citations |
 | left | cpu | **Providers**<br>one protocol |
@@ -200,6 +200,11 @@ either version, and keeping them constant is what makes the two read as one pair
 - Every arrow terminates in an arrowhead; every connector begins with a dot.
 - Whitespace is the layout tool. If it feels crowded, cut region F before
   shrinking the pipeline — the pipeline is the point.
+- **State counts as a floor — `15+`, not `17`.** An image is the most expensive
+  thing in the repo to correct, so nothing in it should depend on a number that
+  moves when someone adds a tool. The exception is `11 node kinds`: that is a
+  designed API surface rather than a growing collection, and `11+` would
+  understate it.
 
 ---
 
@@ -282,14 +287,14 @@ the colour progression, the icon set, the orbit, the footer. Six changes.
 |---|---|---|
 | 1 | **Delete the "Neurosurfer" wordmark and its bracket accents.** Keep the coral tagline and the gradient rule. | It sits under a `## Architecture` heading, so the name is already on screen. It made a diagram look like a banner. |
 | 2 | **Footer: "Runs on local models"**, not "Runs on a 9B local model". | The size is a detail of one test run, not a property of the framework. |
-| 3 | **Build card: "An agent with its own toolbelt / writes the graph, node by node"** — drop the number. | "17-tool" was wrong (17 base + `test_workflow` + `web_search`), and a second "19" would have collided with the framework's own 19 built-in tools two inches away. |
+| 3 | **Build card: "An agent with 15+ tools".** Tools orbit node: **"15+ built-in · plus your own"**. | "17-tool" was wrong — the belt is 17 base plus `test_workflow` plus `web_search`. Counts stated as a floor survive the next tool anyone adds; an exact number is a promise the diagram has to keep and a regenerated image to keep it. |
 | 4 | **The grey `or write the graph yourself` arrow must not start at the Validate card.** Bring it straight down from the top of the canvas into the runtime hexagon. | It is the *second door* — a human writing the graph, bypassing the Architect. Branching it off a pipeline stage says the opposite. |
 | 5 | **The green stream from REGISTERED must terminate on the hexagon**, arrowhead touching its edge. | In the first version it stopped in open space beside the Providers card, so the workflow never visibly arrives anywhere. |
 | 6 | **Card descriptions on two stacked lines, no `/` separator.** | "One structured call / steps, inputs, outputs" reads as a path or a fraction. |
 
 ### Checked and correct — leave alone
 
-`11 node kinds` · `19 built-in + your own` · `Chroma · Qdrant · in-memory` ·
+`11 node kinds` · `Chroma · Qdrant · in-memory` ·
 `Anthropic · OpenAI · Gemini · Bedrock` · `Langfuse · OpenTelemetry` · the
 REGISTERED / REFUSED fork and its wording. All verified against the code.
 
