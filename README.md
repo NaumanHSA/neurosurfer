@@ -49,15 +49,15 @@
 
 ---
 
-**Neurosurfer is a Python framework for building AI agents** — models that don't only answer
-questions, but *do* things: call tools, read and write files, search the web, look something up in
-your own documents, and work through a task in several steps instead of one. You can wire those
-steps together yourself as a graph, or describe what you want in plain English and let the
-**Architect** build it for you — it works out which tools the job needs, runs what it made to check
-it actually works, and tells you plainly when something can't be built rather than handing back a
-workflow that quietly invents its results. The same code runs against Anthropic, OpenAI, Gemini,
-Bedrock or a model on your own machine, and anything you build can be served behind an
+**Neurosurfer** is a Python framework for building AI agents — models that don't only answer
+questions but *do* things: call tools, read files, search the web or your own documents, and work
+through a task in several steps. Wire those steps into a graph yourself, run it against Anthropic,
+OpenAI, Gemini, Bedrock or a model on your own machine, and serve any of it behind an
 OpenAI-compatible API.
+
+**The Architect** is the second way in: describe what you want in plain English and it builds the
+workflow for you — working out which tools the job needs, running what it made to check it works,
+and saying plainly when something can't be built rather than returning results it invented.
 
 <div align="center">
   <img alt="Neurosurfer architecture" src="https://raw.githubusercontent.com/NaumanHSA/neurosurfer/main/docs/assets/diagrams/neurosurfer-architecture.png" width="100%">
