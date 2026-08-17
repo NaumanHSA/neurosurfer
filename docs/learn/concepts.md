@@ -68,4 +68,4 @@ mints one session per conversation and resets it on `/clear`. See
 
 - [Agents](../guides/agents.md) — construct and drive the three agent types.
 - [Permissions & Safety](permissions.md) — how tool actions are gated.
-- [Architecture](architecture.md) — how these pieces stack.
+- [Architecture](../index.md) — how these pieces stack.

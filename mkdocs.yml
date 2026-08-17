@@ -126,9 +126,9 @@ nav:
     - index.md
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
-    - Architecture: learn/architecture.md
     - Core Concepts: learn/concepts.md
     - Permissions & Safety: learn/permissions.md
+    - Configuration: guides/configuration.md
   - CLI Agent: cli/index.md
   - Guides:
     - Providers: guides/providers.md
@@ -143,7 +143,6 @@ nav:
     - RAG: guides/rag.md
     - MCP: guides/mcp.md
     - MCP Discovery: guides/mcp-discovery.md
-    - Configuration: guides/configuration.md
   - Graph & Workflows:
     - Overview: graph/index.md
     - Node Kinds: graph/node-kinds.md
